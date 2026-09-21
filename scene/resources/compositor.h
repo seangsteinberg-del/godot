@@ -68,6 +68,9 @@ protected:
 
 	GDVIRTUAL2(_render_callback, int, const RenderData *)
 
+	// [patch] LONGSHOT: a native hook beside the script one, so engine modules can render (2026-09-22)
+	virtual void render_callback_native(int p_effect_callback_type, const RenderData *p_render_data) {}
+
 public:
 	virtual RID get_rid() const override { return rid; }
 
