@@ -1257,7 +1257,7 @@ void Node3D::look_at(const Vector3 &p_target, const Vector3 &p_up, bool p_use_mo
 
 void Node3D::look_at_from_position(const Vector3 &p_pos, const Vector3 &p_target, const Vector3 &p_up, bool p_use_model_front) {
 	ERR_THREAD_GUARD;
-	ERR_FAIL_COND_MSG(p_pos.is_equal_approx(p_target), "Node origin and target are in the same position, look_at() failed.");
+	ERR_FAIL_COND_MSG(p_pos.distance_squared_to(p_target) < (real_t)(CMP_EPSILON * CMP_EPSILON), "Node origin and target are in the same position, look_at() failed."); // [patch] LONGSHOT: an ABSOLUTE epsilon - the relative one refused points 12 m apart at 6.37e6 m from the origin (the precision proof, 2026-09-21)
 	ERR_FAIL_COND_MSG(p_up.is_zero_approx(), "The up vector can't be zero, look_at() failed.");
 
 	Vector3 forward = p_target - p_pos;
