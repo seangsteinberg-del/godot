@@ -1077,6 +1077,11 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			}
 		}
 		inst->flags_cache = flags;
+		// LONGSHOT patch #3: the GI buffers (ambient and reflection, computed from the opaque pass's depth and
+		// normal-roughness) describe the OPAQUE surface at each pixel. A transparent surface that does not use
+		// forward GI (gi_mode disabled) must not read them, or it is lit by the GI of whatever stands behind it.
+		// Cleared below once the instance's surfaces are known to all draw in the transparent pass.
+		bool any_opaque_surface = false;
 
 		GeometryInstanceSurfaceDataCache *surf = inst->surface_caches;
 
@@ -1143,6 +1148,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 				if (!force_alpha && (surf->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE))) {
 					rl->add_element(surf);
+					any_opaque_surface = true;
 				}
 
 				if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
@@ -1195,6 +1201,10 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			surf->sort.depth_layer = depth_layer;
 
 			surf = surf->next;
+		}
+
+		if (p_pass_mode == PASS_MODE_COLOR && !any_opaque_surface) {
+			inst->flags_cache &= ~INSTANCE_DATA_FLAG_USE_GI_BUFFERS;   // LONGSHOT patch #3 (above)
 		}
 	}
 
