@@ -1031,11 +1031,11 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 				}
 
 			} else {
-				if (p_using_opaque_gi) {
+				if (p_using_opaque_gi && !inst->data->ignore_gi) { // LONGSHOT patch #4
 					flags |= INSTANCE_DATA_FLAG_USE_GI_BUFFERS;
 				}
 
-				if (inst->voxel_gi_instances[0].is_valid()) {
+				if (inst->voxel_gi_instances[0].is_valid() && !inst->data->ignore_gi) { // LONGSHOT patch #4
 					uint32_t probe0_index = 0xFFFF;
 					uint32_t probe1_index = 0xFFFF;
 
@@ -4510,7 +4510,7 @@ void RenderForwardClustered::_geometry_instance_update(RenderGeometryInstance *p
 	ginstance->can_sdfgi = false;
 
 	if (!RendererRD::LightStorage::get_singleton()->lightmap_instance_is_valid(ginstance->lightmap_instance)) {
-		if (ginstance->voxel_gi_instances[0].is_null() && (ginstance->data->use_baked_light || ginstance->data->use_dynamic_gi)) {
+		if (ginstance->voxel_gi_instances[0].is_null() && (ginstance->data->use_baked_light || ginstance->data->use_dynamic_gi) && !ginstance->data->ignore_gi) { // LONGSHOT patch #4
 			ginstance->can_sdfgi = true;
 		}
 	}

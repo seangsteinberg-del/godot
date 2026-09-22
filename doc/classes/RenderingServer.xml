@@ -5969,7 +5969,10 @@
 		<constant name="INSTANCE_FLAG_IGNORE_OCCLUSION_CULLING" value="3" enum="InstanceFlags">
 			Always draw, even if the instance would be culled by occlusion culling. Does not affect view frustum culling.
 		</constant>
-		<constant name="INSTANCE_FLAG_MAX" value="4" enum="InstanceFlags">
+		<constant name="INSTANCE_FLAG_IGNORE_GI" value="4" enum="InstanceFlags">
+			The instance neither contributes to nor receives global illumination (SDFGI, VoxelGI, the GI buffers), whatever [enum GeometryInstance3D.GIMode] says: its indirect light is the environment's ambient and reflected light alone (a mirror surface such as a sea). LONGSHOT patch #4.
+		</constant>
+		<constant name="INSTANCE_FLAG_MAX" value="5" enum="InstanceFlags">
 			Represents the size of the [enum InstanceFlags] enum.
 		</constant>
 		<constant name="SHADOW_CASTING_SETTING_OFF" value="0" enum="ShadowCastingSetting">

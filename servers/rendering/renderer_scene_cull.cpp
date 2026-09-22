@@ -736,6 +736,7 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 				geom->geometry_instance->set_transparency(instance->transparency);
 				geom->geometry_instance->set_use_baked_light(instance->baked_light);
 				geom->geometry_instance->set_use_dynamic_gi(instance->dynamic_gi);
+				geom->geometry_instance->set_ignore_gi(instance->ignore_gi);
 				geom->geometry_instance->set_use_lightmap(RID(), instance->lightmap_uv_scale, instance->lightmap_slice_index);
 				geom->geometry_instance->set_instance_shader_uniforms_offset(instance->instance_uniforms.location());
 				geom->geometry_instance->set_cast_double_sided_shadows(instance->cast_shadows == RSE::SHADOW_CASTING_SETTING_DOUBLE_SIDED);
@@ -1297,6 +1298,18 @@ void RendererSceneCull::instance_geometry_set_flag(RID p_instance, RSE::Instance
 				} else {
 					idata.flags &= ~InstanceData::FLAG_REDRAW_IF_VISIBLE;
 				}
+			}
+
+		} break;
+		case RSE::INSTANCE_FLAG_IGNORE_GI: {
+			// LONGSHOT patch #4: the instance neither contributes to nor receives GI (a mirror surface such as
+			// a sea reflects the sky and the screen, never the probes)
+			instance->ignore_gi = p_enabled;
+
+			if ((1 << instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK && instance->base_data) {
+				InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(instance->base_data);
+				ERR_FAIL_NULL(geom->geometry_instance);
+				geom->geometry_instance->set_ignore_gi(p_enabled);
 			}
 
 		} break;

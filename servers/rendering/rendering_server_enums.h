@@ -788,6 +788,7 @@ enum InstanceFlags {
 	INSTANCE_FLAG_USE_DYNAMIC_GI,
 	INSTANCE_FLAG_DRAW_NEXT_FRAME_IF_VISIBLE,
 	INSTANCE_FLAG_IGNORE_OCCLUSION_CULLING,
+	INSTANCE_FLAG_IGNORE_GI, // LONGSHOT patch #4: the instance neither contributes to nor receives global illumination, whatever its gi_mode
 	INSTANCE_FLAG_MAX,
 };
 

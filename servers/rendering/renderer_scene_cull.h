@@ -428,6 +428,7 @@ public:
 		bool visible : 1;
 		bool baked_light : 1; // This flag is only to know if it actually did use baked light.
 		bool dynamic_gi : 1; // Same as above for dynamic objects.
+		bool ignore_gi : 1; // LONGSHOT patch #4: INSTANCE_FLAG_IGNORE_GI.
 		bool redraw_if_visible : 1;
 
 		Instance *lightmap = nullptr;
@@ -569,6 +570,7 @@ public:
 			layer_mask = 1;
 			baked_light = true;
 			dynamic_gi = false;
+			ignore_gi = false;
 			redraw_if_visible = false;
 
 			lightmap_slice_index = 0;
