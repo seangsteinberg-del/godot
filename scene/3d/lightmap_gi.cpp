@@ -896,13 +896,27 @@ LightmapGI::BakeError LightmapGI::_save_and_reimport_atlas_textures(const Ref<Li
 
 		ERR_FAIL_COND_V(save_err, LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
 
-		// Reimport the file.
-		ResourceLoader::import(atlas_path);
-		Ref<TextureLayered> t = ResourceLoader::load(atlas_path); // If already loaded, it will be updated on refocus?
-		ERR_FAIL_COND_V(t.is_null(), LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
+		if (ResourceLoader::import) {
+			// Reimport the file.
+			ResourceLoader::import(atlas_path);
+			Ref<TextureLayered> t = ResourceLoader::load(atlas_path); // If already loaded, it will be updated on refocus?
+			ERR_FAIL_COND_V(t.is_null(), LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
 
-		// Store the atlas in the array.
-		r_textures[i] = t;
+			// Store the atlas in the array.
+			r_textures[i] = t;
+		} else {
+			// LONGSHOT: no editor to import the atlas (a script bakes, tools/bake_hall.gd): the slices become the
+			// array texture in memory and ride the light data; the file on disk stays for the editor's own import
+			const int final_slice_height = texture_image->get_height() / texture_slice_count;
+			Vector<Ref<Image>> slice_images;
+			for (int j = 0; j < texture_slice_count; j++) {
+				slice_images.push_back(texture_image->get_region(Rect2i(0, final_slice_height * j, texture_image->get_width(), final_slice_height)));
+			}
+			Ref<Texture2DArray> t;
+			t.instantiate();
+			ERR_FAIL_COND_V(t->create_from_images(slice_images) != OK, LightmapGI::BAKE_ERROR_CANT_CREATE_IMAGE);
+			r_textures[i] = t;
+		}
 	}
 
 	return LightmapGI::BAKE_ERROR_OK;
@@ -2120,6 +2134,9 @@ void LightmapGI::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_camera_attributes"), &LightmapGI::get_camera_attributes);
 
 	//	ClassDB::bind_method(D_METHOD("bake", "from_node"), &LightmapGI::bake, DEFVAL(Variant()));
+	// LONGSHOT: the bake from a script (the tools bake the interiors headless of the editor); the data is saved
+	// to the path and set on the node, the return is the BakeError
+	ClassDB::bind_method(D_METHOD("bake_to", "from_node", "image_data_path"), &LightmapGI::bake_to);
 
 	ADD_GROUP("Tweaks", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "quality", PROPERTY_HINT_ENUM, "Low,Medium,High,Ultra"), "set_bake_quality", "get_bake_quality");
