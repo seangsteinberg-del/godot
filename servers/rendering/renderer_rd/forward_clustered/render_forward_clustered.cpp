@@ -2640,6 +2640,11 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 	Projection light_projection;
 	Transform3D light_transform;
 
+	// LONGSHOT patch #5: a directional cascade picks a mesh's level of detail by its own texel (the width of the
+	// cascade's box over its map's size), never the main camera's distance - see the directional branch below.
+	float lod_distance_multiplier = p_lod_distance_multiplier;
+	float screen_mesh_lod_threshold = p_screen_mesh_lod_threshold;
+
 	if (light_storage->light_get_type(base) == RSE::LIGHT_DIRECTIONAL) {
 		//set pssm stuff
 		uint64_t last_scene_shadow_pass = light_storage->light_instance_get_shadow_pass(p_light);
@@ -2674,6 +2679,18 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 				atlas_rect.position.y += atlas_rect.size.height;
 			}
 		}
+
+		// LONGSHOT patch #5: the level of detail a cascade draws is chosen by the cascade's own texel. The
+		// append below sets the pass's cam_orthogonal from the projection (it was left false, so every cascade
+		// measured the main camera's distance to the instance's box and drew the view's level into all four
+		// maps); with an orthogonal projection the LOD distance is 1 and the multiplier is the cascade's world
+		// width (the projection's own lod multiplier), so a level is taken while its edge stays under the same
+		// pixel threshold on the cascade's map - the viewport's threshold (pixels over the render's width) turned
+		// into pixels over the map's width in texels. The number that asked for it: the temperate wood's shadow
+		// twins cast 4.9 M triangles a frame, every tile within 100 m of the eye drawing its full rung into
+		// all four cascades (docs/manual/scatter.md, the shadows row and the Numbers).
+		lod_distance_multiplier = light_projection.get_lod_multiplier();
+		screen_mesh_lod_threshold = p_screen_mesh_lod_threshold * float(p_viewport_size.width) / float(MAX(atlas_rect.size.width, 1));
 
 		float directional_shadow_size = light_storage->directional_shadow_get_size();
 		Rect2 atlas_rect_norm = atlas_rect;
@@ -2781,7 +2798,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 
 	if (render_cubemap) {
 		//rendering to cubemap
-		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, p_lod_distance_multiplier, p_screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform);
+		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform);
 		if (finalize_cubemap) {
 			_render_shadow_process();
 			_render_shadow_end();
@@ -2799,7 +2816,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 
 	} else {
 		//render shadow
-		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, p_lod_distance_multiplier, p_screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform);
+		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform);
 	}
 }
 
@@ -2820,6 +2837,7 @@ void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const Page
 	scene_data.flip_y = !p_flip_y; // Q: Why is this inverted? Do we assume flip in shadow logic?
 	scene_data.cam_projection = p_projection;
 	scene_data.cam_transform = p_transform;
+	scene_data.cam_orthogonal = p_projection.is_orthogonal(); // LONGSHOT patch #5: a cascade's LOD by its own texel
 	scene_data.view_projection[0] = p_projection;
 	scene_data.z_far = p_zfar;
 	scene_data.z_near = 0.0;
