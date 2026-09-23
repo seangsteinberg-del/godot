@@ -1548,8 +1548,13 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 	}
 
 	Size2i viewport_size = Size2i(1, 1);
+	// LONGSHOT patch #5: the shadow passes take the target's size (the window's pixels the viewport's LOD
+	// threshold was divided by), not the internal render's - at a 3D scale under one the internal width would
+	// halve the cascades' pixel threshold and draw finer shadow levels
+	Size2i target_size = Size2i(1, 1);
 	if (rb.is_valid()) {
 		viewport_size = rb->get_internal_size();
+		target_size = rb->get_target_size();
 	}
 
 	p_render_data->cube_shadows.clear();
@@ -1575,7 +1580,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 			RENDER_TIMESTAMP("Render OmniLight Shadows");
 			// Cube shadows are rendered in their own way.
 			for (const int &index : p_render_data->cube_shadows) {
-				_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
+				_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
 			}
 		}
 
@@ -1606,11 +1611,11 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 
 		//render directional shadows
 		for (uint32_t i = 0; i < p_render_data->directional_shadows.size(); i++) {
-			_render_shadow_pass(p_render_data->render_shadows[p_render_data->directional_shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->directional_shadows[i]].pass, p_render_data->render_shadows[p_render_data->directional_shadows[i]].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, false, i == p_render_data->directional_shadows.size() - 1, false, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
+			_render_shadow_pass(p_render_data->render_shadows[p_render_data->directional_shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->directional_shadows[i]].pass, p_render_data->render_shadows[p_render_data->directional_shadows[i]].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, false, i == p_render_data->directional_shadows.size() - 1, false, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
 		}
 		//render positional shadows
 		for (uint32_t i = 0; i < p_render_data->shadows.size(); i++) {
-			_render_shadow_pass(p_render_data->render_shadows[p_render_data->shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->shadows[i]].pass, p_render_data->render_shadows[p_render_data->shadows[i]].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, viewport_size, p_render_data->scene_data->cam_transform);
+			_render_shadow_pass(p_render_data->render_shadows[p_render_data->shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->shadows[i]].pass, p_render_data->render_shadows[p_render_data->shadows[i]].instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
 		}
 
 		_render_shadow_process();
@@ -2693,7 +2698,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 		// twins cast 4.9 M triangles a frame, every tile within 100 m of the eye drawing its full rung into
 		// all four cascades (docs/manual/scatter.md, the shadows row and the Numbers).
 		lod_distance_multiplier = light_projection.get_lod_multiplier();
-		screen_mesh_lod_threshold = p_screen_mesh_lod_threshold * float(p_viewport_size.width) / float(MAX(atlas_rect.size.width, 1));
+		screen_mesh_lod_threshold = p_screen_mesh_lod_threshold * float(p_viewport_size.width) / float(MAX(atlas_rect.size.width, 1)); // p_viewport_size is the target's size here (the caller)
 
 		float directional_shadow_size = light_storage->directional_shadow_get_size();
 		Rect2 atlas_rect_norm = atlas_rect;
