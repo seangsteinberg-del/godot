@@ -250,6 +250,7 @@ public:
 		bool uses_tangent = false;
 		bool writes_tangent = false;
 		bool uses_particle_trails = false;
+		bool uses_transparent_motion_vectors = false; // LONGSHOT patch #7: a transparent material that writes its own motion vector (render_mode transparent_motion_vectors)
 		bool uses_normal_map = false;
 		bool uses_bent_normal_map = false;
 		bool wireframe = false;
