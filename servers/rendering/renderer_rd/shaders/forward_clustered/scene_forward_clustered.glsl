@@ -1904,7 +1904,8 @@ void fragment_shader(in SceneData scene_data) {
 		for (uint i = 0; i < sdfgi.max_cascades; i++) {
 			cascade_pos = (cam_pos - sdfgi.cascades[i].position) * sdfgi.cascades[i].to_probe;
 
-			if (any(lessThan(cascade_pos, vec3(0.0))) || any(greaterThanEqual(cascade_pos, sdfgi.cascade_probe_size))) {
+			// LONGSHOT patch #9 (upstream #104120): a position that is not a number belongs to no cascade
+			if (any(lessThan(cascade_pos, vec3(0.0))) || any(greaterThanEqual(cascade_pos, sdfgi.cascade_probe_size)) || any(isnan(cascade_pos))) {
 				continue; //skip cascade
 			}
 

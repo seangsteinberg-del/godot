@@ -315,7 +315,10 @@ void sdfgi_process(vec3 vertex, vec3 normal, vec3 reflection, float roughness, o
 	for (uint i = 0; i < sdfgi.max_cascades; i++) {
 		cascade_pos = (cam_pos - sdfgi.cascades[i].position) * sdfgi.cascades[i].to_probe;
 
-		if (any(lessThan(cascade_pos, vec3(0.0))) || any(greaterThanEqual(cascade_pos, sdfgi.cascade_probe_size))) {
+		// LONGSHOT patch #9 (upstream #104120): a position that is not a number belongs to no cascade - reconstructed
+		// from the depth buffer with a far plane of hundreds of kilometres it can be NaN, and the march below never
+		// met a break on one (the GPU was lost)
+		if (any(lessThan(cascade_pos, vec3(0.0))) || any(greaterThanEqual(cascade_pos, sdfgi.cascade_probe_size)) || any(isnan(cascade_pos))) {
 			continue; //skip cascade
 		}
 
@@ -402,7 +405,9 @@ void sdfgi_process(vec3 vertex, vec3 normal, vec3 reflection, float roughness, o
 			uint i = 0;
 			bool found = false;
 			while (true) {
-				if (length(ray_pos) >= max_distance || light_accum.a > 0.99) {
+				// LONGSHOT patch #9: the break written so a ray that is not a number leaves too (every comparison with NaN
+				// is false: `>=` alone spun the loop until the device was lost)
+				if (!(length(ray_pos) < max_distance) || light_accum.a > 0.99) {
 					break;
 				}
 				if (!found && i >= cascade && length(ray_pos) < radius_sizes[i]) {
