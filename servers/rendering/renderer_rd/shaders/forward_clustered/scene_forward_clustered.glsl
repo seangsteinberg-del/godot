@@ -3114,6 +3114,18 @@ void fragment_shader(in SceneData scene_data) {
 }
 
 void main() {
+	// LONGSHOT patch #8 (THE DITHERED LOD FADE): within the band before a level's key the surface is drawn twice,
+	// and each draw keeps the complement of the other's pixels by one interleaved-gradient noise (Jimenez 2014),
+	// so the two levels share the silhouette and the swap is a dissolve over metres walked, never a cut.
+	if (sc_use_lod_fade()) {
+		float lod_share = float(draw_call.lod_fade & 255U) / 255.0;
+		float lod_noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+		bool lod_next = (draw_call.lod_fade & 256U) != 0U;
+		if (lod_next ? (lod_noise >= lod_share) : (lod_noise < lod_share)) {
+			discard;
+		}
+	}
+
 #ifdef UBERSHADER
 	bool front_facing = gl_FrontFacing;
 	if (uc_cull_mode() == POLYGON_CULL_BACK && !front_facing) {

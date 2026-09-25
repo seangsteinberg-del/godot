@@ -497,6 +497,32 @@ public:
 		}
 	}
 
+	// LONGSHOT patch #8 (THE DITHERED LOD FADE): the share, 1..255, by which the level after `p_lod` (0 = the base) is
+	// dithered in across the band of eye distance just before its key, 0 outside every band. A level i takes over
+	// where its edge on screen falls under the threshold, at the distance D_i = edge_i * scale / threshold; over
+	// [D_i * (1 - band), D_i] the surface draws twice, the level in hand keeping the pixels the interleaved-gradient
+	// noise puts above the share and the next level the rest, so the swap is a screen-door dissolve over the metres
+	// walked and never a cut. `r_next_index_count` is the next level's indices, for the render info.
+	_FORCE_INLINE_ uint32_t mesh_surface_get_lod_fade(void *p_surface, float p_model_scale, float p_distance, float p_mesh_lod_threshold, float p_band, uint32_t p_lod, uint32_t &r_next_index_count) const {
+		Mesh::Surface *s = reinterpret_cast<Mesh::Surface *>(p_surface);
+		r_next_index_count = 0;
+		if (p_band <= 0.0f || p_mesh_lod_threshold <= 0.0f || p_lod >= s->lod_count) {
+			return 0;
+		}
+		const float d_next = s->lods[p_lod].edge_length * p_model_scale / p_mesh_lod_threshold;
+		const float start = d_next * (1.0f - p_band);
+		if (!(p_distance > start) || p_distance >= d_next) {
+			return 0;
+		}
+		r_next_index_count = s->lods[p_lod].index_count;
+		const float t = (p_distance - start) / (d_next - start);
+		return CLAMP(uint32_t(t * 254.0f) + 1u, 1u, 255u);
+	}
+
+	_FORCE_INLINE_ uint32_t mesh_surface_get_lod_count(void *p_surface) const {
+		return reinterpret_cast<Mesh::Surface *>(p_surface)->lod_count;
+	}
+
 	_FORCE_INLINE_ RID mesh_surface_get_index_array(void *p_surface, uint32_t p_lod) const {
 		Mesh::Surface *s = reinterpret_cast<Mesh::Surface *>(p_surface);
 

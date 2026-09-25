@@ -28,6 +28,7 @@ layout(push_constant, std430) uniform DrawCall {
 	uint uv_offset;
 	uint multimesh_motion_vectors_current_offset;
 	uint multimesh_motion_vectors_previous_offset;
+	uint lod_fade; // LONGSHOT patch #8: bits 0-7 the share of the next level, bit 8 set on the next level's own draw
 #ifdef UBERSHADER
 	uint sc_packed_0;
 	uint sc_packed_1;
@@ -144,6 +145,10 @@ bool sc_fog_use_legacy_blending() {
 
 bool sc_cluster_has_area_light() {
 	return ((sc_packed_1() >> 5) & 1U) != 0;
+}
+
+bool sc_use_lod_fade() {
+	return ((sc_packed_1() >> 6) & 1U) != 0;
 }
 
 float sc_luminance_multiplier() {

@@ -423,6 +423,7 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		pipeline_specialization.multimesh_format_2d = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_FORMAT_2D);
 		pipeline_specialization.multimesh_has_color = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_COLOR);
 		pipeline_specialization.multimesh_has_custom_data = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_CUSTOM_DATA);
+		pipeline_specialization.use_lod_fade = element_info.lod_fade != 0; // LONGSHOT patch #8
 
 		if constexpr (p_pass_mode == PASS_MODE_COLOR) {
 			pipeline_specialization.use_light_soft_shadows = element_info.uses_softshadow;
@@ -583,6 +584,8 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				push_constant.multimesh_motion_vectors_previous_offset = 0;
 			}
 
+			push_constant.lod_fade = element_info.lod_fade; // LONGSHOT patch #8: the level in hand's side
+
 			size_t push_constant_size = 0;
 			if (pipeline_key.ubershader) {
 				push_constant_size = sizeof(SceneState::PushConstant);
@@ -611,6 +614,19 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), surf->surface_index * sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE, 1, 0);
 			} else {
 				RD::get_singleton()->draw_list_draw(draw_list, index_array_rd.is_valid(), instance_count);
+			}
+
+			// LONGSHOT patch #8 (THE DITHERED LOD FADE): the next level drawn over the complement of the pixels, the
+			// same instances, the same pipeline but for the side bit in the push constant
+			if (element_info.lod_fade != 0 && !emulate_point_size && !indirect && element_info.lod_index < mesh_storage->mesh_surface_get_lod_count(mesh_surface)) {
+				RID next_index_array_rd = mesh_storage->mesh_surface_get_index_array(mesh_surface, element_info.lod_index + 1);
+				if (next_index_array_rd.is_valid() && prev_index_array_rd != next_index_array_rd) {
+					RD::get_singleton()->draw_list_bind_index_array(draw_list, next_index_array_rd);
+					prev_index_array_rd = next_index_array_rd;
+				}
+				push_constant.lod_fade = element_info.lod_fade | 256u;
+				RD::get_singleton()->draw_list_set_push_constant(draw_list, &push_constant, push_constant_size);
+				RD::get_singleton()->draw_list_draw(draw_list, next_index_array_rd.is_valid(), instance_count);
 			}
 		}
 
@@ -894,6 +910,7 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 		RenderElementInfo &element_info = rl->element_info[p_offset + i];
 
 		element_info.value = uint32_t(surface->sort.sort_key1 & 0xFFF);
+		element_info.lod_fade = surface->sort.lod_fade; // LONGSHOT patch #8
 
 		if (cant_repeat) {
 			prev_surface = nullptr;
@@ -1111,6 +1128,10 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface)) {
 				uint32_t indices = 0;
 				surf->sort.lod_index = mesh_storage->mesh_surface_get_lod(surf->surface, inst->lod_model_scale * inst->lod_bias, lod_distance * p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, indices);
+				// LONGSHOT patch #8 (THE DITHERED LOD FADE): the share of the next level dithered in across the band before its key
+				uint32_t next_indices = 0;
+				surf->sort.lod_fade = mesh_storage->mesh_surface_get_lod_fade(surf->surface, inst->lod_model_scale * inst->lod_bias, lod_distance * p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, mesh_lod_fade_band, surf->sort.lod_index, next_indices);
+				indices += next_indices;
 				if (p_render_data->render_info) {
 					indices = _indices_to_primitives(surf->primitive, indices);
 					// LONGSHOT patch #6: a multimesh's primitives are its instances' too, as the branch below counts
@@ -1124,6 +1145,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 				}
 			} else {
 				surf->sort.lod_index = 0;
+				surf->sort.lod_fade = 0;
 				if (p_render_data->render_info) {
 					// This does not include primitives rendered via indirect draw calls.
 					uint32_t to_draw = mesh_storage->mesh_surface_get_vertices_drawn_count(surf->surface);
@@ -4307,7 +4329,7 @@ void RenderForwardClustered::_geometry_instance_add_surface_with_material(Geomet
 	sdcache->sort.surface_index = p_surface;
 	sdcache->sort.material_id_hi = (p_material_id & 0xFF000000) >> 24;
 	sdcache->sort.material_id_lo = (p_material_id & 0x00FFFFFF);
-	sdcache->sort.shader_id = p_shader_id;
+	sdcache->sort.shader_id = p_shader_id & 0xFFFFFF; // LONGSHOT patch #8: the key holds 24 bits of it
 	sdcache->sort.geometry_id = p_mesh.get_local_index(); //only meshes can repeat anyway
 	sdcache->sort.uses_forward_gi = ginstance->can_sdfgi;
 	sdcache->sort.priority = p_material->priority;
@@ -5142,6 +5164,9 @@ void RenderForwardClustered::_update_shader_quality_settings() {
 
 RenderForwardClustered::RenderForwardClustered() {
 	singleton = this;
+
+	// LONGSHOT patch #8 (THE DITHERED LOD FADE): the band before every level key, a share of the key's distance
+	mesh_lod_fade_band = GLOBAL_DEF(PropertyInfo(Variant::FLOAT, "rendering/mesh_lod/lod_change/dither_band", PROPERTY_HINT_RANGE, "0,0.5,0.01"), 0.0);
 
 	/* SCENE SHADER */
 

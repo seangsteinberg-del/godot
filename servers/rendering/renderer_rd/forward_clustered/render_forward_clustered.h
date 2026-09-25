@@ -328,6 +328,7 @@ private:
 			uint32_t uv_offset; //packed
 			uint32_t multimesh_motion_vectors_current_offset;
 			uint32_t multimesh_motion_vectors_previous_offset;
+			uint32_t lod_fade; // LONGSHOT patch #8: bits 0-7 the next level's share, bit 8 on the next level's draw
 			PushConstantUbershader ubershader;
 		};
 
@@ -464,10 +465,15 @@ private:
 			uint32_t value;
 		};
 		uint32_t repeat;
+		uint32_t lod_fade; // LONGSHOT patch #8: 0, or the share (1..255) of the level after lod_index dithered in
 	};
 
 	static_assert(std::is_trivially_destructible_v<RenderElementInfo>);
 	static_assert(std::is_trivially_constructible_v<RenderElementInfo>);
+
+	// LONGSHOT patch #8: the width of the dither band before every level key as a share of the key's distance
+	// (`rendering/mesh_lod/lod_change/dither_band`; 0 keeps the cut)
+	float mesh_lod_fade_band = 0.0f;
 
 	template <PassMode p_pass_mode, uint32_t p_color_pass_flags = 0>
 	_FORCE_INLINE_ void _render_list_template(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
@@ -526,10 +532,12 @@ private:
 				uint64_t material_id_hi : 8;
 
 				uint64_t material_id_lo : 24;
-				uint64_t shader_id : 32;
+				uint64_t shader_id : 24; // LONGSHOT patch #8: 24 bits (a shader RID's slot index; the 8 bits freed carry the fade below)
+				uint64_t lod_fade : 8; // LONGSHOT patch #8 (in the key: only equal fades repeat as one draw)
 				uint64_t priority : 8;
 			};
 		} sort;
+		static_assert(sizeof(sort) == 2 * sizeof(uint64_t), "the sort key must stay two words: a bit past 128 leaves the key and the sort");
 
 		RSE::PrimitiveType primitive = RSE::PRIMITIVE_MAX;
 		uint32_t flags = 0;
