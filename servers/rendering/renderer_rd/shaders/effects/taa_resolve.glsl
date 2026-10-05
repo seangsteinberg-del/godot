@@ -19,6 +19,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ///////////////////////////////////////////////////////////////////////////////////
 // File changes (yyyy-mm-dd)
+// 2026-10-05: LONGSHOT [patch] #10: the flicker guard bounded so a steady input always converges (a bright point's centre drew black)
 // 2025-11-05: Jakub Brzyski: Added dynamic variance, base variance value adjusted to reduce ghosting
 // 2022-05-06: Panos Karabelas: first commit
 // 2020-12-05: Joan Fons: convert to Vulkan and Godot
@@ -353,9 +354,15 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 		float lum_color = luminance(color_input);
 		float lum_history = luminance(color_history);
 		float diff = abs(lum_color - lum_history) / max(lum_color, max(lum_history, 1.001));
-		diff = 1.0 - diff;
-		diff = diff * diff;
-		blend_factor = mix(0.0, blend_factor, diff);
+		// LONGSHOT [patch] #10 THE STEADY LIGHT CONVERGES: the guard weighed the blend by (1 - diff)^2, nought for a total
+		// disagreement, so a pixel whose history was dark never took a bright input and kept not taking it every frame -
+		// the centre of every bright point (a star, a sun's point under a pixel, a glint on a hull) drew black while its
+		// skirt, a small disagreement, converged. A one-frame outlier is what the guard is for, and the variance clipping
+		// above already pulls such a history back into its neighbourhood on the next frame. A half-way disagreement is
+		// flicker (a thin bright feature alternating under the jitter: the same quarter weight at diff 0.5 as before); a
+		// total one is a change, and a change converges at the blend's own rate
+		float steady = 1.0 - 0.75 * 4.0 * diff * (1.0 - diff);
+		blend_factor *= steady;
 
 		// Lerp/blend
 		color_resolved = mix(color_history, color_input, blend_factor);
