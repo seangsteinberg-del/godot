@@ -1353,7 +1353,12 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 			}
 			sky->processing_layer = 1;
 		}
-		sky->baked_exposure = p_luminance_multiplier;
+		// LONGSHOT patch #11: the radiance map was rendered with the brightness multiplier (the background energy and
+		// intensity times the camera's exposure) baked into its texels, but only the luminance multiplier was remembered
+		// as the bake's exposure - so the IBL normalisation (the current exposure over the baked) re-applied the camera's
+		// exposure to an already-exposed map and the sky's ambient and reflections came out exposure-squared (a night
+		// pre-exposure of 2^14 made a starlit hull a white blaze). The bake remembers the whole factor it was rendered at.
+		sky->baked_exposure = p_luminance_multiplier * p_brightness_multiplier;
 		sky->reflection.dirty = false;
 
 	} else {
