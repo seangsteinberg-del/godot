@@ -812,6 +812,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		actions.renames["SPECULAR_AMOUNT"] = "specular_amount_highp";
 		actions.renames["LIGHT_COLOR"] = "light_color_highp";
 		actions.renames["LIGHT_IS_DIRECTIONAL"] = "is_directional";
+		actions.renames["LIGHT_ANGULAR_RADIUS"] = "light_angular_radius_highp"; // LONGSHOT patch 14
 		actions.renames["LIGHT_IS_AREA"] = "is_area";
 		actions.renames["LIGHT_AREA_DIFFUSE_MULTIPLIER"] = "area_diffuse";
 		actions.renames["LIGHT_AREA_SPECULAR_MULTIPLIER"] = "area_specular";

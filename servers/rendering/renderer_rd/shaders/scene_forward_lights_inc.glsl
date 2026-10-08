@@ -98,7 +98,16 @@ hvec3 f0_Clear_Coat_To_Surface(hvec3 f0) {
 	return clamp(f0 * (f0 * (half(0.941892) - half(0.263008) * f0) + half(0.346479)) - half(0.0285998), half(0.0), half(1.0));
 }
 
-void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is_directional, half attenuation, hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
+// LONGSHOT patch 14: GGX's distribution in float (Filament's form, as D_GGX): a light's disc normalizes a glossy lobe
+// whose peak passes half-float range before the normalization brings it back
+float D_GGX_float(float cos_theta_m, float alpha, vec3 n, vec3 h) {
+	vec3 n_x_h = cross(n, h);
+	float a = cos_theta_m * alpha;
+	float k = alpha / max(dot(n_x_h, n_x_h) + a * a, 1e-30);
+	return k * k * (1.0 / M_PI);
+}
+
+void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, float light_radius, hvec3 light_color, bool is_directional, half attenuation, hvec3 f0, half roughness, half metallic, half specular_amount, hvec3 albedo, inout half alpha, vec2 screen_uv, hvec3 energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 		hvec3 backlight,
 #endif
@@ -155,6 +164,8 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 	vec3 albedo_highp = vec3(albedo);
 	float alpha_highp = float(alpha);
 	vec3 normal_highp = vec3(N);
+	// LONGSHOT patch 14: the light's disc as seen from the fragment, radians (LIGHT_ANGULAR_RADIUS)
+	float light_angular_radius_highp = light_radius;
 	vec3 light_highp = vec3(L);
 	vec3 view_highp = vec3(V);
 	float specular_amount_highp = float(specular_amount);
@@ -250,7 +261,20 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 
 		if (roughness > half(0.0)) {
 #if defined(SPECULAR_SCHLICK_GGX)
-			half cNdotH = clamp(A + dot(N, H), half(0.0), half(1.0));
+			// LONGSHOT patch 14, THE LIGHT'S DISC IN THE SPECULAR (Karis 2013, the representative point, eqs. 11 and 14): the
+			// half vector toward the disc's point nearest the reflection ray, the peak normalized by the lobe widened by half
+			// the disc's angle - a mirror's flat top is the disc's own radiance; a point light (radius 0) is the engine's own
+			hvec3 H_disc = H;
+			float disc_norm = 1.0;
+			if (light_radius > 0.0) {
+				vec3 r_ray = reflect(-vec3(V), vec3(N));
+				vec3 to_ray = dot(vec3(L), r_ray) * r_ray - vec3(L);
+				vec3 l_disc = normalize(vec3(L) + to_ray * clamp(sin(light_radius) / max(length(to_ray), 1e-12), 0.0, 1.0));
+				H_disc = hvec3(normalize(vec3(V) + l_disc));
+				float a_g = float(roughness) * float(roughness);
+				disc_norm = a_g * a_g / (a_g * a_g + 0.25 * light_radius * light_radius);
+			}
+			half cNdotH = clamp(A + dot(N, H_disc), half(0.0), half(1.0));
 #endif
 			// Apply specular light.
 			// FIXME: roughness == 0 should not disable specular light entirely
@@ -277,7 +301,8 @@ void light_compute(hvec3 N, hvec3 L, hvec3 V, half A, hvec3 light_color, bool is
 			half D = D_GGX_anisotropic(cNdotH, ax, ay, XdotH, YdotH);
 			half G = V_GGX_anisotropic(ax, ay, dot(T, V), dot(T, L), dot(B, V), dot(B, L), cNdotV, cNdotL);
 #else // LIGHT_ANISOTROPY_USED
-			half D = D_GGX(cNdotH, alpha_ggx, N, H);
+			// the peak in float (a glossy lobe's passes half-float range), times the disc's normalization
+			half D = half(min(D_GGX_float(float(cNdotH), float(alpha_ggx), vec3(N), vec3(H_disc)) * disc_norm, 65000.0));
 			half G = V_GGX(cNdotL, cNdotV, alpha_ggx);
 #endif // LIGHT_ANISOTROPY_USED
 	   // F
@@ -729,7 +754,7 @@ void light_process_omni(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	}
 
 	vec3 light_rel_vec_norm = light_rel_vec / light_length;
-	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
+	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, atan(omni_lights.data[idx].size / max(light_length, 0.001)), hvec3(color), false, omni_attenuation * shadow, f0, roughness, metallic, half(omni_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
 #endif
@@ -931,7 +956,7 @@ void light_process_spot(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 		}
 	}
 
-	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
+	light_compute(normal, hvec3(light_rel_vec_norm), eye_vec, size, atan(spot_lights.data[idx].size / max(light_length, 0.001)), hvec3(color), false, spot_attenuation * shadow, f0, roughness, metallic, half(spot_lights.data[idx].specular_amount), albedo, alpha, screen_uv, energy_compensation,
 #ifdef LIGHT_BACKLIGHT_USED
 			backlight,
 #endif
@@ -1186,6 +1211,8 @@ void light_process_area(uint idx, vec3 vertex, hvec3 eye_vec, hvec3 normal, vec3
 	vec3 albedo_highp = vec3(albedo);
 	float alpha_highp = float(alpha);
 	vec3 normal_highp = vec3(normal);
+	// LONGSHOT patch 14: the area's half-diagonal over its distance, radians (LIGHT_ANGULAR_RADIUS)
+	float light_angular_radius_highp = atan(0.5 * sqrt(float(a_len) * float(a_len) + float(b_len) * float(b_len)) / max(float(light_length), 0.001));
 	vec3 light_highp = (light_center - vertex) / light_length;
 	vec3 view_highp = vec3(eye_vec);
 	float specular_amount_highp = float(area_lights.data[idx].specular_amount);

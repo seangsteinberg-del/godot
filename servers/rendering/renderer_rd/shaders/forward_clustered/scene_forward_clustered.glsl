@@ -2663,7 +2663,7 @@ void fragment_shader(in SceneData scene_data) {
 
 			float size_A = sc_use_directional_soft_shadows() ? directional_lights.data[i].size : 0.0;
 
-			light_compute(normal, directional_lights.data[i].direction, normalize(view), size_A,
+			light_compute(normal, directional_lights.data[i].direction, normalize(view), size_A, 0.5 * acos(clamp(1.0 - directional_lights.data[i].size, -1.0, 1.0)),
 #ifndef DEBUG_DRAW_PSSM_SPLITS
 					directional_lights.data[i].color * directional_lights.data[i].energy,
 #else
