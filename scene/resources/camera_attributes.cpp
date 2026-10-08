@@ -247,6 +247,35 @@ float CameraAttributesPractical::get_auto_exposure_max_sensitivity() const {
 	return auto_exposure_max;
 }
 
+// THE KEY FOLLOWS THE ADAPTATION (patch 13): the key a scene metered at the scotopic sensitivity and under is shown at (the
+// day's being auto_exposure_scale, at the photopic sensitivity and over; log-linear between); a night scale of 0 is no law
+void CameraAttributesPractical::set_auto_exposure_night_scale(float p_scale) {
+	auto_exposure_night_scale = p_scale;
+	_update_auto_exposure();
+}
+
+float CameraAttributesPractical::get_auto_exposure_night_scale() const {
+	return auto_exposure_night_scale;
+}
+
+void CameraAttributesPractical::set_auto_exposure_scotopic_sensitivity(float p_sensitivity) {
+	auto_exposure_scotopic = p_sensitivity;
+	_update_auto_exposure();
+}
+
+float CameraAttributesPractical::get_auto_exposure_scotopic_sensitivity() const {
+	return auto_exposure_scotopic;
+}
+
+void CameraAttributesPractical::set_auto_exposure_photopic_sensitivity(float p_sensitivity) {
+	auto_exposure_photopic = p_sensitivity;
+	_update_auto_exposure();
+}
+
+float CameraAttributesPractical::get_auto_exposure_photopic_sensitivity() const {
+	return auto_exposure_photopic;
+}
+
 void CameraAttributesPractical::_update_auto_exposure() {
 	RS::get_singleton()->camera_attributes_set_auto_exposure(
 			get_rid(),
@@ -255,6 +284,11 @@ void CameraAttributesPractical::_update_auto_exposure() {
 			auto_exposure_max * ((12.5 / 100.0) / exposure_sensitivity), // Convert from Sensitivity to Luminance
 			auto_exposure_speed,
 			auto_exposure_scale);
+	RS::get_singleton()->camera_attributes_set_auto_exposure_night(
+			get_rid(),
+			auto_exposure_night_scale,
+			auto_exposure_scotopic * ((12.5 / 100.0) / exposure_sensitivity), // Convert from Sensitivity to Luminance
+			auto_exposure_photopic * ((12.5 / 100.0) / exposure_sensitivity)); // Convert from Sensitivity to Luminance
 	emit_changed();
 }
 
@@ -291,6 +325,12 @@ void CameraAttributesPractical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_max_sensitivity"), &CameraAttributesPractical::get_auto_exposure_max_sensitivity);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_min_sensitivity", "min_sensitivity"), &CameraAttributesPractical::set_auto_exposure_min_sensitivity);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_min_sensitivity"), &CameraAttributesPractical::get_auto_exposure_min_sensitivity);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_night_scale", "scale"), &CameraAttributesPractical::set_auto_exposure_night_scale);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_night_scale"), &CameraAttributesPractical::get_auto_exposure_night_scale);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_scotopic_sensitivity", "sensitivity"), &CameraAttributesPractical::set_auto_exposure_scotopic_sensitivity);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_scotopic_sensitivity"), &CameraAttributesPractical::get_auto_exposure_scotopic_sensitivity);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_photopic_sensitivity", "sensitivity"), &CameraAttributesPractical::set_auto_exposure_photopic_sensitivity);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_photopic_sensitivity"), &CameraAttributesPractical::get_auto_exposure_photopic_sensitivity);
 
 	ADD_GROUP("DOF Blur", "dof_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_blur_far_enabled"), "set_dof_blur_far_enabled", "is_dof_blur_far_enabled");
@@ -304,6 +344,9 @@ void CameraAttributesPractical::_bind_methods() {
 	ADD_GROUP("Auto Exposure", "auto_exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_min_sensitivity", PROPERTY_HINT_RANGE, "0,1600,0.01,or_greater,suffic:ISO"), "set_auto_exposure_min_sensitivity", "get_auto_exposure_min_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_max_sensitivity", PROPERTY_HINT_RANGE, "0,64000,0.1,or_greater,suffic:ISO"), "set_auto_exposure_max_sensitivity", "get_auto_exposure_max_sensitivity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_night_scale", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_night_scale", "get_auto_exposure_night_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_scotopic_sensitivity", PROPERTY_HINT_RANGE, "0,1600,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_scotopic_sensitivity", "get_auto_exposure_scotopic_sensitivity");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_photopic_sensitivity", PROPERTY_HINT_RANGE, "0,64000,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_photopic_sensitivity", "get_auto_exposure_photopic_sensitivity");
 }
 
 CameraAttributesPractical::CameraAttributesPractical() {

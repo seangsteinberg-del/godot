@@ -159,6 +159,33 @@ void RendererCameraAttributes::camera_attributes_set_auto_exposure(RID p_camera_
 	cam_attributes->auto_exposure_scale = p_scale;
 }
 
+// THE KEY FOLLOWS THE ADAPTATION (patch 13): the night's key and the eye's mesopic range, luminances in the meter's units
+void RendererCameraAttributes::camera_attributes_set_auto_exposure_night(RID p_camera_attributes, float p_night_scale, float p_scotopic_luminance, float p_photopic_luminance) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->auto_exposure_night_scale = p_night_scale;
+	cam_attributes->auto_exposure_scotopic_luminance = p_scotopic_luminance;
+	cam_attributes->auto_exposure_photopic_luminance = p_photopic_luminance;
+}
+
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_night_scale(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 0.0);
+	return cam_attributes->auto_exposure_night_scale;
+}
+
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_scotopic_luminance(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 0.0);
+	return cam_attributes->auto_exposure_scotopic_luminance;
+}
+
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_photopic_luminance(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 0.0);
+	return cam_attributes->auto_exposure_photopic_luminance;
+}
+
 float RendererCameraAttributes::camera_attributes_get_auto_exposure_min_sensitivity(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);

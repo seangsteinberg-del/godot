@@ -48,6 +48,10 @@ private:
 		float auto_exposure_adjust_speed = 1.0;
 		float auto_exposure_scale = 1.0;
 		uint64_t auto_exposure_version = 0;
+		// THE KEY FOLLOWS THE ADAPTATION (patch 13): the night's key and the eye's mesopic range (luminances), or no law (0)
+		float auto_exposure_night_scale = 0.0;
+		float auto_exposure_scotopic_luminance = 0.0;
+		float auto_exposure_photopic_luminance = 0.0;
 
 		bool dof_blur_far_enabled = false;
 		float dof_blur_far_distance = 10;
@@ -105,6 +109,10 @@ public:
 	float camera_attributes_get_auto_exposure_adjust_speed(RID p_camera_attributes);
 	float camera_attributes_get_auto_exposure_scale(RID p_camera_attributes);
 	uint64_t camera_attributes_get_auto_exposure_version(RID p_camera_attributes);
+	void camera_attributes_set_auto_exposure_night(RID p_camera_attributes, float p_night_scale, float p_scotopic_luminance, float p_photopic_luminance);
+	float camera_attributes_get_auto_exposure_night_scale(RID p_camera_attributes);
+	float camera_attributes_get_auto_exposure_scotopic_luminance(RID p_camera_attributes);
+	float camera_attributes_get_auto_exposure_photopic_luminance(RID p_camera_attributes);
 
 	_FORCE_INLINE_ bool camera_attributes_uses_auto_exposure(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

@@ -567,7 +567,13 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		double step = RSG::camera_attributes->camera_attributes_get_auto_exposure_adjust_speed(p_render_data->camera_attributes) * time_step;
 		float auto_exposure_min_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_min_sensitivity(p_render_data->camera_attributes);
 		float auto_exposure_max_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_max_sensitivity(p_render_data->camera_attributes);
-		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate);
+		// THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the night's, and the eye's mesopic range, into the meter
+		const float night_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_night_scale(p_render_data->camera_attributes);
+		const float day_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_scale(p_render_data->camera_attributes);
+		const float key_ratio = night_scale > 0.0f && day_scale > night_scale ? day_scale / night_scale : 1.0f;
+		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate,
+				key_ratio, RSG::camera_attributes->camera_attributes_get_auto_exposure_scotopic_luminance(p_render_data->camera_attributes),
+				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes));
 
 		// Swap final reduce with prev luminance.
 

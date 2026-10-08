@@ -90,6 +90,11 @@ private:
 	float dof_blur_amount = 0.1;
 	void _update_dof_blur();
 
+	// THE KEY FOLLOWS THE ADAPTATION (patch 13): the night's key and the eye's mesopic range (sensitivities), 0: no law
+	float auto_exposure_night_scale = 0.0;
+	float auto_exposure_scotopic = 0.0;
+	float auto_exposure_photopic = 0.0;
+
 	virtual void _update_auto_exposure() override;
 
 protected:
@@ -118,6 +123,12 @@ public:
 	float get_auto_exposure_min_sensitivity() const;
 	void set_auto_exposure_max_sensitivity(float p_max);
 	float get_auto_exposure_max_sensitivity() const;
+	void set_auto_exposure_night_scale(float p_scale);
+	float get_auto_exposure_night_scale() const;
+	void set_auto_exposure_scotopic_sensitivity(float p_sensitivity);
+	float get_auto_exposure_scotopic_sensitivity() const;
+	void set_auto_exposure_photopic_sensitivity(float p_sensitivity);
+	float get_auto_exposure_photopic_sensitivity() const;
 
 	virtual float calculate_exposure_normalization() const override;
 

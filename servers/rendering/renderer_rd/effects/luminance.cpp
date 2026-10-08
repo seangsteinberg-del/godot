@@ -156,7 +156,7 @@ RID Luminance::get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_b
 	return RID();
 }
 
-void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set) {
+void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -171,7 +171,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 
 		push_constant.max_luminance = p_max_luminance;
 		push_constant.min_luminance = p_min_luminance;
-		push_constant.exposure_adjust = p_adjust;
+		push_constant.exposure_adjust = p_set ? 1.0f : p_adjust; // THE LOG-MEAN METER (patch 13): the immediate frame is the blend at one
 
 		for (int i = 0; i < p_luminance_buffers->reduce.size(); i++) {
 			push_constant.source_size[0] = i == 0 ? p_source_size.x : push_constant.dest_size[0];
@@ -179,7 +179,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 			push_constant.dest_size[0] = MAX(push_constant.source_size[0] / 8, 1);
 			push_constant.dest_size[1] = MAX(push_constant.source_size[1] / 8, 1);
 
-			bool final = !p_set && (push_constant.dest_size[0] == 1) && (push_constant.dest_size[1] == 1);
+			bool final = (push_constant.dest_size[0] == 1) && (push_constant.dest_size[1] == 1); // the exponential's pass, set or not (patch 13)
 			LuminanceReduceRasterMode mode = final ? LUMINANCE_REDUCE_FRAGMENT_FINAL : (i == 0 ? LUMINANCE_REDUCE_FRAGMENT_FIRST : LUMINANCE_REDUCE_FRAGMENT);
 			RID shader = luminance_reduce_raster.shader.version_get_shader(luminance_reduce_raster.shader_version, mode);
 
@@ -208,7 +208,12 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.source_size[1] = p_source_size.y;
 		push_constant.max_luminance = p_max_luminance;
 		push_constant.min_luminance = p_min_luminance;
-		push_constant.exposure_adjust = p_adjust;
+		push_constant.exposure_adjust = p_set ? 1.0f : p_adjust; // THE LOG-MEAN METER (patch 13): the immediate frame is the blend at one
+		// THE KEY FOLLOWS THE ADAPTATION (patch 13): the law's three numbers, or none (a ratio of one, an empty range)
+		const bool key_law = p_key_ratio > 1.0f && p_scotopic_luminance > 0.0f && p_photopic_luminance > p_scotopic_luminance;
+		push_constant.key_ratio = key_law ? p_key_ratio : 1.0f;
+		push_constant.ln_scotopic = key_law ? Math::log(p_scotopic_luminance) : 0.0f;
+		push_constant.ln_photopic = key_law ? Math::log(p_photopic_luminance) : 0.0f;
 
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 
@@ -224,7 +229,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 			} else {
 				RD::get_singleton()->compute_list_add_barrier(compute_list); //needs barrier, wait until previous is done
 
-				if (i == p_luminance_buffers->reduce.size() - 1 && !p_set) {
+				if (i == p_luminance_buffers->reduce.size() - 1) { // the exponential's pass, set or not (patch 13)
 					shader = luminance_reduce.shader.version_get_shader(luminance_reduce.shader_version, LUMINANCE_REDUCE_WRITE);
 					RD::Uniform u_current_texture(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>({ default_sampler, p_luminance_buffers->current }));
 
