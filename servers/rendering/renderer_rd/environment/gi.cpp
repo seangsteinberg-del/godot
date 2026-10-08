@@ -1308,7 +1308,7 @@ void GI::SDFGI::update_light() {
 	RD::get_singleton()->draw_command_end_label();
 }
 
-void GI::SDFGI::update_probes(RID p_env, SkyRD::Sky *p_sky) {
+void GI::SDFGI::update_probes(RID p_env, SkyRD::Sky *p_sky, float p_luminance_multiplier) {
 	RD::get_singleton()->draw_command_begin_label("SDFGI Update Probes");
 
 	SDFGIShader::IntegratePushConstant push_constant;
@@ -1333,6 +1333,13 @@ void GI::SDFGI::update_probes(RID p_env, SkyRD::Sky *p_sky) {
 	RID sky_uniform_set = gi->sdfgi_shader.integrate_default_sky_uniform_set;
 	push_constant.sky_flags = 0;
 	push_constant.y_mult = y_mult;
+	// THE SKY'S LIGHT IN THE CASCADE'S OWN EXPOSURE (the fork's patch 12): the radiance map's texels carry the exposure the sky
+	// was rendered at (the sky's baked_exposure, patch 11) and a cascade's probes are rescaled at use by the current exposure
+	// over its region's - so the sky's share is stored in the cascade's units: the texel over the bake, times the cascade's
+	// exposure and the background intensity over the luminance multiplier (the IBL's own law). Sampled raw, the share was
+	// exposed twice: the night's 2^14 pre-exposure over a cascade rendered at exposure one lit the near ground white.
+	bool sky_from_radiance = false;
+	float sky_energy_per_exposure = 0.0;
 
 	if (reads_sky && p_env.is_valid()) {
 		push_constant.sky_energy = RendererSceneRenderRD::get_singleton()->environment_get_bg_energy_multiplier(p_env);
@@ -1375,6 +1382,8 @@ void GI::SDFGI::update_probes(RID p_env, SkyRD::Sky *p_sky) {
 				}
 				sky_uniform_set = integrate_sky_uniform_set;
 				push_constant.sky_flags |= SDFGIShader::IntegratePushConstant::SKY_FLAGS_MODE_SKY;
+				sky_from_radiance = true;
+				sky_energy_per_exposure = RendererSceneRenderRD::get_singleton()->environment_get_bg_intensity(p_env) / (MAX(p_luminance_multiplier, 0.001f) * MAX(p_sky->baked_exposure, 0.001f));
 
 				// Encode sky orientation as quaternion in existing push constants.
 				const Basis sky_basis = RendererSceneRenderRD::get_singleton()->environment_get_sky_orientation(p_env);
@@ -1399,6 +1408,9 @@ void GI::SDFGI::update_probes(RID p_env, SkyRD::Sky *p_sky) {
 		push_constant.world_offset[0] = cascades[i].position.x / probe_divisor;
 		push_constant.world_offset[1] = cascades[i].position.y / probe_divisor;
 		push_constant.world_offset[2] = cascades[i].position.z / probe_divisor;
+		if (sky_from_radiance) {
+			push_constant.sky_energy = sky_energy_per_exposure * cascades[i].baked_exposure_normalization;
+		}
 
 		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, cascades[i].integrate_uniform_set, 0);
 		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, sky_uniform_set, 1);
