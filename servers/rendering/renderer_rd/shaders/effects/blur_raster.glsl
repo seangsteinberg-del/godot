@@ -191,6 +191,21 @@ void main() {
 	color += textureLod(source_color, (block_pos + vec2(1.0, 3.0)) * blur.source_pixel_size, 0.0);
 	color += textureLod(source_color, (block_pos + vec2(3.0, 1.0)) * blur.source_pixel_size, 0.0);
 	color += textureLod(source_color, (block_pos + vec2(3.0, 3.0)) * blur.source_pixel_size, 0.0);
+	if (bool(blur.flags & FLAG_GLOW_EXCESS)) {
+		// THE LIGHT THE SCREEN CANNOT SHOW (Spencer et al. 1995): the sixteen pixels' light over the display's white, one by one
+		// (m their brightest channel in the threshold's units: the luminance multiplier and the exposure applied below)
+		ivec2 size = textureSize(source_color, 0);
+		color = vec4(0.0);
+		for (int y = 0; y < 4; y++) {
+			for (int x = 0; x < 4; x++) {
+				vec4 s = texelFetch(source_color, clamp(ivec2(block_pos) + ivec2(x, y), ivec2(0), size - 1), 0);
+				s = min(mix(s, vec4(0.0), isnan(s)), vec4(65504.0)); // A PIXEL IS READ AS A NUMBER: inf the top, a NaN nothing
+				float m = max(s.r, max(s.g, s.b)) * blur.luminance_multiplier * blur.glow_exposure;
+				color += s * (max(m - blur.glow_hdr_threshold, 0.0) / max(m, 1e-6));
+			}
+		}
+		color *= 0.25; // the sixteen's mean times four: the four bilinear reads' sum above, which the line below takes a quarter of
+	}
 	frag_color = color * 0.25;
 
 	// Apply strength a second time since it usually gets added at each level.
@@ -204,6 +219,9 @@ void main() {
 
 	float luminance = max(frag_color.r, max(frag_color.g, frag_color.b));
 	float feedback = max(smoothstep(blur.glow_hdr_threshold, blur.glow_hdr_threshold + blur.glow_hdr_scale, luminance), blur.glow_bloom);
+	if (bool(blur.flags & FLAG_GLOW_EXCESS)) {
+		feedback = 1.0; // the reads above took each pixel's excess already
+	}
 
 	frag_color = min(frag_color * feedback, vec4(blur.glow_luminance_cap)) / blur.luminance_multiplier;
 #endif // MODE_GLOW_GATHER_WIDE

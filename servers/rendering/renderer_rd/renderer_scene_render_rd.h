@@ -78,6 +78,7 @@ protected:
 	/* ENVIRONMENT */
 
 	bool glow_bicubic_upscale = false;
+	bool glow_feed_excess = false; // THE LIGHT THE SCREEN CANNOT SHOW: rendering/environment/glow/feed_excess
 
 	bool use_physical_light_units = false;
 

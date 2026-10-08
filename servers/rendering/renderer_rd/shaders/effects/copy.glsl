@@ -18,6 +18,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 #define FLAG_COPY_ALL_SOURCE (1 << 7)
 #define FLAG_ALPHA_TO_ONE (1 << 8)
 #define FLAG_SANITIZE_INF_NAN (1 << 9)
+#define FLAG_GLOW_EXCESS (1 << 10)
 
 layout(push_constant, std430) uniform Params {
 	ivec4 section;
@@ -54,6 +55,31 @@ layout(set = 0, binding = 0) uniform sampler2D source_color;
 
 #ifdef GLOW_USE_AUTO_EXPOSURE
 layout(set = 1, binding = 0) uniform sampler2D source_auto_exposure;
+#endif
+
+#if defined(MODE_GAUSSIAN_BLUR) && defined(MODE_GLOW)
+// THE LIGHT THE SCREEN CANNOT SHOW (Spencer, Shirley, Zimmerman and Greenberg 1995): the source's light over the display's white
+// at each pixel, read with the bilinear read's own weights - a pixel's light times max(m e - threshold, 0) / (m e), m its brightest
+// channel (the one the display clips first) and e the exposure that takes it into the tonemapper's input units
+vec4 glow_excess_read(vec2 p_uv, float p_e) {
+	ivec2 size = textureSize(source_color, 0);
+	vec2 p = p_uv * vec2(size) - 0.5;
+	ivec2 i0 = ivec2(floor(p));
+	vec2 f = p - vec2(i0);
+	vec4 c = vec4(0.0);
+	for (int y = 0; y < 2; y++) {
+		for (int x = 0; x < 2; x++) {
+			vec4 s = texelFetch(source_color, clamp(i0 + ivec2(x, y), ivec2(0), size - 1), 0);
+			// A PIXEL IS READ AS A NUMBER: an overflow's infinity feeds the half float's top, a NaN nothing (inf / inf was a
+			// NaN the blur spread over the frame)
+			s = min(mix(s, vec4(0.0), isnan(s)), vec4(65504.0));
+			float m = max(s.r, max(s.g, s.b)) * p_e;
+			s *= max(m - params.glow_hdr_threshold, 0.0) / max(m, 1e-6);
+			c += s * ((x == 0 ? 1.0 - f.x : f.x) * (y == 0 ? 1.0 - f.y : f.y));
+		}
+	}
+	return c;
+}
 #endif
 
 #if defined(MODE_LINEARIZE_DEPTH_COPY) || defined(MODE_SIMPLE_COPY_DEPTH)
@@ -103,6 +129,19 @@ void main() {
 	local_cache[dest_index + 1] = textureLod(source_color, quad_center_uv + vec2(1.0 / params.section.z, 0.0), 0);
 	local_cache[dest_index + 16] = textureLod(source_color, quad_center_uv + vec2(0.0, 1.0 / params.section.w), 0);
 	local_cache[dest_index + 16 + 1] = textureLod(source_color, quad_center_uv + vec2(1.0 / params.section.zw), 0);
+#ifdef MODE_GLOW
+	if (bool(params.flags & FLAG_GLOW_FIRST_PASS) && bool(params.flags & FLAG_GLOW_EXCESS)) {
+		// THE LIGHT THE SCREEN CANNOT SHOW: each read is its pixels' excess, the exposure the feed's own below
+		float e = params.glow_exposure;
+#ifdef GLOW_USE_AUTO_EXPOSURE
+		e /= texelFetch(source_auto_exposure, ivec2(0, 0), 0).r / params.glow_auto_exposure_scale;
+#endif
+		local_cache[dest_index] = glow_excess_read(quad_center_uv, e);
+		local_cache[dest_index + 1] = glow_excess_read(quad_center_uv + vec2(1.0 / params.section.z, 0.0), e);
+		local_cache[dest_index + 16] = glow_excess_read(quad_center_uv + vec2(0.0, 1.0 / params.section.w), e);
+		local_cache[dest_index + 16 + 1] = glow_excess_read(quad_center_uv + vec2(1.0 / params.section.zw), e);
+	}
+#endif
 
 #ifdef MODE_GLOW
 	if (bool(params.flags & FLAG_GLOW_FIRST_PASS)) {
@@ -196,6 +235,9 @@ void main() {
 
 		float luminance = max(color.r, max(color.g, color.b));
 		float feedback = max(smoothstep(params.glow_hdr_threshold, params.glow_hdr_threshold + params.glow_hdr_scale, luminance), params.glow_bloom);
+		if (bool(params.flags & FLAG_GLOW_EXCESS)) {
+			feedback = 1.0; // the reads above took each pixel's excess already: the blurred excess is the feed whole
+		}
 
 		color = min(color * feedback, vec4(params.glow_luminance_cap));
 	}

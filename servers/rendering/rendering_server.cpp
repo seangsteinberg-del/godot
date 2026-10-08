@@ -3779,6 +3779,9 @@ void RenderingServer::init() {
 
 	GLOBAL_DEF(PropertyInfo(Variant::INT, "rendering/environment/glow/upscale_mode", PROPERTY_HINT_ENUM, "Linear (Fast),Bicubic (Slow)"), 1);
 	GLOBAL_DEF("rendering/environment/glow/upscale_mode.mobile", 0);
+	// THE LIGHT THE SCREEN CANNOT SHOW (Spencer et al. 1995): the glow fed only each pixel's light over the display's white
+	// (glow_hdr_threshold), the viewer's own eye glaring what the display shows
+	GLOBAL_DEF("rendering/environment/glow/feed_excess", false);
 
 	GLOBAL_DEF("rendering/environment/screen_space_reflection/half_size", true);
 

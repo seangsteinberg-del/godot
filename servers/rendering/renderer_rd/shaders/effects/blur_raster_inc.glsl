@@ -1,6 +1,7 @@
 #define FLAG_HORIZONTAL (1 << 0)
 #define FLAG_USE_ORTHOGONAL_PROJECTION (1 << 1)
 #define FLAG_GLOW_FIRST_PASS (1 << 2)
+#define FLAG_GLOW_EXCESS (1 << 3)
 
 layout(push_constant, std430) uniform Blur {
 	vec2 dest_pixel_size; // 08 - 08
