@@ -1956,7 +1956,8 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			}
 
 			if (p_render_data->camera_attributes.is_valid()) {
-				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+				// THE LIGHTS IN THE CASCADE'S OWN UNITS (the fork's patch 16): the cascade's light is rescaled at use by the frame's exposure over the one it was baked at, so a light enters it at the BAKED exposure, never the frame's
+				lights[idx].energy *= cascades[i].baked_exposure_normalization;
 			}
 
 			lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
@@ -2024,7 +2025,8 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 			}
 
 			if (p_render_data->camera_attributes.is_valid()) {
-				lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+				// THE LIGHTS IN THE CASCADE'S OWN UNITS (the fork's patch 16): the cascade's light is rescaled at use by the frame's exposure over the one it was baked at, so a light enters it at the BAKED exposure, never the frame's
+				lights[idx].energy *= cascades[i].baked_exposure_normalization;
 			}
 
 			lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
@@ -2515,7 +2517,8 @@ void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderScen
 				}
 
 				if (p_render_data->camera_attributes.is_valid()) {
-					lights[idx].energy *= RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+					// THE LIGHTS IN THE CASCADE'S OWN UNITS (the fork's patch 16): the cascade's light is rescaled at use by the frame's exposure over the one it was baked at, so a light enters it at the BAKED exposure, never the frame's
+					lights[idx].energy *= cc.baked_exposure_normalization;
 				}
 
 				lights[idx].has_shadow = RSG::light_storage->light_has_shadow(light);
