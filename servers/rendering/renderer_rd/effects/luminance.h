@@ -58,6 +58,7 @@ private:
 		float key_ratio; // THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the night's (1: no law)
 		float ln_scotopic;
 		float ln_photopic;
+		float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): this frame's exposure multiplier over the last's
 	};
 
 	struct LuminanceReduce {
@@ -79,7 +80,7 @@ private:
 		float exposure_adjust;
 		float min_luminance;
 		float max_luminance;
-		uint32_t pad1;
+		float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
 	};
 
 	struct LuminanceReduceFragment {
@@ -98,6 +99,7 @@ public:
 	public:
 		Vector<RID> reduce;
 		RID current;
+		float last_exposure_normalization = -1.0f; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): the multiplier the history was metered under
 
 		virtual void configure(RenderSceneBuffersRD *p_render_buffers) override;
 		virtual void free_data() override;
@@ -107,7 +109,7 @@ public:
 
 	Ref<LuminanceBuffers> get_luminance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers);
 	RID get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_buffers);
-	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false, float p_key_ratio = 1.0, float p_scotopic_luminance = 0.0, float p_photopic_luminance = 0.0);
+	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false, float p_key_ratio = 1.0, float p_scotopic_luminance = 0.0, float p_photopic_luminance = 0.0, float p_history_scale = 1.0);
 
 	Luminance(bool p_prefer_raster_effects);
 	~Luminance();

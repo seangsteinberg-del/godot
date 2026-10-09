@@ -571,9 +571,19 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		const float night_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_night_scale(p_render_data->camera_attributes);
 		const float day_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_scale(p_render_data->camera_attributes);
 		const float key_ratio = night_scale > 0.0f && day_scale > night_scale ? day_scale / night_scale : 1.0f;
+		// THE METER'S HISTORY ACROSS THE LIFT (patch 17): the adapted luminance is metered in the pre-exposed buffer's units, so
+		// when the camera's exposure multiplier changes between frames the history is rescaled by the ratio and the eye's
+		// adaptation stands still in the scene's own light (a lift's jump at warp, a re-seat or a flame flashed or blacked the
+		// frame for the adaptation's second)
+		const float exposure_now = RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
+		float history_scale = 1.0f;
+		if (luminance_buffers->last_exposure_normalization > 0.0f && exposure_now > 0.0f) {
+			history_scale = exposure_now / luminance_buffers->last_exposure_normalization;
+		}
+		luminance_buffers->last_exposure_normalization = exposure_now;
 		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate,
 				key_ratio, RSG::camera_attributes->camera_attributes_get_auto_exposure_scotopic_luminance(p_render_data->camera_attributes),
-				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes));
+				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale);
 
 		// Swap final reduce with prev luminance.
 

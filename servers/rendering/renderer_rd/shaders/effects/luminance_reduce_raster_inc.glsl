@@ -5,6 +5,6 @@ layout(push_constant, std430) uniform PushConstant {
 	float exposure_adjust;
 	float min_luminance;
 	float max_luminance;
-	uint pad1;
+	float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
 }
 settings;

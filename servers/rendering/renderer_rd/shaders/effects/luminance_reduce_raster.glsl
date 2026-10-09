@@ -76,6 +76,7 @@ void main() {
 		if (isnan(prev_lum) || isinf(prev_lum)) {
 			prev_lum = luminance; // a history that is no number restarts at this frame's own
 		}
+		prev_lum *= settings.history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
 		luminance = prev_lum + (luminance - prev_lum) * clamp(settings.exposure_adjust, 0.0, 1.0);
 	}
 #endif

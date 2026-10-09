@@ -156,7 +156,7 @@ RID Luminance::get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_b
 	return RID();
 }
 
-void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance) {
+void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -172,6 +172,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.max_luminance = p_max_luminance;
 		push_constant.min_luminance = p_min_luminance;
 		push_constant.exposure_adjust = p_set ? 1.0f : p_adjust; // THE LOG-MEAN METER (patch 13): the immediate frame is the blend at one
+		push_constant.history_scale = p_history_scale > 0.0f ? p_history_scale : 1.0f; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
 
 		for (int i = 0; i < p_luminance_buffers->reduce.size(); i++) {
 			push_constant.source_size[0] = i == 0 ? p_source_size.x : push_constant.dest_size[0];
@@ -214,6 +215,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.key_ratio = key_law ? p_key_ratio : 1.0f;
 		push_constant.ln_scotopic = key_law ? Math::log(p_scotopic_luminance) : 0.0f;
 		push_constant.ln_photopic = key_law ? Math::log(p_photopic_luminance) : 0.0f;
+		push_constant.history_scale = p_history_scale > 0.0f ? p_history_scale : 1.0f; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
 
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 

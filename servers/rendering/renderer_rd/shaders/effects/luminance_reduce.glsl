@@ -42,6 +42,7 @@ layout(push_constant, std430) uniform Params {
 	float key_ratio; // THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the night's (1: no law)
 	float ln_scotopic; // the log of the luminance under which the eye is wholly night-adapted (the buffer's units)
 	float ln_photopic; // the log of the luminance over which the day's key stands
+	float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): this frame's exposure multiplier over the last's
 }
 params;
 
@@ -108,6 +109,10 @@ void main() {
 			if (isnan(prev_lum) || isinf(prev_lum)) {
 				prev_lum = avg; // a history that is no number restarts at this frame's own
 			}
+			// THE METER'S HISTORY ACROSS THE LIFT (patch 17): the history is in the buffer's pre-exposed units; a changed
+			// multiplier (a night's lift at warp, a re-seat, a flame) moves it by the ratio, so the adaptation stands still in
+			// the scene's own light instead of chasing the lift for a second
+			prev_lum *= params.history_scale;
 			avg = prev_lum + (avg - prev_lum) * params.exposure_adjust;
 		}
 		avg = clamp(avg, lo, hi);
