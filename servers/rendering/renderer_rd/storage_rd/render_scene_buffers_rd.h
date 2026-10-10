@@ -178,12 +178,29 @@ private:
 
 	void update_samplers();
 
+	// LONGSHOT patch #18 (THE CLOUDS IN FRONT OF EVERY SURFACE): a sky's clouds composited before the transparent pass hand over their
+	// light at the pixel and their transmittance, and their distance's moments, with the frame they were drawn in - the transparent pass
+	// takes them only in that frame (a stale stamp is no clouds)
+	RID longshot_clouds_light;
+	RID longshot_clouds_depth;
+	uint64_t longshot_clouds_frame = UINT64_MAX;
+	// (THE ORDER SAID LOUDLY: the frame in which they were last asked for and not there - handed over later in that same frame, an
+	// effect that takes them ran before the clouds' own)
+	mutable uint64_t longshot_clouds_asked_frame = UINT64_MAX;
+
 protected:
 	static void _bind_methods();
 
 public:
 	RenderSceneBuffersRD();
 	virtual ~RenderSceneBuffersRD();
+
+	// LONGSHOT patch #18: the clouds' hand-over (their own textures: the light and transmittance, the distance's moments - the sum of the
+	// weights times the distance, the weights, the weights times its square)
+	void set_longshot_clouds(RID p_light, RID p_depth);
+	bool has_longshot_clouds() const;
+	RID get_longshot_clouds_light() const { return longshot_clouds_light; }
+	RID get_longshot_clouds_depth() const { return longshot_clouds_depth; }
 
 	// info from our renderer
 	void set_can_be_storage(const bool p_can_be_storage) { can_be_storage = p_can_be_storage; }

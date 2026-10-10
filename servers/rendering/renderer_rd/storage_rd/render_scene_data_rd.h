@@ -94,7 +94,7 @@ public:
 	virtual Projection get_view_projection(uint32_t p_view) const override;
 
 	RID create_uniform_buffer();
-	void update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw p_debug_mode, RID p_env, RID p_reflection_probe_instance, RID p_camera_attributes, bool p_pancake_shadows, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, float p_luminance_multiplier, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier);
+	void update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw p_debug_mode, RID p_env, RID p_reflection_probe_instance, RID p_camera_attributes, bool p_pancake_shadows, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, float p_luminance_multiplier, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier, bool p_longshot_clouds = false);
 	virtual RID get_uniform_buffer() const override;
 
 	static uint32_t get_uniform_buffer_size_bytes() { return sizeof(UBODATA); }
@@ -111,6 +111,7 @@ private:
 		SCENE_DATA_FLAGS_USE_UV2_MATERIAL = 1 << 5,
 		SCENE_DATA_FLAGS_USE_PANCAKE_SHADOWS = 1 << 6,
 		SCENE_DATA_FLAGS_IN_SHADOW_PASS = 1 << 7, // Only used by Forward+ renderer.
+		SCENE_DATA_FLAGS_LONGSHOT_CLOUDS = 1 << 8, // LONGSHOT patch #18: the transparent pass takes the clouds in front of each surface.
 		SCENE_DATA_FLAGS_MAX
 	};
 

@@ -36,6 +36,8 @@
 #include "servers/rendering/rendering_device_binds.h"
 #include "servers/rendering/rendering_server.h" // IWYU pragma: keep // Needed to bind RSE enums.
 #include "servers/rendering/rendering_server_enums.h"
+#include "servers/rendering/renderer_compositor.h" // LONGSHOT patch #18: the frame's number (the clouds' stamp)
+#include "servers/rendering/rendering_server_globals.h"
 
 RenderSceneBuffersRD::RenderSceneBuffersRD() {
 }
@@ -60,6 +62,12 @@ void RenderSceneBuffersRD::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_texture_slice_size", "context", "name", "mipmap"), &RenderSceneBuffersRD::get_texture_slice_size);
 	ClassDB::bind_method(D_METHOD("clear_context", "context"), &RenderSceneBuffersRD::clear_context);
 
+	// LONGSHOT patch #18: THE CLOUDS IN FRONT OF EVERY SURFACE
+	ClassDB::bind_method(D_METHOD("set_longshot_clouds", "light", "depth"), &RenderSceneBuffersRD::set_longshot_clouds);
+	ClassDB::bind_method(D_METHOD("has_longshot_clouds"), &RenderSceneBuffersRD::has_longshot_clouds);
+	ClassDB::bind_method(D_METHOD("get_longshot_clouds_light"), &RenderSceneBuffersRD::get_longshot_clouds_light);
+	ClassDB::bind_method(D_METHOD("get_longshot_clouds_depth"), &RenderSceneBuffersRD::get_longshot_clouds_depth);
+
 	// Access to some core buffers so users don't need to know their names.
 	ClassDB::bind_method(D_METHOD("get_color_texture", "msaa"), &RenderSceneBuffersRD::_get_color_texture, DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("get_color_layer", "layer", "msaa"), &RenderSceneBuffersRD::_get_color_layer, DEFVAL(false));
@@ -80,6 +88,29 @@ void RenderSceneBuffersRD::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_screen_space_aa"), &RenderSceneBuffersRD::get_screen_space_aa);
 	ClassDB::bind_method(D_METHOD("get_use_taa"), &RenderSceneBuffersRD::get_use_taa);
 	ClassDB::bind_method(D_METHOD("get_use_debanding"), &RenderSceneBuffersRD::get_use_debanding);
+}
+
+// LONGSHOT patch #18: the clouds hand over this frame's textures; they stand for this frame alone
+void RenderSceneBuffersRD::set_longshot_clouds(RID p_light, RID p_depth) {
+	const uint64_t frame = RSG::rasterizer->get_frame_number();
+	// THE ORDER SAID LOUDLY: whoever takes the clouds this frame (an effect's own march, the transparent pass) asks after they are handed
+	// over - asked for first and handed over after, the taker ran without them (its matter drawn over every cloud, whatever stood before it)
+	if (longshot_clouds_asked_frame == frame) {
+		ERR_PRINT_ONCE("LONGSHOT patch #18: the sky's clouds were handed over (RenderSceneBuffersRD.set_longshot_clouds) after they were asked for in the same frame - the clouds' effect must run first among the frame's effects before the transparent pass.");
+	}
+	longshot_clouds_light = p_light;
+	longshot_clouds_depth = p_depth;
+	longshot_clouds_frame = frame;
+}
+
+bool RenderSceneBuffersRD::has_longshot_clouds() const {
+	const uint64_t frame = RSG::rasterizer->get_frame_number();
+	const bool has = longshot_clouds_frame == frame && longshot_clouds_light.is_valid() && longshot_clouds_depth.is_valid() &&
+			RD::get_singleton()->texture_is_valid(longshot_clouds_light) && RD::get_singleton()->texture_is_valid(longshot_clouds_depth);
+	if (!has) {
+		longshot_clouds_asked_frame = frame;
+	}
+	return has;
 }
 
 void RenderSceneBuffersRD::update_sizes(NamedTexture &p_named_texture) {

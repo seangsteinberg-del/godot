@@ -1163,6 +1163,29 @@ vec4 fog_process(vec3 vertex) {
 	return vec4(fog_color, fog_amount);
 }
 
+#if !defined(MODE_RENDER_DEPTH) && !defined(MODE_RENDER_SDF)
+// LONGSHOT patch #18: THE CLOUDS IN FRONT (the share of a sky's clouds that stands before a surface at a distance z along the pixel's ray):
+// each of the clouds' march steps weighs its distance by the light it lets the eye see (its share of the transmittance it takes away), so
+// the weights before z sum to 1 - T(z) - their moments give the clouds' depth along the ray, here a normal about their mean with their
+// spread, truncated at the eye; the clouds' light in front of z is that share of their light, their transmittance in front of z
+// 1 - share x (1 - T). Normal CDF by its logistic form (error under 2e-4)
+float longshot_clouds_cdf(float x) {
+	return 1.0 / (1.0 + exp(-1.5976 * x * (1.0 + 0.04417 * x * x)));
+}
+vec4 longshot_clouds_front(ivec2 p_px, float p_z) {
+	vec4 lt = texelFetch(sampler2D(longshot_clouds_light, SAMPLER_NEAREST_CLAMP), p_px, 0);
+	vec4 mo = texelFetch(sampler2D(longshot_clouds_depth, SAMPLER_NEAREST_CLAMP), p_px, 0);
+	if (!(mo.y > 1.0e-6)) {
+		return vec4(0.0, 0.0, 0.0, 1.0);
+	}
+	float mu = mo.x / mo.y;
+	float sd = sqrt(max(mo.z / mo.y - mu * mu, 1.0e-6 * mu * mu)) + 1.0e-3;
+	float c0 = longshot_clouds_cdf(-mu / sd);
+	float f = clamp((longshot_clouds_cdf((p_z - mu) / sd) - c0) / max(1.0 - c0, 1.0e-6), 0.0, 1.0);
+	return vec4(lt.rgb * f, 1.0 - f * (1.0 - clamp(lt.a, 0.0, 1.0)));
+}
+#endif
+
 void cluster_get_item_range(uint p_offset, out uint item_min, out uint item_max, out uint item_from, out uint item_to) {
 	uint item_min_max = cluster_buffer.data[p_offset];
 	item_min = item_min_max & 0xFFFFu;
@@ -1208,6 +1231,18 @@ void fragment_shader(in SceneData scene_data) {
 #ifdef PREMUL_ALPHA_USED
 	float premul_alpha = 1.0;
 #endif // PREMUL_ALPHA_USED
+#ifdef LONGSHOT_CLOUDS_USED
+	// LONGSHOT patch #18: LONGSHOT_CLOUDS - the sky's clouds at this pixel for a fragment that takes them itself (render_mode
+	// clouds_disabled: a volume the clouds may stand before, behind or through): their light as composited (the frame's own pre-exposed
+	// units, the air in front of them in it) and their transmittance - no light and a whole transmittance where none were handed over
+	// this frame or outside the transparent pass
+	vec4 longshot_clouds_here = vec4(0.0, 0.0, 0.0, 1.0);
+#if !defined(MODE_RENDER_DEPTH) && !defined(MODE_RENDER_SDF)
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_LONGSHOT_CLOUDS)) {
+		longshot_clouds_here = texelFetch(sampler2D(longshot_clouds_light, SAMPLER_NEAREST_CLAMP), ivec2(gl_FragCoord.xy), 0);
+	}
+#endif
+#endif // LONGSHOT_CLOUDS_USED
 	//lay out everything, whatever is unused is optimized away anyway
 	vec3 vertex = vertex_interp;
 #ifdef USE_MULTIVIEW
@@ -3099,6 +3134,29 @@ void fragment_shader(in SceneData scene_data) {
 #if defined(PREMUL_ALPHA_USED) && !defined(MODE_RENDER_DEPTH)
 	frag_color.rgb *= premul_alpha;
 #endif //PREMUL_ALPHA_USED
+
+#ifndef LONGSHOT_CLOUDS_DISABLED
+	// LONGSHOT patch #18: THE CLOUDS IN FRONT OF EVERY SURFACE - in the transparent pass, the clouds composited before it stand in front of
+	// this surface by their share before its distance, applied by the way it blends (the clouds behind it are in what it blends over) -
+	// on the colour as it is blended: after the fog and after the premultiplied factor (a film fading by PREMUL_ALPHA_FACTOR takes the
+	// clouds' light before it by its alpha alone, not by the factor a second time)
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_LONGSHOT_CLOUDS)) {
+		// the surface's own distance along its ray, from the depth it is drawn at - a quad set at the far plane by POSITION (the stars, the
+		// deep sky, the zodiacal light) stands behind every cloud whatever its mesh's own place, a mesh where its vertex is
+		vec4 lsv = inv_projection_matrix * vec4(screen_uv * 2.0 - 1.0, gl_FragCoord.z, 1.0);
+		float lsz = abs(lsv.w) > 1.0e-20 ? length(lsv.xyz / lsv.w) : 1.0e20;
+		vec4 lsc = longshot_clouds_front(ivec2(gl_FragCoord.xy), lsz);
+#if defined(LONGSHOT_BLEND_ADD) || defined(LONGSHOT_BLEND_SUB)
+		frag_color.rgb *= lsc.a;
+#elif defined(LONGSHOT_BLEND_MUL)
+		frag_color.rgb = mix(vec3(1.0), frag_color.rgb, lsc.a);
+#elif defined(LONGSHOT_BLEND_PREMUL)
+		frag_color.rgb = frag_color.rgb * lsc.a + frag_color.a * lsc.rgb;
+#else
+		frag_color.rgb = frag_color.rgb * lsc.a + lsc.rgb;
+#endif
+	}
+#endif //!LONGSHOT_CLOUDS_DISABLED
 
 #endif //MODE_SEPARATE_SPECULAR
 

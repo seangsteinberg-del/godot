@@ -150,6 +150,7 @@ ShaderTypes::ShaderTypes() {
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["COLOR"] = constt(ShaderLanguage::TYPE_VEC4);
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["ALBEDO"] = ShaderLanguage::TYPE_VEC3;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["PREMUL_ALPHA_FACTOR"] = ShaderLanguage::TYPE_FLOAT;
+	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["LONGSHOT_CLOUDS"] = constt(ShaderLanguage::TYPE_VEC4); // LONGSHOT patch #18
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["ALPHA"] = ShaderLanguage::TYPE_FLOAT;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["METALLIC"] = ShaderLanguage::TYPE_FLOAT;
 	shader_modes[RSE::SHADER_SPATIAL].functions["fragment"].built_ins["SPECULAR"] = ShaderLanguage::TYPE_FLOAT;
@@ -259,6 +260,7 @@ ShaderTypes::ShaderTypes() {
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("alpha_to_coverage_and_one") });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("debug_shadow_splits") });
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("fog_disabled") });
+		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("clouds_disabled") }); // LONGSHOT patch #18
 		shader_modes[RSE::SHADER_SPATIAL].modes.push_back({ PNAME("specular_occlusion_disabled") });
 		shader_modes[RSE::SHADER_SPATIAL].stencil_modes.push_back({ PNAME("read") });
 		shader_modes[RSE::SHADER_SPATIAL].stencil_modes.push_back({ PNAME("write") });

@@ -71,7 +71,7 @@ RID RenderSceneDataRD::create_uniform_buffer() {
 	return RD::get_singleton()->uniform_buffer_create(sizeof(UBODATA));
 }
 
-void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw p_debug_mode, RID p_env, RID p_reflection_probe_instance, RID p_camera_attributes, bool p_pancake_shadows, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, float p_luminance_multiplier, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier) {
+void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw p_debug_mode, RID p_env, RID p_reflection_probe_instance, RID p_camera_attributes, bool p_pancake_shadows, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, float p_luminance_multiplier, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier, bool p_longshot_clouds) {
 	RendererSceneRenderRD *render_scene_render = RendererSceneRenderRD::get_singleton();
 
 	UBODATA ubo_data;
@@ -155,6 +155,7 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 	ubo.opaque_prepass_threshold = opaque_prepass_threshold;
 	ubo.flags |= material_uv2_mode ? SCENE_DATA_FLAGS_USE_UV2_MATERIAL : 0;
 	ubo.flags |= shadow_pass ? SCENE_DATA_FLAGS_IN_SHADOW_PASS : 0;
+	ubo.flags |= p_longshot_clouds ? SCENE_DATA_FLAGS_LONGSHOT_CLOUDS : 0; // LONGSHOT patch #18
 
 	if (p_debug_mode == RSE::VIEWPORT_DEBUG_DRAW_UNSHADED) {
 		ubo.flags |= SCENE_DATA_FLAGS_USE_AMBIENT_LIGHT;

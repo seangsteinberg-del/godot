@@ -704,7 +704,7 @@ void RenderForwardClustered::_render_list_with_draw_list(RenderListParameters *p
 	RD::get_singleton()->draw_list_end();
 }
 
-uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render_data, bool p_no_fog, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier, bool p_pancake_shadows) {
+uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render_data, bool p_no_fog, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier, bool p_pancake_shadows, bool p_longshot_clouds) {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	Ref<RenderSceneBuffersRD> rd = p_render_data->render_buffers;
@@ -725,7 +725,7 @@ uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render
 
 	float luminance_multiplier = rd.is_valid() ? rd->get_luminance_multiplier() : 1.0;
 
-	p_render_data->scene_data->update_ubo(scene_state.uniform_buffers[uniform_buffer_index], get_debug_draw_mode(), env, reflection_probe_instance, p_render_data->camera_attributes, p_pancake_shadows, p_screen_size, p_viewport_size, p_default_bg_color, luminance_multiplier, p_opaque_render_buffers, p_apply_alpha_multiplier);
+	p_render_data->scene_data->update_ubo(scene_state.uniform_buffers[uniform_buffer_index], get_debug_draw_mode(), env, reflection_probe_instance, p_render_data->camera_attributes, p_pancake_shadows, p_screen_size, p_viewport_size, p_default_bg_color, luminance_multiplier, p_opaque_render_buffers, p_apply_alpha_multiplier, p_longshot_clouds);
 
 	// now do implementation UBO
 
@@ -2452,7 +2452,8 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	RD::get_singleton()->draw_command_begin_label("Render 3D Transparent Pass");
 
-	uint32_t transparent_pass_uniform_buffer_index = _setup_environment(p_render_data, is_reflection_probe, screen_size, screen_size, p_default_bg_color, false);
+	// LONGSHOT patch #18: the transparent pass takes the clouds in front of each surface where they were handed over this frame
+	uint32_t transparent_pass_uniform_buffer_index = _setup_environment(p_render_data, is_reflection_probe, screen_size, screen_size, p_default_bg_color, false, false, false, rb.is_valid() && rb->has_longshot_clouds());
 
 	rp_uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_ALPHA, p_render_data, radiance_texture, samplers, transparent_pass_uniform_buffer_index, true);
 
@@ -3822,6 +3823,22 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		RID texture = ssr_mip_level.is_valid() ? ssr_mip_level : texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK);
 		u.append_id(texture);
 		uniforms.push_back(u);
+	}
+	{
+		// LONGSHOT patch #18: THE CLOUDS IN FRONT OF EVERY SURFACE - the clouds' light and transmittance, their distance's moments (read
+		// only where the pass's flag says they were handed over this frame). The transparent pass's set alone asks for them: the opaque
+		// pass's is built before the frame's effects run (and an early ask would read as an effect that ran before the clouds')
+		const bool clouds = p_render_list == RENDER_LIST_ALPHA && rb.is_valid() && rb->has_longshot_clouds();
+		RD::Uniform u;
+		u.binding = 37;
+		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+		u.append_id(clouds ? rb->get_longshot_clouds_light() : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK));
+		uniforms.push_back(u);
+		RD::Uniform v;
+		v.binding = 38;
+		v.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+		v.append_id(clouds ? rb->get_longshot_clouds_depth() : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK));
+		uniforms.push_back(v);
 	}
 
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.default_shader_rd, RENDER_PASS_UNIFORM_SET, uniforms);

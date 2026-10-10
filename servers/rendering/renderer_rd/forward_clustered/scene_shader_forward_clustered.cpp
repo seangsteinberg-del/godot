@@ -763,6 +763,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		actions.renames["ALBEDO"] = "albedo_highp";
 		actions.renames["ALPHA"] = "alpha_highp";
 		actions.renames["PREMUL_ALPHA_FACTOR"] = "premul_alpha";
+		actions.renames["LONGSHOT_CLOUDS"] = "longshot_clouds_here"; // LONGSHOT patch #18
 		actions.renames["METALLIC"] = "metallic_highp";
 		actions.renames["SPECULAR"] = "specular";
 		actions.renames["ROUGHNESS"] = "roughness_highp";
@@ -857,6 +858,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		actions.usage_defines["ALPHA_ANTIALIASING_EDGE"] = "#define ALPHA_ANTIALIASING_EDGE_USED\n";
 		actions.usage_defines["ALPHA_TEXTURE_COORDINATE"] = "@ALPHA_ANTIALIASING_EDGE";
 		actions.usage_defines["PREMUL_ALPHA_FACTOR"] = "#define PREMUL_ALPHA_USED\n";
+		actions.usage_defines["LONGSHOT_CLOUDS"] = "#define LONGSHOT_CLOUDS_USED\n"; // LONGSHOT patch #18
 
 		actions.usage_defines["SSS_STRENGTH"] = "#define ENABLE_SSS\n";
 		actions.usage_defines["SSS_TRANSMITTANCE_DEPTH"] = "#define ENABLE_TRANSMITTANCE\n";
@@ -908,6 +910,12 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 
 		actions.render_mode_defines["debug_shadow_splits"] = "#define DEBUG_DRAW_PSSM_SPLITS\n";
 		actions.render_mode_defines["fog_disabled"] = "#define FOG_DISABLED\n";
+		// LONGSHOT patch #18: THE CLOUDS IN FRONT OF EVERY SURFACE - by the way the surface blends; a material that takes them itself opts out
+		actions.render_mode_defines["clouds_disabled"] = "#define LONGSHOT_CLOUDS_DISABLED\n";
+		actions.render_mode_defines["blend_add"] = "#define LONGSHOT_BLEND_ADD\n";
+		actions.render_mode_defines["blend_sub"] = "#define LONGSHOT_BLEND_SUB\n";
+		actions.render_mode_defines["blend_mul"] = "#define LONGSHOT_BLEND_MUL\n";
+		actions.render_mode_defines["blend_premul_alpha"] = "#define LONGSHOT_BLEND_PREMUL\n";
 
 		actions.render_mode_defines["specular_occlusion_disabled"] = "#define SPECULAR_OCCLUSION_DISABLED\n";
 

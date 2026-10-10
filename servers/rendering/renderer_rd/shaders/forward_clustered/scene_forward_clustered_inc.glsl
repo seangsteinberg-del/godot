@@ -485,6 +485,11 @@ layout(set = 1, binding = 35) uniform texture2D ssr_buffer;
 layout(set = 1, binding = 36) uniform texture2D ssr_mip_level_buffer;
 #endif // USE_MULTIVIEW
 
+// LONGSHOT patch #18: THE CLOUDS IN FRONT OF EVERY SURFACE - a sky's clouds' light at the pixel (pre-exposed, the air in front of them in
+// it) and transmittance, and their distance's moments (the sum of the weights times the distance, the weights, the weights times its square)
+layout(set = 1, binding = 37) uniform texture2D longshot_clouds_light;
+layout(set = 1, binding = 38) uniform texture2D longshot_clouds_depth;
+
 #endif
 
 vec4 normal_roughness_compatibility(vec4 p_normal_roughness) {

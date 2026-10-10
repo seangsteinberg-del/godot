@@ -12,6 +12,32 @@
 	<tutorials>
 	</tutorials>
 	<methods>
+		<method name="get_longshot_clouds_depth" qualifiers="const">
+			<return type="RID" />
+			<description>
+				LONGSHOT patch #18: the sky's clouds' distance moments handed over this frame - the sum of their march's weights times the distance, the weights, and the weights times the distance's square.
+			</description>
+		</method>
+		<method name="get_longshot_clouds_light" qualifiers="const">
+			<return type="RID" />
+			<description>
+				LONGSHOT patch #18: the sky's clouds' light at each pixel (pre-exposed, the air in front of them in it) and their transmittance, handed over this frame.
+			</description>
+		</method>
+		<method name="has_longshot_clouds" qualifiers="const">
+			<return type="bool" />
+			<description>
+				LONGSHOT patch #18: whether the sky's clouds were handed over this frame (the transparent pass then takes the clouds in front of each surface at its own distance). An effect that takes the clouds itself asks after the clouds' own effect has run: clouds handed over after this answered no in the same frame print an error.
+			</description>
+		</method>
+		<method name="set_longshot_clouds">
+			<return type="void" />
+			<param index="0" name="light" type="RID" />
+			<param index="1" name="depth" type="RID" />
+			<description>
+				LONGSHOT patch #18: the sky's clouds, composited before the transparent pass, hand over their light and transmittance and their distance moments for this frame.
+			</description>
+		</method>
 		<method name="clear_context">
 			<return type="void" />
 			<param index="0" name="context" type="StringName" />
