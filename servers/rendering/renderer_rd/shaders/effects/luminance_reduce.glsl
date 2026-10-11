@@ -9,6 +9,7 @@
 layout(local_size_x = BLOCK_SIZE, local_size_y = BLOCK_SIZE, local_size_z = 1) in;
 
 shared float tmp_data[BLOCK_SIZE * BLOCK_SIZE];
+shared float tmp_w[BLOCK_SIZE * BLOCK_SIZE]; // THE METER READS THE SUBJECT (patch 20): the pixels' weights beside their logs
 
 // THE LOG-MEAN METER (the fork's patch 13, Longshot): the frame's adapting luminance is the geometric mean of its pixels'
 // luminance - Reinhard, Stark, Shirley & Ferwerda 2002, the log-average as the scene's key - so a small bright source (a Moon's
@@ -24,11 +25,15 @@ layout(set = 0, binding = 0) uniform sampler2D source_texture;
 #else
 
 //use for intermediate textures
-layout(r32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance;
+layout(rg32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance; // THE METER READS THE SUBJECT (patch 20): r the weighted log's mean, g the weight's mean
 
 #endif
 
-layout(r32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
+#ifdef WRITE_LUMINANCE
+layout(r32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance; // the final: the effective luminance alone
+#else
+layout(rg32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
+#endif
 
 #ifdef WRITE_LUMINANCE
 layout(set = 2, binding = 0) uniform sampler2D prev_luminance;
@@ -67,12 +72,27 @@ void main() {
 		// no number at all as no light - one pixel never makes the eye's adaptation a NaN
 		float l = dot(v, vec3(0.2126, 0.7152, 0.0722));
 		l = isnan(l) ? 0.0 : min(l, 65504.0);
-		tmp_data[t] = log(max(l, max(params.min_luminance, 1e-20)));
+		// THE METER READS THE SUBJECT (patch 20, Longshot): a pixel under the window's floor is no subject - space about a
+		// planet's disc, a night ground under the eye's darkest adaptation - and carries no weight (the log-mean over every
+		// pixel at the floor metered a disc in black space dark and opened the eye to its ceiling whatever the disc's light);
+		// the pixels with light weigh toward the frame's centre, the template's centre-weighted histogram (0.3 at the corners)
+		// THE SUBJECT IS EVERY LIT PIXEL (patch 20 amended): the line under which a pixel is no subject is the buffer's own
+		// black - a ten-millionth of a white ground - never the window's floor (by day the key over its headroom: a dim
+		// disc's twilight half fell out with the space about it and the meter clamped at the ceiling on the bright half)
+		float floor_l = 1e-7;
+		vec2 rc = (vec2(pos) + 0.5) / vec2(params.source_size) * 2.0 - 1.0;
+		float wc = 0.3 + 0.7 * exp(-2.0 * dot(rc, rc));
+		float w = l > floor_l ? wc : 0.0;
+		tmp_data[t] = w * log(max(l, floor_l));
+		tmp_w[t] = w;
 #else
-		tmp_data[t] = imageLoad(source_luminance, pos).r;
+		vec2 sl = imageLoad(source_luminance, pos).rg;
+		tmp_data[t] = sl.r;
+		tmp_w[t] = sl.g;
 #endif
 	} else {
 		tmp_data[t] = 0.0;
+		tmp_w[t] = 0.0;
 	}
 
 	groupMemoryBarrier();
@@ -83,6 +103,7 @@ void main() {
 	do {
 		if (t < size) {
 			tmp_data[t] += tmp_data[t + size];
+			tmp_w[t] += tmp_w[t + size];
 		}
 		groupMemoryBarrier();
 		barrier();
@@ -94,9 +115,12 @@ void main() {
 		//compute rect size
 		ivec2 rect_size = min(params.source_size - pos, ivec2(BLOCK_SIZE));
 		float avg = tmp_data[0] / float(rect_size.x * rect_size.y);
-		//float avg = tmp_data[0] / float(BLOCK_SIZE*BLOCK_SIZE);
+		float wavg = tmp_w[0] / float(rect_size.x * rect_size.y);
 		pos /= ivec2(BLOCK_SIZE);
 #ifdef WRITE_LUMINANCE
+		// THE METER READS THE SUBJECT (patch 20): the weighted logs over the weight - a frame with no lit pixel meters at the
+		// floor, as every pixel did before
+		avg = wavg > 1e-9 ? avg / wavg : log(max(params.min_luminance, 1e-20));   // no lit pixel: the window's floor, as before
 		// the mean of the logs back to a luminance (the frame's geometric mean), written as the EFFECTIVE luminance: the
 		// adaptation times the day's key over the key it earns (the readers divide by it and multiply by the day's key),
 		// the window mapped through the same law; the history is effective too
@@ -116,7 +140,9 @@ void main() {
 			avg = prev_lum + (avg - prev_lum) * params.exposure_adjust;
 		}
 		avg = clamp(avg, lo, hi);
-#endif
 		imageStore(dest_luminance, pos, vec4(avg));
+#else
+		imageStore(dest_luminance, pos, vec4(avg, wavg, 0.0, 0.0)); // THE METER READS THE SUBJECT: the two means down the chain
+#endif
 	}
 }

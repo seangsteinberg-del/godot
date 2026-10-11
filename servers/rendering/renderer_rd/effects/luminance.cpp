@@ -93,11 +93,12 @@ void Luminance::LuminanceBuffers::configure(RenderSceneBuffersRD *p_render_buffe
 		h = MAX(h / 8, 1);
 
 		RD::TextureFormat tf;
-		tf.format = RD::DATA_FORMAT_R32_SFLOAT;
+		bool final = w == 1 && h == 1;
+		// THE METER READS THE SUBJECT (patch 20, Longshot): the intermediates carry the weighted log's mean and the weight's
+		// mean (rg), the final the effective luminance alone (r) as every reader expects
+		tf.format = final ? RD::DATA_FORMAT_R32_SFLOAT : RD::DATA_FORMAT_R32G32_SFLOAT;
 		tf.width = w;
 		tf.height = h;
-
-		bool final = w == 1 && h == 1;
 
 		if (prefer_raster_effects) {
 			tf.usage_bits = RD::TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RD::TEXTURE_USAGE_SAMPLING_BIT;
