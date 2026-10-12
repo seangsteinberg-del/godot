@@ -94,6 +94,8 @@ private:
 	float auto_exposure_night_scale = 0.0;
 	float auto_exposure_scotopic = 0.0;
 	float auto_exposure_photopic = 0.0;
+	// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the share of the frame's brightest lit block the meter reads at least (0: no law)
+	float auto_exposure_highlight_hold = 0.0;
 
 	virtual void _update_auto_exposure() override;
 
@@ -129,6 +131,8 @@ public:
 	float get_auto_exposure_scotopic_sensitivity() const;
 	void set_auto_exposure_photopic_sensitivity(float p_sensitivity);
 	float get_auto_exposure_photopic_sensitivity() const;
+	void set_auto_exposure_highlight_hold(float p_hold);
+	float get_auto_exposure_highlight_hold() const;
 
 	virtual float calculate_exposure_normalization() const override;
 

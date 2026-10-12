@@ -581,9 +581,13 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 			history_scale = exposure_now / luminance_buffers->last_exposure_normalization;
 		}
 		luminance_buffers->last_exposure_normalization = exposure_now;
+		// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the meter reads at least the hold's share of the frame's brightest lit block; a
+		// pixel counts at most twice a white ground in the buffer's pre-exposed units (the exposure factor is the pre-exposure)
+		const float highlight_hold = RSG::camera_attributes->camera_attributes_get_auto_exposure_highlight_hold(p_render_data->camera_attributes);
+		const float highlight_cap = 2.0f * MAX(exposure_now, 1.0e-6f);
 		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate,
 				key_ratio, RSG::camera_attributes->camera_attributes_get_auto_exposure_scotopic_luminance(p_render_data->camera_attributes),
-				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale);
+				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale, highlight_hold, highlight_cap);
 
 		// Swap final reduce with prev luminance.
 

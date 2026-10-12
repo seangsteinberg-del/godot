@@ -186,6 +186,19 @@ float RendererCameraAttributes::camera_attributes_get_auto_exposure_photopic_lum
 	return cam_attributes->auto_exposure_photopic_luminance;
 }
 
+// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the share of the frame's brightest lit block the meter reads at least
+void RendererCameraAttributes::camera_attributes_set_auto_exposure_highlight(RID p_camera_attributes, float p_hold) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->auto_exposure_highlight_hold = MAX(p_hold, 0.0f);
+}
+
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_highlight_hold(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 0.0);
+	return cam_attributes->auto_exposure_highlight_hold;
+}
+
 float RendererCameraAttributes::camera_attributes_get_auto_exposure_min_sensitivity(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);

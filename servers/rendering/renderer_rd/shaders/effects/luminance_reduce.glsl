@@ -10,6 +10,7 @@ layout(local_size_x = BLOCK_SIZE, local_size_y = BLOCK_SIZE, local_size_z = 1) i
 
 shared float tmp_data[BLOCK_SIZE * BLOCK_SIZE];
 shared float tmp_w[BLOCK_SIZE * BLOCK_SIZE]; // THE METER READS THE SUBJECT (patch 20): the pixels' weights beside their logs
+shared float tmp_h[BLOCK_SIZE * BLOCK_SIZE]; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the capped light, summed to the blocks' means, then their max
 
 // THE LOG-MEAN METER (the fork's patch 13, Longshot): the frame's adapting luminance is the geometric mean of its pixels'
 // luminance - Reinhard, Stark, Shirley & Ferwerda 2002, the log-average as the scene's key - so a small bright source (a Moon's
@@ -25,14 +26,14 @@ layout(set = 0, binding = 0) uniform sampler2D source_texture;
 #else
 
 //use for intermediate textures
-layout(rg32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance; // THE METER READS THE SUBJECT (patch 20): r the weighted log's mean, g the weight's mean
+layout(rgba32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance; // THE METER READS THE SUBJECT (patch 20): r the weighted log's mean, g the weight's mean; THE HIGHLIGHT (patch 21): b the blocks' highlight
 
 #endif
 
 #ifdef WRITE_LUMINANCE
 layout(r32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance; // the final: the effective luminance alone
 #else
-layout(rg32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
+layout(rgba32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
 #endif
 
 #ifdef WRITE_LUMINANCE
@@ -48,6 +49,14 @@ layout(push_constant, std430) uniform Params {
 	float ln_scotopic; // the log of the luminance under which the eye is wholly night-adapted (the buffer's units)
 	float ln_photopic; // the log of the luminance over which the day's key stands
 	float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): this frame's exposure multiplier over the last's
+	// THE HIGHLIGHT HOLDS THE WINDOW (patch 21, Longshot): the share of the frame's brightest lit block the meter reads at least (0: no
+	// law) - the day's window opens downward only as far as a sunlit cloud, a snowfield or a white hull stays at the display's
+	// white; a pixel counts at most the cap (twice a white ground in the buffer's units: a glint or a sun's disc is a light, not a
+	// surface); the block is 64 x 64 pixels (the pixels' means at the first rung, the blocks' means at the second, their max after)
+	float highlight_hold;
+	float highlight_cap;
+	int level;
+	int pad0;
 }
 params;
 
@@ -85,25 +94,30 @@ void main() {
 		float w = l > floor_l ? wc : 0.0;
 		tmp_data[t] = w * log(max(l, floor_l));
 		tmp_w[t] = w;
+		tmp_h[t] = min(l, params.highlight_cap); // THE HIGHLIGHT (patch 21): every pixel, space at nought, the light capped
 #else
-		vec2 sl = imageLoad(source_luminance, pos).rg;
+		vec3 sl = imageLoad(source_luminance, pos).rgb;
 		tmp_data[t] = sl.r;
 		tmp_w[t] = sl.g;
+		tmp_h[t] = sl.b;
 #endif
 	} else {
 		tmp_data[t] = 0.0;
 		tmp_w[t] = 0.0;
+		tmp_h[t] = 0.0;
 	}
 
 	groupMemoryBarrier();
 	barrier();
 
 	uint size = (BLOCK_SIZE * BLOCK_SIZE) >> 1;
+	bool h_max = params.level >= 2; // THE HIGHLIGHT (patch 21): the pixels and the blocks' means are summed, the blocks' max is kept after
 
 	do {
 		if (t < size) {
 			tmp_data[t] += tmp_data[t + size];
 			tmp_w[t] += tmp_w[t + size];
+			tmp_h[t] = h_max ? max(tmp_h[t], tmp_h[t + size]) : tmp_h[t] + tmp_h[t + size];
 		}
 		groupMemoryBarrier();
 		barrier();
@@ -116,6 +130,7 @@ void main() {
 		ivec2 rect_size = min(params.source_size - pos, ivec2(BLOCK_SIZE));
 		float avg = tmp_data[0] / float(rect_size.x * rect_size.y);
 		float wavg = tmp_w[0] / float(rect_size.x * rect_size.y);
+		float hblk = h_max ? tmp_h[0] : tmp_h[0] / float(rect_size.x * rect_size.y); // THE HIGHLIGHT (patch 21): the block's mean, or the blocks' max
 		pos /= ivec2(BLOCK_SIZE);
 #ifdef WRITE_LUMINANCE
 		// THE METER READS THE SUBJECT (patch 20): the weighted logs over the weight - a frame with no lit pixel meters at the
@@ -128,6 +143,12 @@ void main() {
 		float lo = params.min_luminance * key_ratio_at(params.min_luminance);
 		float hi = max(params.max_luminance * key_ratio_at(params.max_luminance), lo);
 		avg *= key_ratio_at(clamp(avg, params.min_luminance, params.max_luminance));
+		// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the meter reads at least the hold's share of the frame's brightest lit block, so
+		// the gain (the scale over the reading) is at most one over the block's light times the scale over the hold - the day's
+		// opening stops where its brightest surface reaches white; nought by night (the night's eye keeps patch 13's own law)
+		if (params.highlight_hold > 0.0) {
+			avg = max(avg, params.highlight_hold * hblk);
+		}
 		if (params.exposure_adjust < 1.0) { // the immediate frame (the blend at one) never reads the history: it may be unwritten
 			float prev_lum = texelFetch(prev_luminance, ivec2(0, 0), 0).r; //1 pixel previous exposure
 			if (isnan(prev_lum) || isinf(prev_lum)) {
@@ -142,7 +163,7 @@ void main() {
 		avg = clamp(avg, lo, hi);
 		imageStore(dest_luminance, pos, vec4(avg));
 #else
-		imageStore(dest_luminance, pos, vec4(avg, wavg, 0.0, 0.0)); // THE METER READS THE SUBJECT: the two means down the chain
+		imageStore(dest_luminance, pos, vec4(avg, wavg, hblk, 0.0)); // THE METER READS THE SUBJECT: the two means down the chain, THE HIGHLIGHT beside them
 #endif
 	}
 }

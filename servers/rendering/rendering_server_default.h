@@ -916,6 +916,7 @@ public:
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 	FUNC4(camera_attributes_set_auto_exposure_night, RID, float, float, float)
+	FUNC2(camera_attributes_set_auto_exposure_highlight, RID, float)
 
 	/* SCENARIO API */
 

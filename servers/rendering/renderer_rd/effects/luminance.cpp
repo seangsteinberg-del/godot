@@ -95,8 +95,9 @@ void Luminance::LuminanceBuffers::configure(RenderSceneBuffersRD *p_render_buffe
 		RD::TextureFormat tf;
 		bool final = w == 1 && h == 1;
 		// THE METER READS THE SUBJECT (patch 20, Longshot): the intermediates carry the weighted log's mean and the weight's
-		// mean (rg), the final the effective luminance alone (r) as every reader expects
-		tf.format = final ? RD::DATA_FORMAT_R32_SFLOAT : RD::DATA_FORMAT_R32G32_SFLOAT;
+		// mean (rg) and THE HIGHLIGHT (patch 21: the blocks' capped mean, then their max, b); the final the effective luminance
+		// alone (r) as every reader expects
+		tf.format = final ? RD::DATA_FORMAT_R32_SFLOAT : RD::DATA_FORMAT_R32G32B32A32_SFLOAT;
 		tf.width = w;
 		tf.height = h;
 
@@ -157,7 +158,7 @@ RID Luminance::get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_b
 	return RID();
 }
 
-void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale) {
+void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale, float p_highlight_hold, float p_highlight_cap) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -217,6 +218,9 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.ln_scotopic = key_law ? Math::log(p_scotopic_luminance) : 0.0f;
 		push_constant.ln_photopic = key_law ? Math::log(p_photopic_luminance) : 0.0f;
 		push_constant.history_scale = p_history_scale > 0.0f ? p_history_scale : 1.0f; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
+		push_constant.highlight_hold = MAX(p_highlight_hold, 0.0f); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21)
+		push_constant.highlight_cap = p_highlight_cap > 0.0f ? p_highlight_cap : 65504.0f;
+		push_constant.level = 0;
 
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 
@@ -250,6 +254,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 			RD::Uniform u_reduce_texture(RD::UNIFORM_TYPE_IMAGE, 0, p_luminance_buffers->reduce[i]);
 			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 1, u_reduce_texture), 1);
 
+			push_constant.level = i; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the pass's rung
 			RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(LuminanceReducePushConstant));
 
 			RD::get_singleton()->compute_list_dispatch_threads(compute_list, push_constant.source_size[0], push_constant.source_size[1], 1);
