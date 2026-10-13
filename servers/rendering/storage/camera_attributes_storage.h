@@ -53,6 +53,7 @@ private:
 		float auto_exposure_scotopic_luminance = 0.0;
 		float auto_exposure_photopic_luminance = 0.0;
 		float auto_exposure_highlight_hold = 0.0; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): 0 no law
+		float auto_exposure_light_hold = 0.0; // THE FILLED LIGHT (patch 22): 0 no law
 
 		bool dof_blur_far_enabled = false;
 		float dof_blur_far_distance = 10;
@@ -114,8 +115,9 @@ public:
 	float camera_attributes_get_auto_exposure_night_scale(RID p_camera_attributes);
 	float camera_attributes_get_auto_exposure_scotopic_luminance(RID p_camera_attributes);
 	float camera_attributes_get_auto_exposure_photopic_luminance(RID p_camera_attributes);
-	void camera_attributes_set_auto_exposure_highlight(RID p_camera_attributes, float p_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21)
+	void camera_attributes_set_auto_exposure_highlight(RID p_camera_attributes, float p_hold, float p_light_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21), THE FILLED LIGHT (patch 22)
 	float camera_attributes_get_auto_exposure_highlight_hold(RID p_camera_attributes);
+	float camera_attributes_get_auto_exposure_light_hold(RID p_camera_attributes);
 
 	_FORCE_INLINE_ bool camera_attributes_uses_auto_exposure(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

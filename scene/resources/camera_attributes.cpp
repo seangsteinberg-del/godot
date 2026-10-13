@@ -288,6 +288,19 @@ float CameraAttributesPractical::get_auto_exposure_highlight_hold() const {
 	return auto_exposure_highlight_hold;
 }
 
+// THE FILLED LIGHT (patch 22): the metered luminance is at least this share of the frame's brightest FILLED block (the least of
+// a 32 x 32 block's 8 x 8 sub-blocks' means, uncapped), so a light that fills the eye - a near entry fire, an engine's flame -
+// is shown at the key's scale over this share however dark the rest of the frame; a glint, a star or a disc at a normal lens
+// never fills a block. The game sets it while such a light burns in view; 0: no law
+void CameraAttributesPractical::set_auto_exposure_light_hold(float p_hold) {
+	auto_exposure_light_hold = MAX(p_hold, 0.0f);
+	_update_auto_exposure();
+}
+
+float CameraAttributesPractical::get_auto_exposure_light_hold() const {
+	return auto_exposure_light_hold;
+}
+
 void CameraAttributesPractical::_update_auto_exposure() {
 	RS::get_singleton()->camera_attributes_set_auto_exposure(
 			get_rid(),
@@ -301,7 +314,7 @@ void CameraAttributesPractical::_update_auto_exposure() {
 			auto_exposure_night_scale,
 			auto_exposure_scotopic * ((12.5 / 100.0) / exposure_sensitivity), // Convert from Sensitivity to Luminance
 			auto_exposure_photopic * ((12.5 / 100.0) / exposure_sensitivity)); // Convert from Sensitivity to Luminance
-	RS::get_singleton()->camera_attributes_set_auto_exposure_highlight(get_rid(), auto_exposure_highlight_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21)
+	RS::get_singleton()->camera_attributes_set_auto_exposure_highlight(get_rid(), auto_exposure_highlight_hold, auto_exposure_light_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21), THE FILLED LIGHT (patch 22)
 	emit_changed();
 }
 
@@ -346,6 +359,8 @@ void CameraAttributesPractical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_photopic_sensitivity"), &CameraAttributesPractical::get_auto_exposure_photopic_sensitivity);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_highlight_hold", "hold"), &CameraAttributesPractical::set_auto_exposure_highlight_hold);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_highlight_hold"), &CameraAttributesPractical::get_auto_exposure_highlight_hold);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_light_hold", "hold"), &CameraAttributesPractical::set_auto_exposure_light_hold);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_light_hold"), &CameraAttributesPractical::get_auto_exposure_light_hold);
 
 	ADD_GROUP("DOF Blur", "dof_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_blur_far_enabled"), "set_dof_blur_far_enabled", "is_dof_blur_far_enabled");
@@ -363,6 +378,7 @@ void CameraAttributesPractical::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_scotopic_sensitivity", PROPERTY_HINT_RANGE, "0,1600,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_scotopic_sensitivity", "get_auto_exposure_scotopic_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_photopic_sensitivity", PROPERTY_HINT_RANGE, "0,64000,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_photopic_sensitivity", "get_auto_exposure_photopic_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_highlight_hold", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_highlight_hold", "get_auto_exposure_highlight_hold");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_light_hold", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_light_hold", "get_auto_exposure_light_hold");
 }
 
 CameraAttributesPractical::CameraAttributesPractical() {

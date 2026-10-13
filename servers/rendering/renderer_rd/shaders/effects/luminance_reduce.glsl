@@ -11,6 +11,8 @@ layout(local_size_x = BLOCK_SIZE, local_size_y = BLOCK_SIZE, local_size_z = 1) i
 shared float tmp_data[BLOCK_SIZE * BLOCK_SIZE];
 shared float tmp_w[BLOCK_SIZE * BLOCK_SIZE]; // THE METER READS THE SUBJECT (patch 20): the pixels' weights beside their logs
 shared float tmp_h[BLOCK_SIZE * BLOCK_SIZE]; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the capped light, summed to the blocks' means, then their max
+shared float tmp_f[BLOCK_SIZE * BLOCK_SIZE]; // THE FILLED LIGHT (patch 22): the light uncapped, summed to the 8 x 8 means, their min over each 32 x 32 block, then the blocks' max
+shared float tmp_q[4]; // THE FILLED LIGHT (patch 22): the blocks' rung's four 32 x 32 quarters, each its least 8 x 8 mean
 
 // THE LOG-MEAN METER (the fork's patch 13, Longshot): the frame's adapting luminance is the geometric mean of its pixels'
 // luminance - Reinhard, Stark, Shirley & Ferwerda 2002, the log-average as the scene's key - so a small bright source (a Moon's
@@ -26,7 +28,7 @@ layout(set = 0, binding = 0) uniform sampler2D source_texture;
 #else
 
 //use for intermediate textures
-layout(rgba32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance; // THE METER READS THE SUBJECT (patch 20): r the weighted log's mean, g the weight's mean; THE HIGHLIGHT (patch 21): b the blocks' highlight
+layout(rgba32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance; // THE METER READS THE SUBJECT (patch 20): r the weighted log's mean, g the weight's mean; THE HIGHLIGHT (patch 21): b the blocks' highlight; THE FILLED LIGHT (patch 22): a
 
 #endif
 
@@ -56,7 +58,14 @@ layout(push_constant, std430) uniform Params {
 	float highlight_hold;
 	float highlight_cap;
 	int level;
-	int pad0;
+	// THE FILLED LIGHT (patch 22, Longshot): the share of the frame's brightest FILLED block the meter reads at least (0: no law) -
+	// a block's light is the least of its 8 x 8 sub-blocks' uncapped means, so a light counts whole only where it fills 32 x 32
+	// pixels (about a degree and a half of a 1080p frame at 50 degrees): a near entry fire's layer - face on, edge on or round a
+	// backshell seen from behind - or an engine's flame does, a glint, a star, the Sun's or the Moon's disc at a normal lens or a
+	// far fire's head never does. The game sets it where the scene has no key light of its own (the night, the shadow): there a light
+	// that fills the eye is the scene's light, and the eye exposes for it as a camera does - the sheet at the surface near white,
+	// its colour around it - where the log mean of a frame mostly black left a near fire many stops past white
+	float light_hold;
 }
 params;
 
@@ -95,20 +104,41 @@ void main() {
 		tmp_data[t] = w * log(max(l, floor_l));
 		tmp_w[t] = w;
 		tmp_h[t] = min(l, params.highlight_cap); // THE HIGHLIGHT (patch 21): every pixel, space at nought, the light capped
+		tmp_f[t] = l; // THE FILLED LIGHT (patch 22): every pixel's whole light
 #else
-		vec3 sl = imageLoad(source_luminance, pos).rgb;
+		vec4 sl = imageLoad(source_luminance, pos);
 		tmp_data[t] = sl.r;
 		tmp_w[t] = sl.g;
 		tmp_h[t] = sl.b;
+		tmp_f[t] = sl.a;
 #endif
 	} else {
 		tmp_data[t] = 0.0;
 		tmp_w[t] = 0.0;
 		tmp_h[t] = 0.0;
+		tmp_f[t] = params.level == 1 ? 3.0e38 : 0.0; // THE FILLED LIGHT (patch 22): no texel is no part of a block's least, nor of a sum or a max
 	}
 
 	groupMemoryBarrier();
 	barrier();
+
+	// THE FILLED LIGHT (patch 22): at the blocks' rung each of the 64 x 64 region's four 32 x 32 quarters takes the least of its
+	// 4 x 4 eight-pixel means (a quarter past the frame's edge has no light: nought), before the tree below sums or maxes the rest
+	if (params.level == 1) {
+		if (t < 4u) {
+			uint qx = (t & 1u) * 4u;
+			uint qy = (t >> 1u) * 4u;
+			float m = 3.0e38;
+			for (uint yy = 0u; yy < 4u; yy++) {
+				for (uint xx = 0u; xx < 4u; xx++) {
+					m = min(m, tmp_f[(qy + yy) * BLOCK_SIZE + qx + xx]);
+				}
+			}
+			tmp_q[t] = m >= 3.0e38 ? 0.0 : m;
+		}
+		groupMemoryBarrier();
+		barrier();
+	}
 
 	uint size = (BLOCK_SIZE * BLOCK_SIZE) >> 1;
 	bool h_max = params.level >= 2; // THE HIGHLIGHT (patch 21): the pixels and the blocks' means are summed, the blocks' max is kept after
@@ -118,6 +148,11 @@ void main() {
 			tmp_data[t] += tmp_data[t + size];
 			tmp_w[t] += tmp_w[t + size];
 			tmp_h[t] = h_max ? max(tmp_h[t], tmp_h[t + size]) : tmp_h[t] + tmp_h[t + size];
+			// THE FILLED LIGHT (patch 22): the pixels summed to the 8 x 8 means, the blocks' max past the blocks' rung (the blocks'
+			// rung takes its quarters below)
+			if (params.level != 1) {
+				tmp_f[t] = params.level == 0 ? tmp_f[t] + tmp_f[t + size] : max(tmp_f[t], tmp_f[t + size]);
+			}
 		}
 		groupMemoryBarrier();
 		barrier();
@@ -131,6 +166,8 @@ void main() {
 		float avg = tmp_data[0] / float(rect_size.x * rect_size.y);
 		float wavg = tmp_w[0] / float(rect_size.x * rect_size.y);
 		float hblk = h_max ? tmp_h[0] : tmp_h[0] / float(rect_size.x * rect_size.y); // THE HIGHLIGHT (patch 21): the block's mean, or the blocks' max
+		// THE FILLED LIGHT (patch 22): the 8 x 8 mean, the region's best 32 x 32 quarter's least, or the blocks' max
+		float fblk = params.level == 0 ? tmp_f[0] / float(rect_size.x * rect_size.y) : (params.level == 1 ? max(max(tmp_q[0], tmp_q[1]), max(tmp_q[2], tmp_q[3])) : tmp_f[0]);
 		pos /= ivec2(BLOCK_SIZE);
 #ifdef WRITE_LUMINANCE
 		// THE METER READS THE SUBJECT (patch 20): the weighted logs over the weight - a frame with no lit pixel meters at the
@@ -149,6 +186,11 @@ void main() {
 		if (params.highlight_hold > 0.0) {
 			avg = max(avg, params.highlight_hold * hblk);
 		}
+		// THE FILLED LIGHT (patch 22): and at least the light hold's share of the frame's brightest filled block - a light that fills
+		// the eye lands there at the key's scale over the hold, however dark the rest of the frame reads
+		if (params.light_hold > 0.0) {
+			avg = max(avg, params.light_hold * fblk);
+		}
 		if (params.exposure_adjust < 1.0) { // the immediate frame (the blend at one) never reads the history: it may be unwritten
 			float prev_lum = texelFetch(prev_luminance, ivec2(0, 0), 0).r; //1 pixel previous exposure
 			if (isnan(prev_lum) || isinf(prev_lum)) {
@@ -163,7 +205,7 @@ void main() {
 		avg = clamp(avg, lo, hi);
 		imageStore(dest_luminance, pos, vec4(avg));
 #else
-		imageStore(dest_luminance, pos, vec4(avg, wavg, hblk, 0.0)); // THE METER READS THE SUBJECT: the two means down the chain, THE HIGHLIGHT beside them
+		imageStore(dest_luminance, pos, vec4(avg, wavg, hblk, fblk)); // THE METER READS THE SUBJECT: the two means down the chain, THE HIGHLIGHT and THE FILLED LIGHT beside them
 #endif
 	}
 }
