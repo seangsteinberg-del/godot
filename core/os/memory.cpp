@@ -37,6 +37,7 @@
 #include "core/math/math_funcs_binary.h"
 #endif
 
+#include <cstdio>
 #include <cstdlib>
 
 #ifdef DEBUG_ENABLED
@@ -101,7 +102,16 @@ void *Memory::alloc_static(size_t p_bytes, bool p_pad_align) {
 		mem = malloc(p_bytes + (prepad ? DATA_OFFSET : 0));
 	}
 
-	ERR_FAIL_NULL_V(mem, nullptr);
+	if (unlikely(!mem)) {
+		// OUT OF MEMORY IS THE END, SAID PLAINLY (LONGSHOT 10-14): the system refused the allocation - the committed memory (the machine's
+		// RAM and pagefile, shared with every program) is spent. Nothing after this can stand: the error macros build Strings (an
+		// allocation each), and the game died inside them with no word of why (the director's 19:18 crash: a generated moon's tables, a
+		// null from an eight-megabyte ask, the trace ending in CowData<char32_t>). One plain line without an allocation, the log flushed,
+		// the trap: the crash handler then prints its trace under a line that names the cause
+		fprintf(stderr, "FATAL: OUT OF MEMORY - the system refused an allocation of %llu bytes: the machine's committed memory (its RAM and pagefile, shared with every program) is spent. The game ends here.\n", (unsigned long long)p_bytes);
+		fflush(stderr);
+		GENERATE_TRAP();
+	}
 	GodotProfileAlloc(mem, p_bytes + (prepad ? DATA_OFFSET : 0));
 
 	if (prepad) {
@@ -158,7 +168,12 @@ void *Memory::realloc_static(void *p_memory, size_t p_bytes, bool p_pad_align) {
 
 			GodotProfileFree(mem);
 			mem = (uint8_t *)realloc(mem, p_bytes + DATA_OFFSET);
-			ERR_FAIL_NULL_V(mem, nullptr);
+			if (unlikely(!mem)) {
+				// OUT OF MEMORY IS THE END, SAID PLAINLY (LONGSHOT 10-14): as alloc_static
+				fprintf(stderr, "FATAL: OUT OF MEMORY - the system refused a reallocation to %llu bytes: the machine's committed memory (its RAM and pagefile, shared with every program) is spent. The game ends here.\n", (unsigned long long)p_bytes);
+				fflush(stderr);
+				GENERATE_TRAP();
+			}
 			GodotProfileAlloc(mem, p_bytes + DATA_OFFSET);
 
 			s = (uint64_t *)(mem + SIZE_OFFSET);
