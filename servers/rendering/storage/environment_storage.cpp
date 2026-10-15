@@ -273,6 +273,26 @@ float RendererEnvironmentStorage::environment_get_tonemap_agx_contrast(RID p_env
 	return env->tonemap_agx_contrast;
 }
 
+// THE EYE (patch 24)
+void RendererEnvironmentStorage::environment_set_eye(RID p_env, const Color &p_white_balance, float p_sharpness) {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL(env);
+	env->eye_white_balance = Vector3(p_white_balance.r, p_white_balance.g, p_white_balance.b);
+	env->eye_sharpness = p_sharpness;
+}
+
+Vector3 RendererEnvironmentStorage::environment_get_eye_white_balance(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, Vector3(1.0, 1.0, 1.0));
+	return env->eye_white_balance;
+}
+
+float RendererEnvironmentStorage::environment_get_eye_sharpness(RID p_env) const {
+	Environment *env = environment_owner.get_or_null(p_env);
+	ERR_FAIL_NULL_V(env, 0.0);
+	return env->eye_sharpness;
+}
+
 RendererEnvironmentStorage::TonemapParameters RendererEnvironmentStorage::environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const {
 	Environment *env = environment_owner.get_or_null(p_env);
 	ERR_FAIL_NULL_V(env, TonemapParameters());

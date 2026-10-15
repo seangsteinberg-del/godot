@@ -250,6 +250,29 @@ float Environment::get_tonemap_agx_contrast() const {
 	return tonemap_agx_contrast;
 }
 
+// THE EYE (patch 24)
+void Environment::set_eye_white_balance(const Color &p_white_balance) {
+	eye_white_balance = p_white_balance;
+	_update_eye();
+}
+
+Color Environment::get_eye_white_balance() const {
+	return eye_white_balance;
+}
+
+void Environment::set_eye_sharpness(float p_sharpness) {
+	eye_sharpness = p_sharpness;
+	_update_eye();
+}
+
+float Environment::get_eye_sharpness() const {
+	return eye_sharpness;
+}
+
+void Environment::_update_eye() {
+	RS::get_singleton()->environment_set_eye(environment, eye_white_balance, eye_sharpness);
+}
+
 void Environment::_update_tonemap() {
 	RS::get_singleton()->environment_set_tonemap(
 			environment,
@@ -1305,6 +1328,10 @@ void Environment::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_tonemap_exposure"), &Environment::get_tonemap_exposure);
 	ClassDB::bind_method(D_METHOD("set_tonemap_white", "white"), &Environment::set_tonemap_white);
 	ClassDB::bind_method(D_METHOD("get_tonemap_white"), &Environment::get_tonemap_white);
+	ClassDB::bind_method(D_METHOD("set_eye_white_balance", "white_balance"), &Environment::set_eye_white_balance);
+	ClassDB::bind_method(D_METHOD("get_eye_white_balance"), &Environment::get_eye_white_balance);
+	ClassDB::bind_method(D_METHOD("set_eye_sharpness", "sharpness"), &Environment::set_eye_sharpness);
+	ClassDB::bind_method(D_METHOD("get_eye_sharpness"), &Environment::get_eye_sharpness);
 	ClassDB::bind_method(D_METHOD("set_tonemap_agx_white", "white"), &Environment::set_tonemap_agx_white);
 	ClassDB::bind_method(D_METHOD("get_tonemap_agx_white"), &Environment::get_tonemap_agx_white);
 	ClassDB::bind_method(D_METHOD("set_tonemap_agx_contrast", "contrast"), &Environment::set_tonemap_agx_contrast);
@@ -1594,6 +1621,11 @@ void Environment::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_contrast", PROPERTY_HINT_RANGE, "0.75,1.25,0.005,or_less,or_greater"), "set_adjustment_contrast", "get_adjustment_contrast");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "adjustment_saturation", PROPERTY_HINT_RANGE, "0.0,2.0,0.01,or_less,or_greater"), "set_adjustment_saturation", "get_adjustment_saturation");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "adjustment_color_correction", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D,Texture3D"), "set_adjustment_color_correction", "get_adjustment_color_correction");
+
+	// THE EYE (patch 24): the white balance (the frame's divisor before the glow and the curve) and the CAS sharpness on the toned image
+	ADD_GROUP("Eye", "eye_");
+	ADD_PROPERTY(PropertyInfo(Variant::COLOR, "eye_white_balance", PROPERTY_HINT_COLOR_NO_ALPHA), "set_eye_white_balance", "get_eye_white_balance");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "eye_sharpness", PROPERTY_HINT_RANGE, "0.0,1.0,0.01"), "set_eye_sharpness", "get_eye_sharpness");
 
 	// Constants
 

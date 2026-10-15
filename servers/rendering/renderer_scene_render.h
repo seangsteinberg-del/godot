@@ -144,6 +144,9 @@ public:
 	float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
+	void environment_set_eye(RID p_env, const Color &p_white_balance, float p_sharpness); // patch 24: THE EYE
+	Vector3 environment_get_eye_white_balance(RID p_env) const;
+	float environment_get_eye_sharpness(RID p_env) const;
 	RendererEnvironmentStorage::TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 
 	// Fog

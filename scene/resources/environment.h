@@ -118,6 +118,9 @@ private:
 	float tonemap_white = 1.0;
 	float tonemap_agx_white = 16.29; // Default to Blender's AgX white.
 	float tonemap_agx_contrast = 1.25; // Default to approximately Blender's AgX contrast.
+	Color eye_white_balance = Color(1.0, 1.0, 1.0); // THE EYE (patch 24)
+	float eye_sharpness = 0.0;
+	void _update_eye();
 	void _update_tonemap();
 
 	// SSR
@@ -278,6 +281,11 @@ public:
 	float get_tonemap_agx_white() const;
 	void set_tonemap_agx_contrast(float p_agx_contrast);
 	float get_tonemap_agx_contrast() const;
+	// THE EYE (patch 24): the white balance and the sharpness the eye sets
+	void set_eye_white_balance(const Color &p_white_balance);
+	Color get_eye_white_balance() const;
+	void set_eye_sharpness(float p_sharpness);
+	float get_eye_sharpness() const;
 
 	// SSR
 	void set_ssr_enabled(bool p_enabled);

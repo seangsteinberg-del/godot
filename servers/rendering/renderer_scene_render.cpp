@@ -381,6 +381,19 @@ void RendererSceneRender::environment_set_tonemap_agx_contrast(RID p_env, float 
 	environment_storage.environment_set_tonemap_agx_contrast(p_env, p_agx_contrast);
 }
 
+// THE EYE (patch 24)
+void RendererSceneRender::environment_set_eye(RID p_env, const Color &p_white_balance, float p_sharpness) {
+	environment_storage.environment_set_eye(p_env, p_white_balance, p_sharpness);
+}
+
+Vector3 RendererSceneRender::environment_get_eye_white_balance(RID p_env) const {
+	return environment_storage.environment_get_eye_white_balance(p_env);
+}
+
+float RendererSceneRender::environment_get_eye_sharpness(RID p_env) const {
+	return environment_storage.environment_get_eye_sharpness(p_env);
+}
+
 float RendererSceneRender::environment_get_tonemap_agx_contrast(RID p_env) const {
 	return environment_storage.environment_get_tonemap_agx_contrast(p_env);
 }

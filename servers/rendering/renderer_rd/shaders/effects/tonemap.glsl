@@ -84,6 +84,10 @@ layout(push_constant, std430) uniform Params {
 	float luminance_multiplier;
 
 	vec4 tonemapper_params;
+
+	// THE EYE (patch 24): the white balance the eye sets (the frame's divisor before the glow and the curve) and the CAS sharpness
+	vec3 white_balance;
+	float sharpness;
 }
 params;
 
@@ -143,88 +147,34 @@ vec3 tonemap_aces(vec3 color) {
 	return color_tonemapped / params.tonemapper_params.x;
 }
 
-// allenwp tonemapping curve; developed for use in the Godot game engine.
-// Source and details: https://allenwp.com/blog/2025/05/29/allenwp-tonemapping-curve/
-// Input must be a non-negative linear scene value.
-vec3 allenwp_curve(vec3 x) {
-	// These constants must match the those in the C++ code that calculates the parameters.
-	// 18% "middle gray" is perceptually 50% of the brightness of reference white.
-	const float awp_crossover_point = 0.18;
-	// When output_max_value and/or awp_crossover_point are no longer constant,
-	// awp_shoulder_max can be calculated on the CPU and passed in as params.tonemap_e.
-	const float awp_shoulder_max = params.output_max_value - awp_crossover_point;
-
-	float awp_contrast = params.tonemapper_params.x;
-	float awp_toe_a = params.tonemapper_params.y;
-	float awp_slope = params.tonemapper_params.z;
-	float awp_w = params.tonemapper_params.w;
-
-	// Reinhard-like shoulder:
-	vec3 s = x - awp_crossover_point;
-	vec3 slope_s = awp_slope * s;
-	s = slope_s * (1.0 + s / awp_w) / (1.0 + (slope_s / awp_shoulder_max));
-	s += awp_crossover_point;
-
-	// Sigmoid power function toe:
-	vec3 t = pow(x, vec3(awp_contrast));
-	t = t / (t + awp_toe_a);
-
-	return mix(s, t, lessThan(x, vec3(awp_crossover_point)));
+// THE TEMPLATE'S TONE (PROJECT LONGSHOT, the fork's patch 24, 10-15; docs/SPACEENGINE.md 13.1): SpaceEngine's AgX curve
+// (data/shaders/hdrt_AgX_tone.glh, the Shadertoy minimal AgX): the inset matrix, a log2 encoding from -12.47393 stops to the
+// reference white, the sigmoid polynomial, the outset matrix and the 2.2 EOTF to display-linear - with its own exposure bias
+// of 0.75, at the environment's AgX white (16.2917, the curve's reference white). The allenwp curve that approximated Blender's
+// AgX left with it: the one tone the game is judged by beside its template is the template's, number for number.
+vec3 agx_sigmoid(vec3 x) {
+	vec3 x2 = x * x;
+	vec3 x4 = x2 * x2;
+	return +15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
 }
 
-// This is an approximation and simplification of EaryChow's AgX implementation that is used by Blender.
-// This code is based off of the script that generates the AgX_Base_sRGB.cube LUT that Blender uses.
-// Source: https://github.com/EaryChow/AgX_LUT_Gen/blob/main/AgXBasesRGB.py
-// Colorspace transformation source: https://www.colour-science.org:8010/apps/rgb_colourspace_transformation_matrix
 vec3 tonemap_agx(vec3 color) {
-	// Input color should be non-negative!
-	// Large negative values in one channel and large positive values in other
-	// channels can result in a colour that appears darker and more saturated than
-	// desired after passing it through the inset matrix. For this reason, it is
-	// best to prevent negative input values.
-	// This is done before the Rec. 2020 transform to allow the Rec. 2020
-	// transform to be combined with the AgX inset matrix. This results in a loss
-	// of color information that could be correctly interpreted within the
-	// Rec. 2020 color space as positive RGB values, but is often not worth
-	// the performance cost of an additional matrix multiplication.
-	//
-	// Additionally, this AgX configuration was created subjectively based on
-	// output appearance in the Rec. 709 color gamut, so it is possible that these
-	// matrices will not perform well with non-Rec. 709 output (more testing with
-	// future wide-gamut displays is be needed).
-	// See this comment from the author on the decisions made to create the matrices:
-	// https://github.com/godotengine/godot-proposals/issues/12317#issuecomment-2835824250
-
-	// Combined Rec. 709 to Rec. 2020 and Blender AgX inset matrices:
-	const mat3 rec709_to_rec2020_agx_inset_matrix = mat3(
-			0.544814746488245, 0.140416948464053, 0.0888104196149096,
-			0.373787398372697, 0.754137554567394, 0.178871756420858,
-			0.0813978551390581, 0.105445496968552, 0.732317823964232);
-
-	// Combined inverse AgX outset matrix and Rec. 2020 to Rec. 709 matrices.
-	const mat3 agx_outset_rec2020_to_rec709_matrix = mat3(
-			1.96488741169489, -0.299313364904742, -0.164352742528393,
-			-0.855988495690215, 1.32639796461980, -0.238183969428088,
-			-0.108898916004672, -0.0270845997150571, 1.40253671195648);
-
-	// Apply inset matrix.
-	color = rec709_to_rec2020_agx_inset_matrix * color;
-
-	// Use the allenwp tonemapping curve to match the Blender AgX curve while
-	// providing stability across all variable dyanimc range (SDR, HDR, EDR).
-	color = allenwp_curve(color);
-
-	// Clipping to output_max_value is required to address a cyan colour that occurs
-	// with very bright inputs.
-	color = min(vec3(params.output_max_value), color);
-
-	// Apply outset to make the result more chroma-laden and then go back to Rec. 709.
-	color = agx_outset_rec2020_to_rec709_matrix * color;
-
-	// Blender's lusRGB.compensate_low_side is too complex for this shader, so
-	// simply return the color, even if it has negative components. These negative
-	// components may be useful for subsequent color adjustments.
-	return color;
+	const mat3 agx_mat = mat3(
+			0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+			0.0784335999999992, 0.878468636469772, 0.0784336,
+			0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+	const mat3 agx_mat_inv = mat3(
+			1.19687900512017, -0.0528968517574562, -0.0529716355144438,
+			-0.0980208811401368, 1.15190312990417, -0.0980434501171241,
+			-0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+	const float min_ev = -12.47393;
+	float max_ev = log2(max(params.white, 2.0));
+	vec3 val = agx_mat * (color * 0.75);
+	val = clamp(log2(max(val, vec3(1.0e-10))), min_ev, max_ev);
+	val = (val - min_ev) / (max_ev - min_ev);
+	val = agx_sigmoid(val);
+	val = max(agx_mat_inv * val, vec3(0.0));
+	return pow(val, vec3(2.2)) * params.output_max_value;
 }
 
 vec3 linear_to_srgb(vec3 color) {
@@ -851,6 +801,61 @@ vec3 screen_space_dither(vec2 frag_coord, float bit_alignment_diviser) {
 	return (dither.rgb - 0.5) / bit_alignment_diviser;
 }
 
+// THE SHARPENING (patch 24; SpaceEngine's hdr_final.glsl textureFastCAS - AMD FidelityFX CAS on the toned image before the grade):
+// a neighbour toned as the centre is (the exposure, the illuminant, the additive glow, the curve), without the FXAA
+vec3 toned_at(vec2 uv, float exposure) {
+#ifdef USE_MULTIVIEW
+	vec3 c = textureLod(source_color, vec3(uv, ViewIndex), 0.0f).rgb;
+#else
+	vec3 c = textureLod(source_color, uv, 0.0f).rgb;
+#endif
+	c *= params.luminance_multiplier * exposure;
+	c *= params.white_balance;
+	if (bool(params.flags & FLAG_USE_GLOW) && params.glow_mode != GLOW_MODE_SOFTLIGHT) {
+		vec3 glow = gather_glow(source_glow, uv) * params.glow_intensity;
+		if (params.glow_map_strength > 0.001) {
+			glow = mix(glow, texture(glow_map, uv).rgb * glow, params.glow_map_strength);
+		}
+		if (params.glow_mode == GLOW_MODE_MIX) {
+			c = c * (1.0 - params.glow_intensity) + glow;
+		} else {
+			c = apply_glow(c, glow, params.white);
+		}
+	}
+	return apply_tonemapping(c);
+}
+
+vec3 sharpen_toned(vec3 col, vec2 uv, float exposure) {
+	vec2 px = params.pixel_size;
+	float max_g = col.y;
+	float min_g = col.y;
+	vec3 colw = vec3(0.0);
+	vec3 c1;
+	c1 = toned_at(uv + vec2(0.0, -px.y), exposure);
+	max_g = max(max_g, c1.y);
+	min_g = min(min_g, c1.y);
+	colw = c1;
+	c1 = toned_at(uv + vec2(px.x, 0.0), exposure);
+	max_g = max(max_g, c1.y);
+	min_g = min(min_g, c1.y);
+	colw += c1;
+	c1 = toned_at(uv + vec2(0.0, px.y), exposure);
+	max_g = max(max_g, c1.y);
+	min_g = min(min_g, c1.y);
+	colw += c1;
+	c1 = toned_at(uv + vec2(-px.x, 0.0), exposure);
+	max_g = max(max_g, c1.y);
+	min_g = min(min_g, c1.y);
+	colw += c1;
+	float d_min_g = min_g;
+	float d_max_g = params.output_max_value - max_g;
+	max_g = max(max_g, 1.0e-4);
+	float A = (d_max_g < d_min_g) ? d_max_g / max_g : d_min_g / max_g;
+	A = sqrt(max(0.0, A));
+	A *= mix(-0.125, -0.2, params.sharpness);
+	return (col + colw * A) / (1.0 + 4.0 * A);
+}
+
 void main() {
 #ifdef USE_MULTIVIEW
 	vec4 color = textureLod(source_color, vec3(uv_interp, ViewIndex), 0.0f);
@@ -868,6 +873,10 @@ void main() {
 	}
 
 	color.rgb *= exposure;
+
+	// THE EYE ADAPTS TO ITS ILLUMINANT (patch 24; docs/manual/sky.md THE TEMPLATE'S PHOTOGRAPH): the frame divided by the adapted
+	// illuminant before the glow and the curve - the key light's colour at the camera, adapted to the degree the eye adapts
+	color.rgb *= params.white_balance;
 
 	// Single-pass FXAA and pre-tonemap glow.
 	if (bool(params.flags & FLAG_USE_FXAA)) {
@@ -904,6 +913,11 @@ void main() {
 		}
 		glow = apply_tonemapping(glow);
 		color.rgb = apply_glow(color.rgb, glow, params.white);
+	}
+
+	// THE SHARPENING (patch 24): CAS on the toned image, before the grade, as the template's final pass does
+	if (params.sharpness > 0.0) {
+		color.rgb = sharpen_toned(color.rgb, uv_interp, exposure);
 	}
 
 	// Additional effects.

@@ -1536,6 +1536,15 @@
 				Sets the variables to be used with the "tonemap" post-process effect. See [Environment] for more details.
 			</description>
 		</method>
+		<method name="environment_set_eye">
+			<return type="void" />
+			<param index="0" name="env" type="RID" />
+			<param index="1" name="white_balance" type="Color" />
+			<param index="2" name="sharpness" type="float" />
+			<description>
+				PROJECT LONGSHOT (the fork's patch 24). See [member Environment.eye_white_balance] and [member Environment.eye_sharpness].
+			</description>
+		</method>
 		<method name="environment_set_tonemap_agx_contrast">
 			<return type="void" />
 			<param index="0" name="env" type="RID" />

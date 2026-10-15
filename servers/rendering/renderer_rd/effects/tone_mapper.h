@@ -122,6 +122,9 @@ private:
 		float luminance_multiplier; //  4 - 96
 
 		float tonemapper_params[4]; //  16 - 112
+
+		float white_balance[3]; // 12 - 124 (patch 24: THE EYE)
+		float sharpness; //  4 - 128
 	};
 
 	struct TonemapPushConstantMobile {
@@ -176,6 +179,8 @@ public:
 
 		RSE::EnvironmentToneMapper tonemap_mode = RSE::ENV_TONE_MAPPER_LINEAR;
 		float tonemapper_params[4] = { 0.0, 0.0, 0.0, 0.0 };
+		Vector3 white_balance = Vector3(1.0, 1.0, 1.0); // patch 24: THE EYE's white balance and sharpness
+		float sharpness = 0.0;
 		float exposure = 1.0;
 		float white = 1.0;
 		float max_value = 1.0;

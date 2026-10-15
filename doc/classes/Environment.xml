@@ -316,6 +316,12 @@
 		<member name="ssr_max_steps" type="int" setter="set_ssr_max_steps" getter="get_ssr_max_steps" default="64">
 			The maximum number of steps for screen-space reflections. Higher values are slower.
 		</member>
+		<member name="eye_sharpness" type="float" setter="set_eye_sharpness" getter="get_eye_sharpness" default="0.0">
+			PROJECT LONGSHOT (the fork's patch 24): contrast-adaptive sharpening (AMD FidelityFX CAS) on the toned image, before the adjustments; [code]0.0[/code] is off, [code]1.0[/code] the full sharpening.
+		</member>
+		<member name="eye_white_balance" type="Color" setter="set_eye_white_balance" getter="get_eye_white_balance" default="Color(1, 1, 1, 1)">
+			PROJECT LONGSHOT (the fork's patch 24): the frame is multiplied by this colour after the exposure and before the glow and the tonemapper - the eye's adaptation to its illuminant (the inverse of the adapted key light's colour).
+		</member>
 		<member name="tonemap_agx_contrast" type="float" setter="set_tonemap_agx_contrast" getter="get_tonemap_agx_contrast" default="1.25">
 			Increasing [member tonemap_agx_contrast] will make dark values darker and bright values brighter. Produces a higher quality result than [member adjustment_contrast] without any additional performance cost, but is only available when using the [constant TONE_MAPPER_AGX] tonemapper.
 		</member>

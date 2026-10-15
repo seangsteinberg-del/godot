@@ -177,6 +177,8 @@ private:
 		float adjustments_brightness = 1.0f;
 		float adjustments_contrast = 1.0f;
 		float adjustments_saturation = 1.0f;
+		Vector3 eye_white_balance = Vector3(1.0, 1.0, 1.0); // patch 24: THE EYE
+		float eye_sharpness = 0.0f;
 		bool use_1d_color_correction = false;
 		RID color_correction;
 	};
@@ -231,6 +233,10 @@ public:
 	float environment_get_white(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 	void environment_set_tonemap_agx_contrast(RID p_env, float p_agx_contrast);
 	float environment_get_tonemap_agx_contrast(RID p_env) const;
+	// THE EYE (patch 24): the white balance and the sharpness the eye sets
+	void environment_set_eye(RID p_env, const Color &p_white_balance, float p_sharpness);
+	Vector3 environment_get_eye_white_balance(RID p_env) const;
+	float environment_get_eye_sharpness(RID p_env) const;
 	TonemapParameters environment_get_tonemap_parameters(RID p_env, bool p_limit_agx_white, float p_output_max_value) const;
 
 	// Fog
