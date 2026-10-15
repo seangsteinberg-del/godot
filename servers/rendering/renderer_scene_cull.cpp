@@ -2313,7 +2313,13 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 				if (soft_shadow_angle > 0.0) {
 					float z_range = (z_vec.dot(center) + radius + pancake_size) - z_min_cam;
-					soft_shadow_expand = Math::tan(Math::deg_to_rad(soft_shadow_angle)) * z_range;
+					// LONGSHOT (patch #28): the reach is at most the cascade's own radius. The expansion lets casters whose penumbra
+					// reaches into the cascade from outside stand in its map, and it rides the depth range - with the pancake: a seat
+					// whose sun carries a 24 km pancake for the mountains' shadows widened the boots' cascade (radius 60 m) by 223 m a
+					// side, its texel 0.275 m for a radius that says 0.059. A map spends at most half its width on the reach beyond
+					// itself: a far caster's 223 m penumbra is drawn 60 m soft within the boots' cascade (no edge the eye can tell at
+					// that range) and the near shadows keep half their resolution instead of a fifth; the far cascades are unchanged.
+					soft_shadow_expand = MIN(Math::tan(Math::deg_to_rad(soft_shadow_angle)) * z_range, radius);
 
 					x_max += soft_shadow_expand;
 					y_max += soft_shadow_expand;
@@ -2369,7 +2375,11 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 			cull.shadows[p_shadow_index].cascades[i].transform = ortho_transform;
 			cull.shadows[p_shadow_index].cascades[i].zfar = z_max - z_min_cam;
 			cull.shadows[p_shadow_index].cascades[i].split = distances[i + 1];
-			cull.shadows[p_shadow_index].cascades[i].shadow_texel_size = radius * 2.0 / texture_size;
+			// LONGSHOT (patch #28): the texel is the map's - the expansion included. The depth bias (#27) and the normal bias are
+			// counted in this texel; on the bare radius they covered a fifth of the boots' cascade's real texel, and a slope read
+			// the map's texel grid as terraces along its contours (the Moon at noon: one texel spans 0.084 m of depth on a 17 deg
+			// slope, the bias covered 0.059; the hill's third cascade, texel 1.15 m against a bias of 0.94, stayed clean).
+			cull.shadows[p_shadow_index].cascades[i].shadow_texel_size = (radius + soft_shadow_expand) * 2.0 / texture_size;
 			cull.shadows[p_shadow_index].cascades[i].bias_scale = (z_max - z_min_cam);
 			cull.shadows[p_shadow_index].cascades[i].range_begin = z_max - z_vec.dot(p_cam_transform.origin);
 			cull.shadows[p_shadow_index].cascades[i].uv_scale = uv_scale;
