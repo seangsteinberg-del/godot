@@ -471,6 +471,92 @@ half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_
 
 		return half(s / float(sc_directional_penumbra_shadow_samples()));
 
+
+// LONGSHOT (patch #29): THE RECEIVER'S PLANE - the compared depth at every kernel sample is the receiver's own plane's depth at that
+// sample's offset (Isidoro 2006, the receiver plane depth bias): dz_duv is the drawn triangle's depth slope in the cascade's uv
+// (its normal through the cascade's matrix), and a sample at the offset o compares against z + dot(dz_duv, o). A surface cannot
+// shadow itself at any footprint - a directional light's blocker search reaches tan(its angle) x the point's distance from the
+// shadow camera, 223 m across the ground under a seat's 24 km pancake, and on a slope it found the slope itself tens of metres
+// nearer the sun and darkened the ground by the penumbra it made of it (the Moon's noon bands). The blocker search compares
+// against the plane as well, so a penumbra comes from real casters alone; the texel bias keeps the texel's rounding.
+vec2 plane_dz_of(vec3 nl) {
+	return abs(nl.z) > 1.0e-6 ? clamp(-nl.xy / nl.z, vec2(-1.0), vec2(1.0)) : vec2(0.0);
+}
+
+half sample_directional_pcf_shadow(texture2D shadow, vec2 shadow_pixel_size, vec4 coord, vec2 dz_duv, float taa_frame_count) {
+	vec2 pos = coord.xy;
+	float depth = coord.z;
+
+	//if only one sample is taken, take it from the center
+	if (sc_directional_soft_shadow_samples() == 0) {
+		return half(textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(pos, depth, 1.0)));
+	}
+
+	mat2 disk_rotation;
+	{
+		float r = quick_hash(gl_FragCoord.xy + vec2(taa_frame_count * 5.588238)) * 2.0 * M_PI;
+		float sr = sin(r);
+		float cr = cos(r);
+		disk_rotation = mat2(vec2(cr, -sr), vec2(sr, cr));
+	}
+
+	float avg = 0.0;
+
+	SPEC_CONSTANT_LOOP_ANNOTATION
+	for (uint i = 0; i < sc_directional_soft_shadow_samples(); i++) {
+		vec2 o = shadow_pixel_size * (disk_rotation * scene_data_block.data.directional_soft_shadow_kernel[i].xy);
+		avg += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(pos + o, depth + dot(dz_duv, o), 1.0));
+	}
+
+	return half(avg * (1.0 / float(sc_directional_soft_shadow_samples())));
+}
+
+half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_scale, vec2 dz_duv, float taa_frame_count) {
+	//find blocker
+	float blocker_count = 0.0;
+	float blocker_average = 0.0;
+
+	mat2 disk_rotation;
+	{
+		float r = quick_hash(gl_FragCoord.xy + vec2(taa_frame_count * 5.588238)) * 2.0 * M_PI;
+		float sr = sin(r);
+		float cr = cos(r);
+		disk_rotation = mat2(vec2(cr, -sr), vec2(sr, cr));
+	}
+
+	SPEC_CONSTANT_LOOP_ANNOTATION
+	for (uint i = 0; i < sc_directional_penumbra_shadow_samples(); i++) {
+		vec2 o = (disk_rotation * scene_data_block.data.directional_penumbra_shadow_kernel[i].xy) * tex_scale;
+		float plane_rise = dot(dz_duv, o);
+		float d = textureLod(sampler2D(shadow, SAMPLER_LINEAR_CLAMP), pssm_coord.xy + o, 0.0).r;
+		if (d > pssm_coord.z + plane_rise) {
+			blocker_average += d - plane_rise;   // the blocker's depth over the receiver's own, the plane's rise taken out
+			blocker_count += 1.0;
+		}
+	}
+
+	if (blocker_count > 0.0) {
+		//blockers found, do soft shadow
+		blocker_average /= blocker_count;
+		float penumbra = (-pssm_coord.z + blocker_average) / (1.0 - blocker_average);
+		tex_scale *= penumbra;
+
+		float s = 0.0;
+
+		SPEC_CONSTANT_LOOP_ANNOTATION
+		for (uint i = 0; i < sc_directional_penumbra_shadow_samples(); i++) {
+			vec2 o = (disk_rotation * scene_data_block.data.directional_penumbra_shadow_kernel[i].xy) * tex_scale;
+			s += textureProj(sampler2DShadow(shadow, shadow_sampler), vec4(pssm_coord.xy + o, pssm_coord.z + dot(dz_duv, o), 1.0));
+		}
+
+		return half(s / float(sc_directional_penumbra_shadow_samples()));
+
+	} else {
+		//no blockers found, so no shadow
+		return half(1.0);
+	}
+}
+
 	} else {
 		//no blockers found, so no shadow
 		return half(1.0);

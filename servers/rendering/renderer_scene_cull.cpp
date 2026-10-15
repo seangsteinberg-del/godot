@@ -2308,6 +2308,8 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 			z_min_cam = z_vec.dot(center) - radius;
 
+			real_t search_begin = 0.0;
+			bool search_bounded = false;
 			{
 				float soft_shadow_angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SIZE);
 
@@ -2320,6 +2322,12 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 					// itself: a far caster's 223 m penumbra is drawn 60 m soft within the boots' cascade (no edge the eye can tell at
 					// that range) and the near shadows keep half their resolution instead of a fifth; the far cascades are unchanged.
 					soft_shadow_expand = MIN(Math::tan(Math::deg_to_rad(soft_shadow_angle)) * z_range, radius);
+					// LONGSHOT (patch #29): the penumbra search reaches as far as the map's widening and no further - the shader's reach is
+					// tan(the angle) x the point's distance from range_begin, so range_begin stands the widening's distance up the light from
+					// the cascade's centre (upstream the reach and the widening were one quantity, tan(the angle) x the depth range; a search
+					// past the map's edge reads its rim texels as blockers)
+					search_begin = z_vec.dot(center) + soft_shadow_expand / Math::tan(Math::deg_to_rad(soft_shadow_angle));
+					search_bounded = true;
 
 					x_max += soft_shadow_expand;
 					y_max += soft_shadow_expand;
@@ -2381,7 +2389,7 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 			// slope, the bias covered 0.059; the hill's third cascade, texel 1.15 m against a bias of 0.94, stayed clean).
 			cull.shadows[p_shadow_index].cascades[i].shadow_texel_size = (radius + soft_shadow_expand) * 2.0 / texture_size;
 			cull.shadows[p_shadow_index].cascades[i].bias_scale = (z_max - z_min_cam);
-			cull.shadows[p_shadow_index].cascades[i].range_begin = z_max - z_vec.dot(p_cam_transform.origin);
+			cull.shadows[p_shadow_index].cascades[i].range_begin = (search_bounded ? search_begin : z_max) - z_vec.dot(p_cam_transform.origin);   // LONGSHOT (#29)
 			cull.shadows[p_shadow_index].cascades[i].uv_scale = uv_scale;
 		}
 	}
