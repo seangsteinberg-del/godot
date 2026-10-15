@@ -2285,6 +2285,8 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 		real_t radius = 0;
 		real_t soft_shadow_expand = 0;
+		real_t search_begin = 0.0;   // LONGSHOT (#29): the penumbra search's base, set with the widening
+		bool search_bounded = false;
 		Vector3 center;
 
 		{
@@ -2308,8 +2310,6 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 			z_min_cam = z_vec.dot(center) - radius;
 
-			real_t search_begin = 0.0;
-			bool search_bounded = false;
 			{
 				float soft_shadow_angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SIZE);
 
