@@ -112,6 +112,7 @@
 		</member>
 		<member name="shadow_bias" type="float" setter="set_param" getter="get_param" default="0.1">
 			Used to adjust shadow appearance. Too small a value results in self-shadowing ("shadow acne"), while too large a value causes shadows to separate from casters ("peter-panning"). Adjust as needed.
+			For a [DirectionalLight3D] this fork reads the value as metres along the light at every shadow cascade (times [member shadow_blur]), independent of the cascade's depth range and [member DirectionalLight3D.directional_shadow_pancake_size]; a [DirectionalLight3D] with a kilometres-wide pancake therefore needs a bias of centimetres, not Godot's default.
 		</member>
 		<member name="shadow_blur" type="float" setter="set_param" getter="get_param" default="1.0">
 			Blurs the edges of the shadow. Can be used to hide pixel artifacts in low-resolution shadow maps. A high value can impact performance, make shadows appear grainy and can cause other unwanted artifacts. Try to keep as near default as possible.
