@@ -828,11 +828,14 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 						Projection shadow_mtx = rectm * bias * matrix * modelview;
 						light_data.shadow_split_offsets[j] = split;
 						float bias_scale = light_instance->shadow_transform[j].bias_scale * light_data.soft_shadow_scale;
-						// LONGSHOT (patch #25): a directional light's depth bias is METRES along the light at every cascade, times the blur's
-						// scale alone. Godot scaled it by the cascade's depth range (2 x its radius + the pancake), so a seat whose sun
-						// carries a 24 km pancake for the mountains' shadows moved every receiver over a metre toward the sun before the
-						// test and nothing under a metre cast; the normal bias stays in the cascade's texels.
-						light_data.shadow_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS] * light_data.soft_shadow_scale;
+						// LONGSHOT (patch #26, then #27): a directional light's depth bias is CASCADE TEXELS along the light - the number times
+						// the world size of one shadow texel at that cascade, times the blur's scale. Godot scaled it by the cascade's depth
+						// range (2 x its radius + the pancake), so a seat whose sun carries a 24 km pancake for the mountains' shadows moved
+						// every receiver over a metre toward the sun and nothing under a metre cast (#26 made it metres); but one number of
+						// metres at every cascade is centimetres against a far cascade's metres of depth across one texel on a slope, and
+						// every slope read the shadow map's texel grid as bands along its contours (#27). In texels the boots' cascade keeps
+						// centimetres (a stone casts) and the mountains' takes metres (no acne); the normal bias stays in texels as well.
+						light_data.shadow_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_BIAS] * light_instance->shadow_transform[j].shadow_texel_size * light_data.soft_shadow_scale;
 						light_data.shadow_normal_bias[j] = light->param[RSE::LIGHT_PARAM_SHADOW_NORMAL_BIAS] * light_instance->shadow_transform[j].shadow_texel_size;
 						light_data.shadow_transmittance_bias[j] = light->param[RSE::LIGHT_PARAM_TRANSMITTANCE_BIAS] / 100.0 * bias_scale;
 						light_data.shadow_z_range[j] = light_instance->shadow_transform[j].farplane;
