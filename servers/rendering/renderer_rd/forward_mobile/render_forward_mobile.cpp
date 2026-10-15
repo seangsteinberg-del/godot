@@ -887,6 +887,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 	bool ce_has_post_opaque = _has_compositor_effect(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_OPAQUE, p_render_data);
 	bool ce_has_pre_transparent = _has_compositor_effect(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_PRE_TRANSPARENT, p_render_data);
 	bool ce_has_post_transparent = _has_compositor_effect(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT, p_render_data);
+	bool ce_has_post_temporal = _has_compositor_effect(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TEMPORAL, p_render_data); // LONGSHOT patch #32
 
 	if (ce_has_post_opaque) {
 		// As we're doing opaque and sky in subpasses we don't support this *yet*
@@ -898,7 +899,7 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 		merge_transparent_pass = false;
 		using_subpass_post_process = false;
 	}
-	if (ce_has_post_transparent) {
+	if (ce_has_post_transparent || ce_has_post_temporal) {
 		using_subpass_post_process = false;
 	}
 
@@ -1379,6 +1380,10 @@ void RenderForwardMobile::_render_scene(RenderDataRD *p_render_data, const Color
 
 		if (ce_has_post_transparent) {
 			_process_compositor_effects(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT, p_render_data);
+		}
+		if (ce_has_post_temporal) {
+			// LONGSHOT patch #32: the mobile renderer has no temporal pass - its frame is finished here
+			_process_compositor_effects(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TEMPORAL, p_render_data);
 		}
 
 		// If we need extra effects we do this in its own pass

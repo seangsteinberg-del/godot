@@ -5689,6 +5689,9 @@
 		<constant name="COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT" value="4" enum="CompositorEffectCallbackType">
 			The callback is called after our transparent rendering pass, but before any built-in post-processing effects and output to our render target.
 		</constant>
+		<constant name="COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TEMPORAL" value="5" enum="CompositorEffectCallbackType">
+			The callback is called after the temporal antialiasing or a temporal upscaler has resolved the frame, but before the built-in post-processing effects. Without a temporal pass it follows [constant COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT].
+		</constant>
 		<constant name="COMPOSITOR_EFFECT_CALLBACK_TYPE_ANY" value="-1" enum="CompositorEffectCallbackType">
 		</constant>
 		<constant name="ENV_BG_CLEAR_COLOR" value="0" enum="EnvironmentBG">

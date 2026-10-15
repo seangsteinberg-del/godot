@@ -2587,6 +2587,13 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		}
 	}
 
+	{
+		// LONGSHOT patch #32 THE BEND AFTER THE RESOLVE: what the temporal history must never hold - a refraction of the finished
+		// frame - drawn after the TAA or the temporal upscaler resolved it, before the post-process takes it
+		RENDER_TIMESTAMP("Process Post Temporal Compositor Effects");
+		_process_compositor_effects(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TEMPORAL, p_render_data);
+	}
+
 	if (rb_data.is_valid()) {
 		_debug_draw_cluster(rb);
 

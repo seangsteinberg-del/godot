@@ -70,6 +70,9 @@ void RenderSceneBuffersRD::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_longshot_settled", "settled"), &RenderSceneBuffersRD::set_longshot_settled);
 	ClassDB::bind_method(D_METHOD("has_longshot_settled"), &RenderSceneBuffersRD::has_longshot_settled);
 	ClassDB::bind_method(D_METHOD("get_longshot_settled"), &RenderSceneBuffersRD::get_longshot_settled);
+	// LONGSHOT patch #32 THE BEND AFTER THE RESOLVE: the colour the post-process takes, and its size
+	ClassDB::bind_method(D_METHOD("get_post_process_color_layer", "layer"), &RenderSceneBuffersRD::get_post_process_color_layer);
+	ClassDB::bind_method(D_METHOD("get_post_process_size"), &RenderSceneBuffersRD::get_post_process_size);
 
 	// Access to some core buffers so users don't need to know their names.
 	ClassDB::bind_method(D_METHOD("get_color_texture", "msaa"), &RenderSceneBuffersRD::_get_color_texture, DEFVAL(false));
@@ -768,6 +771,15 @@ void RenderSceneBuffersRD::ensure_upscaled() {
 		usage_bits |= RD::TEXTURE_USAGE_INPUT_ATTACHMENT_BIT;
 		create_texture(RB_SCOPE_BUFFERS, RB_TEX_COLOR_UPSCALED, get_base_data_format(), usage_bits, RD::TEXTURE_SAMPLES_1, target_size);
 	}
+}
+
+// LONGSHOT patch #32 THE BEND AFTER THE RESOLVE: the colour the post-process takes (is_post_process_upscaled's rule) and its size
+RID RenderSceneBuffersRD::get_post_process_color_layer(const uint32_t p_layer) {
+	return is_post_process_upscaled() ? get_upscaled_texture(p_layer) : get_internal_texture(p_layer);
+}
+
+Size2i RenderSceneBuffersRD::get_post_process_size() const {
+	return is_post_process_upscaled() ? target_size : internal_size;
 }
 
 // Velocity texture.

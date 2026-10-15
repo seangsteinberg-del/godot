@@ -344,6 +344,15 @@ public:
 		return get_texture_slice(RB_SCOPE_BUFFERS, RB_TEX_COLOR_UPSCALED, p_layer, 0);
 	}
 
+	// LONGSHOT patch #32 THE BEND AFTER THE RESOLVE: the colour the post-process takes - a temporal upscaler's output at the target
+	// size where one ran (FSR2, MetalFX's temporal), else the internal colour (the TAA resolves into it): the one rule the tonemap and a
+	// compositor effect at COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TEMPORAL read
+	_FORCE_INLINE_ bool is_post_process_upscaled() const {
+		return has_upscaled_texture() && (scaling_3d_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR2 || scaling_3d_mode == RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL);
+	}
+	RID get_post_process_color_layer(const uint32_t p_layer);
+	Size2i get_post_process_size() const;
+
 	// Velocity, currently only used by TAA (Clustered) but we'll be using this in other places soon too.
 
 	void ensure_velocity();

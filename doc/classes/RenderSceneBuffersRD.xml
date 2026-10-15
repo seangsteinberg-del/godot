@@ -153,6 +153,19 @@
 				Returns the applied 3D MSAA mode for this viewport.
 			</description>
 		</method>
+		<method name="get_post_process_color_layer">
+			<return type="RID" />
+			<param index="0" name="layer" type="int" />
+			<description>
+				Returns the specified layer of the color texture the built-in post-processing takes: a temporal upscaler's output (FSR2, MetalFX temporal) at the target size where one ran, else the internal color texture, which the TAA resolves into. A [CompositorEffect] at [constant CompositorEffect.EFFECT_CALLBACK_TYPE_POST_TEMPORAL] works on it.
+			</description>
+		</method>
+		<method name="get_post_process_size" qualifiers="const">
+			<return type="Vector2i" />
+			<description>
+				Returns the size of [method get_post_process_color_layer]'s texture: the target size where a temporal upscaler ran, else the internal size.
+			</description>
+		</method>
 		<method name="get_render_target" qualifiers="const">
 			<return type="RID" />
 			<description>
