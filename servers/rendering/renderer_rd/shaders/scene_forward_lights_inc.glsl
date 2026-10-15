@@ -470,16 +470,27 @@ half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_
 		}
 
 		return half(s / float(sc_directional_penumbra_shadow_samples()));
-
+	} else {
+		//no blockers found, so no shadow
+		return half(1.0);
+	}
+}
 
 // LONGSHOT (patch #29): THE RECEIVER'S PLANE - the compared depth at every kernel sample is the receiver's own plane's depth at that
 // sample's offset (Isidoro 2006, the receiver plane depth bias): dz_duv is the drawn triangle's depth slope in the cascade's uv
-// (its normal through the cascade's matrix), and a sample at the offset o compares against z + dot(dz_duv, o). A surface cannot
+// (its two tangents through the cascade's matrix and their cross there: a plane's vectors go through the matrix itself, its
+// normal would need the inverse transpose, and a cascade's matrix scales depth and width apart - 24 km against 120 m at the
+// boots), and a sample at the offset o compares against z + dot(dz_duv, o). A surface cannot
 // shadow itself at any footprint - a directional light's blocker search reaches tan(its angle) x the point's distance from the
 // shadow camera, 223 m across the ground under a seat's 24 km pancake, and on a slope it found the slope itself tens of metres
 // nearer the sun and darkened the ground by the penumbra it made of it (the Moon's noon bands). The blocker search compares
 // against the plane as well, so a penumbra comes from real casters alone; the texel bias keeps the texel's rounding.
 vec2 plane_dz_of(vec3 nl) {
+	float len = length(nl);
+	if (!(len > 0.0)) {
+		return vec2(0.0); // a degenerate triangle has no plane: the point's own depth stands at every sample
+	}
+	nl /= len;
 	return abs(nl.z) > 1.0e-6 ? clamp(-nl.xy / nl.z, vec2(-1.0), vec2(1.0)) : vec2(0.0);
 }
 
@@ -550,12 +561,6 @@ half sample_directional_soft_shadow(texture2D shadow, vec3 pssm_coord, vec2 tex_
 		}
 
 		return half(s / float(sc_directional_penumbra_shadow_samples()));
-
-	} else {
-		//no blockers found, so no shadow
-		return half(1.0);
-	}
-}
 
 	} else {
 		//no blockers found, so no shadow

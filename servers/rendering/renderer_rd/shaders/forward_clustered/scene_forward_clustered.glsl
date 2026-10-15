@@ -1413,10 +1413,13 @@ void fragment_shader(in SceneData scene_data) {
 	vec3 geo_normal = normalize(normal);
 #endif // NORMAL_USED
 	// LONGSHOT (patch #29): THE RECEIVER'S PLANE - the drawn triangle's plane (the position's own derivatives, in uniform flow) for
-	// the directional shadows' receiver plane depth bias: a cascade's matrix takes the plane's normal to its uv, and the compared
-	// depth at a kernel sample is the plane's depth at that sample's offset (scene_forward_lights_inc.glsl plane_dz_of)
-	vec3 tri_normal = normalize(cross(dFdx(vertex), dFdy(vertex)));
-#define PLANE_DZ(m_mat) plane_dz_of((m_mat * vec4(tri_normal, 0.0)).xyz)
+	// the directional shadows' receiver plane depth bias: a cascade's matrix takes the triangle's two tangents to its uv-depth
+	// space and their cross there is the plane's normal in it (a plane's vectors go through the matrix itself; its normal would
+	// need the inverse transpose, and a cascade's matrix scales depth and width apart - 24 km against 120 m at the boots). The
+	// compared depth at a kernel sample is the plane's depth at that sample's offset (scene_forward_lights_inc.glsl plane_dz_of)
+	vec3 tri_du = dFdx(vertex);
+	vec3 tri_dv = dFdy(vertex);
+#define PLANE_DZ(m_mat) plane_dz_of(cross((m_mat * vec4(tri_du, 0.0)).xyz, (m_mat * vec4(tri_dv, 0.0)).xyz))
 
 #ifndef USE_SHADOW_TO_OPACITY
 
