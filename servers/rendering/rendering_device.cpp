@@ -6753,7 +6753,12 @@ void RenderingDevice::compute_list_bind_uniform_set(ComputeListID p_list, RID p_
 #endif
 
 	UniformSet *uniform_set = uniform_set_owner.get_or_null(p_uniform_set);
-	ERR_FAIL_NULL(uniform_set);
+	// LONGSHOT (patch #30): a null set names its pass - the bound compute pipeline's shader, so a log line at a reseat says whose
+	// dispatch bound a set never made or already freed
+	if (unlikely(!uniform_set)) {
+		Shader *bound = shader_owner.get_or_null(compute_list.state.pipeline_shader);
+		ERR_FAIL_MSG("Parameter \"uniform_set\" is null (set " + itos(p_index) + " of the compute pipeline's shader '" + (bound ? bound->name : String("none bound")) + "').");
+	}
 
 	if (p_index > compute_list.state.set_count) {
 		compute_list.state.set_count = p_index;
@@ -6842,7 +6847,9 @@ void RenderingDevice::compute_list_dispatch(ComputeListID p_list, uint32_t p_x_g
 
 		if (compute_list.state.sets[i].pipeline_expected_format != compute_list.state.sets[i].uniform_set_format) {
 			if (compute_list.state.sets[i].uniform_set_format == 0) {
-				ERR_FAIL_MSG("Uniforms were never supplied for set (" + itos(i) + ") at the time of drawing, which are required by the pipeline.");
+				// LONGSHOT (patch #30): the pass's shader named
+				Shader *bound_sh = shader_owner.get_or_null(compute_list.state.pipeline_shader);
+				ERR_FAIL_MSG("Uniforms were never supplied for set (" + itos(i) + ") at the time of drawing, which are required by the pipeline (the compute pipeline's shader '" + (bound_sh ? bound_sh->name : String("none bound")) + "').");
 			} else if (uniform_set_owner.owns(compute_list.state.sets[i].uniform_set)) {
 				UniformSet *us = uniform_set_owner.get_or_null(compute_list.state.sets[i].uniform_set);
 				ERR_FAIL_MSG("Uniforms supplied for set (" + itos(i) + "):\n" + _shader_uniform_debug(us->shader_id, us->shader_set) + "\nare not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n" + _shader_uniform_debug(compute_list.state.pipeline_shader));
