@@ -24,10 +24,22 @@
 				LONGSHOT patch #18: the sky's clouds' light at each pixel (pre-exposed, the air in front of them in it) and their transmittance, handed over this frame.
 			</description>
 		</method>
+		<method name="get_longshot_settled" qualifiers="const">
+			<return type="RID" />
+			<description>
+				LONGSHOT patch #25: the settled layer's image handed over this frame (its opacity in alpha).
+			</description>
+		</method>
 		<method name="has_longshot_clouds" qualifiers="const">
 			<return type="bool" />
 			<description>
 				LONGSHOT patch #18: whether the sky's clouds were handed over this frame (the transparent pass then takes the clouds in front of each surface at its own distance). An effect that takes the clouds itself asks after the clouds' own effect has run: clouds handed over after this answered no in the same frame print an error.
+			</description>
+		</method>
+		<method name="has_longshot_settled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				LONGSHOT patch #25: whether a layer settled by its own history was handed over this frame (the TAA keeps its share of each pixel as it stands).
 			</description>
 		</method>
 		<method name="set_longshot_clouds">
@@ -36,6 +48,13 @@
 			<param index="1" name="depth" type="RID" />
 			<description>
 				LONGSHOT patch #18: the sky's clouds, composited before the transparent pass, hand over their light and transmittance and their distance moments for this frame.
+			</description>
+		</method>
+		<method name="set_longshot_settled">
+			<return type="void" />
+			<param index="0" name="settled" type="RID" />
+			<description>
+				LONGSHOT patch #25: a layer settled by its own history before the transparent pass (the exhaust's gas, resolved on the pixels' centres by its own motion) hands over its image for this frame - its opacity in alpha, at the internal size. The TAA raises its blend to that opacity at each pixel: the layer's share stands as it was settled, never settled again by the motion of the surface behind it.
 			</description>
 		</method>
 		<method name="clear_context">

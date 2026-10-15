@@ -67,6 +67,9 @@ void RenderSceneBuffersRD::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("has_longshot_clouds"), &RenderSceneBuffersRD::has_longshot_clouds);
 	ClassDB::bind_method(D_METHOD("get_longshot_clouds_light"), &RenderSceneBuffersRD::get_longshot_clouds_light);
 	ClassDB::bind_method(D_METHOD("get_longshot_clouds_depth"), &RenderSceneBuffersRD::get_longshot_clouds_depth);
+	ClassDB::bind_method(D_METHOD("set_longshot_settled", "settled"), &RenderSceneBuffersRD::set_longshot_settled);
+	ClassDB::bind_method(D_METHOD("has_longshot_settled"), &RenderSceneBuffersRD::has_longshot_settled);
+	ClassDB::bind_method(D_METHOD("get_longshot_settled"), &RenderSceneBuffersRD::get_longshot_settled);
 
 	// Access to some core buffers so users don't need to know their names.
 	ClassDB::bind_method(D_METHOD("get_color_texture", "msaa"), &RenderSceneBuffersRD::_get_color_texture, DEFVAL(false));
@@ -111,6 +114,17 @@ bool RenderSceneBuffersRD::has_longshot_clouds() const {
 		longshot_clouds_asked_frame = frame;
 	}
 	return has;
+}
+
+// LONGSHOT patch #25: a settled layer hands over this frame's image; it stands for this frame alone
+void RenderSceneBuffersRD::set_longshot_settled(RID p_settled) {
+	longshot_settled = p_settled;
+	longshot_settled_frame = RSG::rasterizer->get_frame_number();
+}
+
+bool RenderSceneBuffersRD::has_longshot_settled() const {
+	return longshot_settled_frame == RSG::rasterizer->get_frame_number() && longshot_settled.is_valid() &&
+			RD::get_singleton()->texture_is_valid(longshot_settled);
 }
 
 void RenderSceneBuffersRD::update_sizes(NamedTexture &p_named_texture) {

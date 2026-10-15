@@ -50,6 +50,9 @@ layout(rg16f, set = 0, binding = 2) uniform restrict readonly image2D velocity_b
 layout(rg16f, set = 0, binding = 3) uniform restrict readonly image2D last_velocity_buffer;
 layout(set = 0, binding = 4) uniform sampler2D history_buffer;
 layout(rgba16f, set = 0, binding = 5) uniform restrict writeonly image2D output_buffer;
+// LONGSHOT patch #25 THE SETTLED GAS STANDS: a layer settled by its own history before the transparent pass (the exhaust's gas), its
+// opacity in alpha - the transparent default where none was handed over
+layout(set = 0, binding = 6) uniform sampler2D settled_buffer;
 
 layout(push_constant, std430) uniform Params {
 	vec2 resolution;
@@ -363,6 +366,11 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 		// total one is a change, and a change converges at the blend's own rate
 		float steady = 1.0 - 0.75 * 4.0 * diff * (1.0 - diff);
 		blend_factor *= steady;
+
+		// LONGSHOT [patch] #25 THE SETTLED GAS STANDS: a layer settled by its own history on the pixels' centres (the exhaust's gas: its
+		// own motion, its own jitter undone) is kept as it stands, its share of the pixel its opacity - settled again here by the motion
+		// of the surface behind it, it smeared over the ground and the sky as it moved across them, sixteen frames deep
+		blend_factor = max(blend_factor, clamp(textureLod(settled_buffer, uv, 0.0).a, 0.0, 1.0));
 
 		// Lerp/blend
 		color_resolved = mix(color_history, color_input, blend_factor);

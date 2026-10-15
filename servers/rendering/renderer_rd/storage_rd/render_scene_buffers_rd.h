@@ -188,6 +188,12 @@ private:
 	// effect that takes them ran before the clouds' own)
 	mutable uint64_t longshot_clouds_asked_frame = UINT64_MAX;
 
+	// LONGSHOT patch #25 (THE SETTLED GAS STANDS): a layer settled by its own history before the transparent pass - the exhaust's gas,
+	// resolved on the pixels' centres by its own motion with the jitter undone - hands over its image (its opacity in alpha) with the
+	// frame it was settled in; the TAA keeps that share of each pixel as it stands (a stale stamp is none)
+	RID longshot_settled;
+	uint64_t longshot_settled_frame = UINT64_MAX;
+
 protected:
 	static void _bind_methods();
 
@@ -201,6 +207,11 @@ public:
 	bool has_longshot_clouds() const;
 	RID get_longshot_clouds_light() const { return longshot_clouds_light; }
 	RID get_longshot_clouds_depth() const { return longshot_clouds_depth; }
+
+	// LONGSHOT patch #25: a settled layer's hand-over (its own image: its opacity in alpha, at the internal size)
+	void set_longshot_settled(RID p_settled);
+	bool has_longshot_settled() const;
+	RID get_longshot_settled() const { return longshot_settled; }
 
 	// info from our renderer
 	void set_can_be_storage(const bool p_can_be_storage) { can_be_storage = p_can_be_storage; }
