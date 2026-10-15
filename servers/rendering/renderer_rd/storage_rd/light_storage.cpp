@@ -2769,6 +2769,11 @@ void LightStorage::update_directional_shadow_atlas() {
 		Vector<RID> fb_tex;
 		fb_tex.push_back(directional_shadow.depth);
 		directional_shadow.fb = RD::get_singleton()->framebuffer_create(fb_tex);
+		// LONGSHOT (patch #31): the atlas says its format once at its creation. The Moon's noon bands read as a shadow depth quantized at a
+		// 65,536th of the seat's 24 km pancake while the project asked a 32-bit float; this line showed a D16 atlas asked by a caller of
+		// directional_shadow_atlas_set_size (the game's settings screen, its 16-bit literal), which no reading of the project could.
+		const RD::TextureFormat made = RD::get_singleton()->texture_get_format(directional_shadow.depth);
+		print_line(vformat("LightStorage: the directional shadow atlas %d x %d, the device's format %d (D16_UNORM is %d, D32_SFLOAT %d, X8_D24 %d; 16 bits asked: %s)", directional_shadow.size, directional_shadow.size, int(made.format), int(RD::DATA_FORMAT_D16_UNORM), int(RD::DATA_FORMAT_D32_SFLOAT), int(RD::DATA_FORMAT_X8_D24_UNORM_PACK32), directional_shadow.use_16_bits ? "true" : "false"));
 	}
 }
 void LightStorage::directional_shadow_atlas_set_size(int p_size, bool p_16_bits) {
