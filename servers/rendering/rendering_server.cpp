@@ -76,6 +76,21 @@ Array RenderingServer::_texture_debug_usage_bind() {
 	return arr;
 }
 
+// LONGSHOT patch #26 THE FRAME'S LEDGER (10-18): the frame's profile for scripts - each captured timestamp's name and its cpu and gpu
+// milliseconds from the frame's first; a pass's own time is the next entry's less its own, as the engine's --gpu-profile reads it
+Array RenderingServer::_get_frame_profile_bind() {
+	Vector<RenderingServerTypes::FrameProfileArea> profile = get_frame_profile();
+	Array arr;
+	for (const RenderingServerTypes::FrameProfileArea &E : profile) {
+		Dictionary dict;
+		dict["name"] = E.name;
+		dict["cpu_msec"] = E.cpu_msec;
+		dict["gpu_msec"] = E.gpu_msec;
+		arr.push_back(dict);
+	}
+	return arr;
+}
+
 static PackedInt64Array to_int_array(const Vector<ObjectID> &ids) {
 	PackedInt64Array a;
 	a.resize(ids.size());
@@ -3514,6 +3529,12 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("request_frame_drawn_callback", "callable"), &RenderingServer::request_frame_drawn_callback);
 	ClassDB::bind_method(D_METHOD("has_changed"), &RenderingServer::has_changed);
 	ClassDB::bind_method(D_METHOD("get_rendering_info", "info"), &RenderingServer::get_rendering_info);
+	// LONGSHOT patch #26 THE FRAME'S LEDGER AND THE TEXTURES' OWNERS: the per-pass frame profile and the per-texture census, which only
+	// the editor's debugger could read, for the game's own ledger (scripts/seat_swap.gd)
+	ClassDB::bind_method(D_METHOD("set_frame_profiling_enabled", "enable"), &RenderingServer::set_frame_profiling_enabled);
+	ClassDB::bind_method(D_METHOD("get_frame_profile"), &RenderingServer::_get_frame_profile_bind);
+	ClassDB::bind_method(D_METHOD("get_frame_profile_frame"), &RenderingServer::get_frame_profile_frame);
+	ClassDB::bind_method(D_METHOD("texture_debug_usage"), &RenderingServer::_texture_debug_usage_bind);
 	ClassDB::bind_method(D_METHOD("get_video_adapter_name"), &RenderingServer::get_video_adapter_name);
 	ClassDB::bind_method(D_METHOD("get_video_adapter_vendor"), &RenderingServer::get_video_adapter_vendor);
 	ClassDB::bind_method(D_METHOD("get_video_adapter_type"), &RenderingServer::get_video_adapter_type);
