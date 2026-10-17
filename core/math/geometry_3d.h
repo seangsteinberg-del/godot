@@ -55,7 +55,13 @@ inline bool ray_intersects_triangle(const Vector3 &p_from, const Vector3 &p_dir,
 	Vector3 s = p_from - p_v0;
 	real_t u = f * s.dot(h);
 
-	if ((u < 0.0f) || (u > 1.0f)) {
+	// LONGSHOT (10-18): A RAY MEETS NO CRACK BETWEEN TWO TRIANGLES. A ray through the shared edge of two triangles lands
+	// on the boundary of both in barycentric terms; with the last bits of the transform against it, one triangle sees
+	// u a hair below nought and the other a hair above one, and the ray passes through the hull (the builder's pointer
+	// on a barrel's segment edge measured the far wall). The boundary is held a billionth wide: a hit on the edge is a hit
+	// on either triangle, and a nearest-hit query is none the worse for the second.
+	const real_t EDGE = (real_t)1e-9;
+	if ((u < -EDGE) || (u > 1.0f + EDGE)) {
 		return false;
 	}
 
@@ -63,7 +69,7 @@ inline bool ray_intersects_triangle(const Vector3 &p_from, const Vector3 &p_dir,
 
 	real_t v = f * p_dir.dot(q);
 
-	if ((v < 0.0f) || (u + v > 1.0f)) {
+	if ((v < -EDGE) || (u + v > 1.0f + EDGE)) {
 		return false;
 	}
 

@@ -30,6 +30,10 @@
 
 #include "ustring.h"
 
+#include "core/templates/local_vector.h"
+
+#include <charconv>
+
 STATIC_ASSERT_INCOMPLETE_TYPE(class, Array);
 STATIC_ASSERT_INCOMPLETE_TYPE(class, Dictionary);
 STATIC_ASSERT_INCOMPLETE_TYPE(class, Object);
@@ -2375,204 +2379,100 @@ static double built_in_strtod(
 		/* If non-nullptr, store terminating Cacter's
 		 * address here. */
 		C **endPtr = nullptr) {
-	/* Largest possible base 10 exponent. Any
-	 * exponent larger than this will already
-	 * produce underflow or overflow, so there's
-	 * no need to worry about additional digits. */
-	static const int maxExponent = 511;
-	/* Table giving binary powers of 10. Entry
-	 * is 10^2^i. Used to convert decimal
-	 * exponents into floating-point numbers. */
-	static const double powersOf10[] = {
-		10.,
-		100.,
-		1.0e4,
-		1.0e8,
-		1.0e16,
-		1.0e32,
-		1.0e64,
-		1.0e128,
-		1.0e256
-	};
-
-	bool sign, expSign = false;
-	double fraction, dblExp;
-	const double *d;
-	const C *p;
-	int c;
-	/* Exponent read from "EX" field. */
-	int exp = 0;
-	/* Exponent that derives from the fractional
-	 * part. Under normal circumstances, it is
-	 * the negative of the number of digits in F.
-	 * However, if I is very long, the last digits
-	 * of I get dropped (otherwise a long I with a
-	 * large negative exponent could cause an
-	 * unnecessary overflow on I alone). In this
-	 * case, fracExp is incremented one for each
-	 * dropped digit. */
-	int fracExp = 0;
-	/* Number of digits in mantissa. */
-	int mantSize;
-	/* Number of mantissa digits BEFORE decimal point. */
-	int decPt;
-	/* Temporarily holds location of exponent in string. */
-	const C *pExp;
-
-	/*
-	 * Strip off leading blanks and check for a sign.
-	 */
-
-	p = string;
+	// LONGSHOT (10-18): the value is the nearest double to the decimal written, every digit counted - the parser this
+	// replaced summed eighteen digits into two integers and scaled them by binary powers of ten, so a number written
+	// with seventeen significant digits (a craft file's, a model's authored size) came back one unit in the last place
+	// off, and two readers of the same text disagreed. The grammar accepted is the one above, unchanged; the digits are
+	// handed to std::from_chars, which rounds correctly.
+	const C *p = string;
 	while (*p == ' ' || *p == '\t' || *p == '\n') {
 		p += 1;
 	}
+	bool sign = false;
 	if (*p == '-') {
 		sign = true;
 		p += 1;
-	} else {
-		if (*p == '+') {
-			p += 1;
-		}
-		sign = false;
+	} else if (*p == '+') {
+		p += 1;
 	}
-
-	/*
-	 * Count the number of digits in the mantissa (including the decimal
-	 * point), and also locate the decimal point.
-	 */
-
-	decPt = -1;
-	for (mantSize = 0;; mantSize += 1) {
-		c = *p;
-		if (!is_digit(c)) {
-			if ((c != '.') || (decPt >= 0)) {
+	// the mantissa: digits with at most one point among them
+	LocalVector<char> text;
+	int digits = 0;
+	bool point = false;
+	while (true) {
+		C c = *p;
+		if (is_digit(c)) {
+			text.push_back(char(c));
+			digits += 1;
+		} else if (c == '.' && !point) {
+			text.push_back('.');
+			point = true;
+		} else {
+			break;
+		}
+		p += 1;
+	}
+	if (digits == 0) {
+		if (endPtr != nullptr) {
+			*endPtr = (C *)string;
+		}
+		return 0.0;
+	}
+	// the exponent counts only when a digit follows its marker (and its sign)
+	if (*p == 'E' || *p == 'e') {
+		const C *e = p + 1;
+		bool exp_minus = false;
+		if (*e == '-') {
+			exp_minus = true;
+			e += 1;
+		} else if (*e == '+') {
+			e += 1;
+		}
+		if (is_digit(*e)) {
+			text.push_back('e');
+			if (exp_minus) {
+				text.push_back('-');
+			}
+			while (is_digit(*e)) {
+				text.push_back(char(*e));
+				e += 1;
+			}
+			p = e;
+		}
+	}
+	double value = 0.0;
+	const char *begin = (const char *)text.ptr();
+	std::from_chars_result parsed = std::from_chars(begin, begin + text.size(), value, std::chars_format::general);
+	if (parsed.ec == std::errc::result_out_of_range) {
+		// beyond a double's range: a vanishing number is zero, a vast one infinite - the exponent's sign tells which,
+		// and without an exponent a mantissa whose digits before the point are all zero vanishes
+		bool tiny = false;
+		bool exponent_seen = false;
+		for (uint32_t i = 0; i < text.size(); i++) {
+			if (text[i] == 'e') {
+				exponent_seen = true;
+				tiny = i + 1 < text.size() && text[i + 1] == '-';
 				break;
 			}
-			decPt = mantSize;
 		}
-		p += 1;
-	}
-
-	/*
-	 * Now suck up the digits in the mantissa. Use two integers to collect 9
-	 * digits each (this is faster than using floating-point). If the mantissa
-	 * has more than 18 digits, ignore the extras, since they can't affect the
-	 * value anyway.
-	 */
-
-	pExp = p;
-	p -= mantSize;
-	if (decPt < 0) {
-		decPt = mantSize;
-	} else {
-		mantSize -= 1; /* One of the digits was the point. */
-	}
-	if (mantSize > 18) {
-		fracExp = decPt - 18;
-		mantSize = 18;
-	} else {
-		fracExp = decPt - mantSize;
-	}
-	if (mantSize == 0) {
-		fraction = 0.0;
-		p = string;
-		goto done;
-	} else {
-		int frac1, frac2;
-
-		frac1 = 0;
-		for (; mantSize > 9; mantSize -= 1) {
-			c = *p;
-			p += 1;
-			if (c == '.') {
-				c = *p;
-				p += 1;
+		if (!exponent_seen) {
+			tiny = point;
+			for (uint32_t i = 0; i < text.size() && text[i] != '.'; i++) {
+				if (text[i] != '0') {
+					tiny = false;
+					break;
+				}
 			}
-			frac1 = 10 * frac1 + (c - '0');
 		}
-		frac2 = 0;
-		for (; mantSize > 0; mantSize -= 1) {
-			c = *p;
-			p += 1;
-			if (c == '.') {
-				c = *p;
-				p += 1;
-			}
-			frac2 = 10 * frac2 + (c - '0');
-		}
-		fraction = (1.0e9 * frac1) + frac2;
-	}
-
-	/*
-	 * Skim off the exponent.
-	 */
-
-	p = pExp;
-	if ((*p == 'E') || (*p == 'e')) {
-		p += 1;
-		if (*p == '-') {
-			expSign = true;
-			p += 1;
-		} else {
-			if (*p == '+') {
-				p += 1;
-			}
-			expSign = false;
-		}
-		if (!is_digit(char32_t(*p))) {
-			p = pExp;
-			goto done;
-		}
-		while (is_digit(char32_t(*p))) {
-			exp = exp * 10 + (*p - '0');
-			p += 1;
+		value = tiny ? 0.0 : HUGE_VAL;
+		if (!tiny) {
+			WARN_PRINT("Exponent too high");
 		}
 	}
-	if (expSign) {
-		exp = fracExp - exp;
-	} else {
-		exp = fracExp + exp;
-	}
-
-	/*
-	 * Generate a floating-point number that represents the exponent. Do this
-	 * by processing the exponent one bit at a time to combine many powers of
-	 * 2 of 10. Then combine the exponent with the fraction.
-	 */
-
-	if (exp < 0) {
-		expSign = true;
-		exp = -exp;
-	} else {
-		expSign = false;
-	}
-
-	if (exp > maxExponent) {
-		exp = maxExponent;
-		WARN_PRINT("Exponent too high");
-	}
-	dblExp = 1.0;
-	for (d = powersOf10; exp != 0; exp >>= 1, ++d) {
-		if (exp & 01) {
-			dblExp *= *d;
-		}
-	}
-	if (expSign) {
-		fraction /= dblExp;
-	} else {
-		fraction *= dblExp;
-	}
-
-done:
 	if (endPtr != nullptr) {
 		*endPtr = (C *)p;
 	}
-
-	if (sign) {
-		return -fraction;
-	}
-	return fraction;
+	return sign ? -value : value;
 }
 
 #define READING_SIGN 0
