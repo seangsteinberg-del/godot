@@ -150,8 +150,9 @@ public:
 	virtual void texture_debug_usage(List<RenderingServerTypes::TextureInfo> *r_info) = 0;
 	Array _texture_debug_usage_bind();
 	// LONGSHOT patch #26 THE FRAME'S LEDGER: the frame's profile (its captured timestamps: each pass's name, its cpu and gpu ms from the
-	// frame's start) as scripts read it - the game's own play log names the frame's costs by pass
-	Array _get_frame_profile_bind();
+	// frame's start) as scripts read it - three packed arrays, never a dictionary a pass (three hundred passes a frame) - the game's own
+	// play log names the frame's costs by pass
+	Dictionary _get_frame_profile_bind();
 
 	virtual void texture_set_force_redraw_if_visible(RID p_texture, bool p_enable) = 0;
 

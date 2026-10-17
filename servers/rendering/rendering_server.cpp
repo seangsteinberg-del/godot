@@ -78,17 +78,23 @@ Array RenderingServer::_texture_debug_usage_bind() {
 
 // LONGSHOT patch #26 THE FRAME'S LEDGER (10-18): the frame's profile for scripts - each captured timestamp's name and its cpu and gpu
 // milliseconds from the frame's first; a pass's own time is the next entry's less its own, as the engine's --gpu-profile reads it
-Array RenderingServer::_get_frame_profile_bind() {
+Dictionary RenderingServer::_get_frame_profile_bind() {
 	Vector<RenderingServerTypes::FrameProfileArea> profile = get_frame_profile();
-	Array arr;
-	for (const RenderingServerTypes::FrameProfileArea &E : profile) {
-		Dictionary dict;
-		dict["name"] = E.name;
-		dict["cpu_msec"] = E.cpu_msec;
-		dict["gpu_msec"] = E.gpu_msec;
-		arr.push_back(dict);
+	PackedStringArray names;
+	PackedFloat64Array cpu, gpu;
+	names.resize(profile.size());
+	cpu.resize(profile.size());
+	gpu.resize(profile.size());
+	for (int i = 0; i < profile.size(); i++) {
+		names.write[i] = profile[i].name;
+		cpu.write[i] = profile[i].cpu_msec;
+		gpu.write[i] = profile[i].gpu_msec;
 	}
-	return arr;
+	Dictionary d;
+	d["names"] = names;
+	d["cpu_msec"] = cpu;
+	d["gpu_msec"] = gpu;
+	return d;
 }
 
 static PackedInt64Array to_int_array(const Vector<ObjectID> &ids) {
