@@ -7762,6 +7762,7 @@ void RenderingDevice::set_resource_name(RID p_id, const String &p_name) {
 
 	if (texture_owner.owns(p_id)) {
 		Texture *texture = texture_owner.get_or_null(p_id);
+		texture->name = p_name; // (longshot patch #33) kept for the census.
 		driver->set_object_name(RDD::OBJECT_TYPE_TEXTURE, texture->driver_id, p_name);
 	} else if (framebuffer_owner.owns(p_id)) {
 		//Framebuffer *framebuffer = framebuffer_owner.get_or_null(p_id);
@@ -7771,21 +7772,26 @@ void RenderingDevice::set_resource_name(RID p_id, const String &p_name) {
 		driver->set_object_name(RDD::OBJECT_TYPE_SAMPLER, sampler_driver_id, p_name);
 	} else if (vertex_buffer_owner.owns(p_id)) {
 		Buffer *vertex_buffer = vertex_buffer_owner.get_or_null(p_id);
+		vertex_buffer->name = p_name;
 		driver->set_object_name(RDD::OBJECT_TYPE_BUFFER, vertex_buffer->driver_id, p_name);
 	} else if (index_buffer_owner.owns(p_id)) {
 		IndexBuffer *index_buffer = index_buffer_owner.get_or_null(p_id);
+		index_buffer->name = p_name;
 		driver->set_object_name(RDD::OBJECT_TYPE_BUFFER, index_buffer->driver_id, p_name);
 	} else if (shader_owner.owns(p_id)) {
 		Shader *shader = shader_owner.get_or_null(p_id);
 		driver->set_object_name(RDD::OBJECT_TYPE_SHADER, shader->driver_id, p_name);
 	} else if (uniform_buffer_owner.owns(p_id)) {
 		Buffer *uniform_buffer = uniform_buffer_owner.get_or_null(p_id);
+		uniform_buffer->name = p_name;
 		driver->set_object_name(RDD::OBJECT_TYPE_BUFFER, uniform_buffer->driver_id, p_name);
 	} else if (texture_buffer_owner.owns(p_id)) {
 		Buffer *texture_buffer = texture_buffer_owner.get_or_null(p_id);
+		texture_buffer->name = p_name;
 		driver->set_object_name(RDD::OBJECT_TYPE_BUFFER, texture_buffer->driver_id, p_name);
 	} else if (storage_buffer_owner.owns(p_id)) {
 		Buffer *storage_buffer = storage_buffer_owner.get_or_null(p_id);
+		storage_buffer->name = p_name;
 		driver->set_object_name(RDD::OBJECT_TYPE_BUFFER, storage_buffer->driver_id, p_name);
 	} else if (uniform_set_owner.owns(p_id)) {
 		UniformSet *uniform_set = uniform_set_owner.get_or_null(p_id);
@@ -8032,6 +8038,77 @@ void RenderingDevice::_free_pending_resources(int p_frame) {
 
 uint32_t RenderingDevice::get_frame_delay() const {
 	return frames.size();
+}
+
+// THE DEVICE'S TEXTURES BY NAME (longshot patch #33, the performance push 10-19): every live texture and buffer with the name
+// set_resource_name gave it and the bytes the driver holds for it, so a game's own ledger says whose the device's gigabytes are. The
+// server's census (RenderingServer::texture_debug_usage, patch #26) sees the server's own textures alone: the render buffers, the global
+// illumination's cascades, the shadow atlases and every texture a script or a module makes on the device stood unnamed beside it
+// (4.8 of 13.9 GB at the game's launch pad). A view of another texture (a shared texture, a slice) holds no memory of its own.
+TypedArray<Dictionary> RenderingDevice::texture_debug_usage() {
+	_THREAD_SAFE_METHOD_
+
+	TypedArray<Dictionary> out;
+	for (const RID &rid : texture_owner.get_owned_list()) {
+		Texture *t = texture_owner.get_or_null(rid);
+		if (!t) {
+			continue;
+		}
+		Dictionary d;
+		d["name"] = t->name;
+		d["type"] = (int)t->type;
+		d["format"] = (int)t->format;
+		d["width"] = t->width;
+		d["height"] = t->height;
+		d["depth"] = t->depth;
+		d["layers"] = t->layers;
+		d["mipmaps"] = t->mipmaps;
+		d["samples"] = (int)t->samples;
+		d["usage"] = t->usage_flags;
+		d["shared"] = t->owner.is_valid();
+		uint64_t bytes = 0;
+		if (t->owner.is_null()) {
+			bytes = driver->texture_get_allocation_size(t->driver_id);
+		}
+		if (t->shared_fallback != nullptr && t->shared_fallback->texture) {
+			bytes += driver->texture_get_allocation_size(t->shared_fallback->texture);
+		}
+		d["bytes"] = bytes;
+		out.push_back(d);
+	}
+	return out;
+}
+
+TypedArray<Dictionary> RenderingDevice::buffer_debug_usage() {
+	_THREAD_SAFE_METHOD_
+
+	TypedArray<Dictionary> out;
+	auto add = [&out](const char *p_kind, const Buffer *p_buffer) {
+		if (!p_buffer) {
+			return;
+		}
+		Dictionary d;
+		d["name"] = p_buffer->name;
+		d["kind"] = p_kind;
+		d["size"] = (uint64_t)p_buffer->size;
+		out.push_back(d);
+	};
+	for (const RID &rid : vertex_buffer_owner.get_owned_list()) {
+		add("vertex", vertex_buffer_owner.get_or_null(rid));
+	}
+	for (const RID &rid : index_buffer_owner.get_owned_list()) {
+		add("index", index_buffer_owner.get_or_null(rid));
+	}
+	for (const RID &rid : uniform_buffer_owner.get_owned_list()) {
+		add("uniform", uniform_buffer_owner.get_or_null(rid));
+	}
+	for (const RID &rid : texture_buffer_owner.get_owned_list()) {
+		add("texture", texture_buffer_owner.get_or_null(rid));
+	}
+	for (const RID &rid : storage_buffer_owner.get_owned_list()) {
+		add("storage", storage_buffer_owner.get_or_null(rid));
+	}
+	return out;
 }
 
 uint64_t RenderingDevice::get_memory_usage(MemoryType p_type) const {
@@ -9229,6 +9306,8 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_device_pipeline_cache_uuid"), &RenderingDevice::get_device_pipeline_cache_uuid);
 
 	ClassDB::bind_method(D_METHOD("get_memory_usage", "type"), &RenderingDevice::get_memory_usage);
+	ClassDB::bind_method(D_METHOD("texture_debug_usage"), &RenderingDevice::texture_debug_usage); // (longshot patch #33)
+	ClassDB::bind_method(D_METHOD("buffer_debug_usage"), &RenderingDevice::buffer_debug_usage);
 
 	ClassDB::bind_method(D_METHOD("get_driver_resource", "resource", "rid", "index"), &RenderingDevice::get_driver_resource);
 

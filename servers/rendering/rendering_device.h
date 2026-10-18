@@ -184,6 +184,7 @@ private:
 	struct Buffer {
 		RDD::BufferID driver_id;
 		uint32_t size = 0;
+		String name; // THE DEVICE'S TEXTURES BY NAME (longshot patch #33): what set_resource_name said, kept for the census.
 		BitField<RDD::BufferUsageBits> usage = {};
 		RDG::ResourceTracker *draw_tracker = nullptr;
 		int32_t transfer_worker_index = -1;
@@ -371,6 +372,7 @@ public:
 		BitField<RDD::TextureAspectBits> barrier_aspect_flags = {};
 		bool bound = false; // Bound to framebuffer.
 		RID owner;
+		String name; // THE DEVICE'S TEXTURES BY NAME (longshot patch #33): what set_resource_name said, kept for the census.
 
 		RDG::ResourceTracker *draw_tracker = nullptr;
 		HashMap<Rect2i, RDG::ResourceTracker *> *slice_trackers = nullptr;
@@ -1932,6 +1934,9 @@ public:
 	};
 
 	uint64_t get_memory_usage(MemoryType p_type) const;
+	// THE DEVICE'S TEXTURES BY NAME (longshot patch #33): every live texture and buffer with its name and the bytes the driver holds for it.
+	TypedArray<Dictionary> texture_debug_usage();
+	TypedArray<Dictionary> buffer_debug_usage();
 
 	RenderingDevice *create_local_device();
 

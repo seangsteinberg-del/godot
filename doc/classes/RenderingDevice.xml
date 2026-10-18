@@ -67,6 +67,12 @@
 				- a compute list is currently active (created by [method compute_list_begin])
 			</description>
 		</method>
+		<method name="buffer_debug_usage">
+			<return type="Dictionary[]" />
+			<description>
+				Returns every live buffer on the device (vertex, index, uniform, texture and storage buffers) as a dictionary with its [code]name[/code] (the one [method set_resource_name] gave it, empty when none), its [code]kind[/code] and its [code]size[/code] in bytes, so a game's own ledger can say whose the device's memory is. A LONGSHOT fork method (patch #33).
+			</description>
+		</method>
 		<method name="buffer_get_data">
 			<return type="PackedByteArray" />
 			<param index="0" name="buffer" type="RID" />
@@ -1175,6 +1181,12 @@
 				For 2D textures (which only have one layer), [param layer] must be [code]0[/code].
 				[b]Note:[/b] Layer slicing is only supported for 2D texture arrays, not 3D textures or cubemaps.
 				This will be freed automatically when the [param with_texture] is freed.
+			</description>
+		</method>
+		<method name="texture_debug_usage">
+			<return type="Dictionary[]" />
+			<description>
+				Returns every live texture on the device as a dictionary: [code]name[/code] (the one [method set_resource_name] gave it, or the asset's path for a texture the [RenderingServer] loaded from a file; empty when none), [code]type[/code] ([enum TextureType]), [code]format[/code] ([enum DataFormat]), [code]width[/code], [code]height[/code], [code]depth[/code], [code]layers[/code], [code]mipmaps[/code], [code]samples[/code], [code]usage[/code] ([enum TextureUsageBits]), [code]shared[/code] (a view of another texture, holding no memory of its own) and [code]bytes[/code] (what the driver holds for it). A LONGSHOT fork method (patch #33).
 			</description>
 		</method>
 		<method name="texture_get_data">

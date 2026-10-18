@@ -2079,6 +2079,13 @@ void TextureStorage::texture_set_path(RID p_texture, const String &p_path) {
 	ERR_FAIL_NULL(tex);
 
 	tex->path = p_path;
+	// THE DEVICE'S TEXTURES BY NAME (longshot patch #33): the device's census names an asset's texture by its path.
+	if (tex->rd_texture.is_valid()) {
+		RD::get_singleton()->set_resource_name(tex->rd_texture, p_path);
+	}
+	if (tex->rd_texture_srgb.is_valid()) {
+		RD::get_singleton()->set_resource_name(tex->rd_texture_srgb, p_path);
+	}
 }
 
 String TextureStorage::texture_get_path(RID p_texture) const {
@@ -4315,6 +4322,7 @@ void TextureStorage::_update_render_target(RenderTarget *rt) {
 	// TODO see if we can lazy create this once we actually use it as we may not need to create this if we have an overridden color buffer...
 	rt->color = RD::get_singleton()->texture_create(rd_color_attachment_format, rd_view);
 	ERR_FAIL_COND(rt->color.is_null());
+	RD::get_singleton()->set_resource_name(rt->color, "Render Target colour"); // (longshot patch #33) for the census.
 
 	if (rt->msaa != RSE::VIEWPORT_MSAA_DISABLED) {
 		// Use the texture format of the color attachment for the multisample color attachment.
@@ -4332,6 +4340,7 @@ void TextureStorage::_update_render_target(RenderTarget *rt) {
 		rd_color_multisample_format.is_discardable = true;
 		rt->color_multisample = RD::get_singleton()->texture_create(rd_color_multisample_format, rd_view_multisample);
 		ERR_FAIL_COND(rt->color_multisample.is_null());
+		RD::get_singleton()->set_resource_name(rt->color_multisample, "Render Target colour MSAA"); // (longshot patch #33)
 	}
 
 	{ //update texture
