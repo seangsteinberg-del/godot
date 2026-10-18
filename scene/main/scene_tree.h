@@ -33,6 +33,7 @@
 #include "core/object/message_queue.h"
 #include "core/object/ref_counted.h"
 #include "core/os/main_loop.h"
+#include "core/os/spin_lock.h"
 #include "core/os/thread_safe.h"
 #include "core/templates/paged_allocator.h"
 #include "core/templates/self_list.h"
@@ -116,6 +117,15 @@ private:
 
 	LocalVector<ProcessGroup *> process_groups;
 	bool process_groups_dirty = true;
+
+	// THE NODES' OWN TIME (longshot patch #34): each processing node's time in its process and physics callbacks, by its script's
+	// path or its class, summed since the last read - a game's own ledger names the main thread's time by system. Off until asked.
+	bool process_ledger_on = false;
+	SpinLock process_ledger_lock;
+	HashMap<StringName, uint64_t> process_ledger_us[2];
+	HashMap<StringName, uint32_t> process_ledger_n[2];
+	StringName _process_ledger_key(Node *p_node) const;
+	void _process_ledger_add(const StringName &p_key, bool p_physics, uint64_t p_usec);
 	LocalVector<ProcessGroup *> local_process_group_cache; // Used when processing to group what needs to
 	uint64_t process_last_pass = 1;
 
@@ -434,6 +444,11 @@ public:
 	RequiredResult<Tween> create_tween();
 	void remove_tween(const Ref<Tween> &p_tween);
 	TypedArray<Tween> get_processed_tweens();
+
+	// THE NODES' OWN TIME (longshot patch #34).
+	void set_process_ledger_enabled(bool p_enabled);
+	bool is_process_ledger_enabled() const { return process_ledger_on; }
+	Dictionary get_process_ledger(bool p_reset = true);
 
 	//used by Main::start, don't use otherwise
 	void add_current_scene(Node *p_current);

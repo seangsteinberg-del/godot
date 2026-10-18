@@ -149,6 +149,13 @@
 				Returns an [Array] containing all nodes inside this tree, that have been added to the given [param group], in scene hierarchy order.
 			</description>
 		</method>
+		<method name="get_process_ledger">
+			<return type="Dictionary" />
+			<param index="0" name="reset" type="bool" default="true" />
+			<description>
+				Returns the time every processing node spent in its process and physics callbacks since the last read, summed by its script's path (or its class when it has no script): [code]process_usec[/code] and [code]physics_usec[/code] map each name to microseconds, [code]process_calls[/code] and [code]physics_calls[/code] to the number of callbacks. The sums begin again when [param reset] is [code]true[/code]. Nothing is recorded until [method set_process_ledger_enabled] turned the ledger on. A LONGSHOT fork method (patch #34).
+			</description>
+		</method>
 		<method name="get_processed_tweens">
 			<return type="Tween[]" />
 			<description>
@@ -172,6 +179,12 @@
 			<return type="bool" />
 			<description>
 				Returns [code]true[/code] if accessibility features are supported by the OS and enabled in project settings.
+			</description>
+		</method>
+		<method name="is_process_ledger_enabled" qualifiers="const">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] while the nodes' time ledger records (see [method set_process_ledger_enabled]). A LONGSHOT fork method (patch #34).
 			</description>
 		</method>
 		<method name="notify_group">
@@ -245,6 +258,13 @@
 				Sets a custom [MultiplayerAPI] with the given [param root_path] (controlling also the relative subpaths), or override the default one if [param root_path] is empty.
 				[b]Note:[/b] No [MultiplayerAPI] must be configured for the subpath containing [param root_path], nested custom multiplayers are not allowed. I.e. if one is configured for [code]"/root/Foo"[/code] setting one for [code]"/root/Foo/Bar"[/code] will cause an error.
 				[b]Note:[/b] [method set_multiplayer] should be called [i]before[/i] the child nodes are ready at the given [param root_path]. If multiplayer nodes like [MultiplayerSpawner] or [MultiplayerSynchronizer] are added to the tree before the custom multiplayer API is set, they will not work.
+			</description>
+		</method>
+		<method name="set_process_ledger_enabled">
+			<return type="void" />
+			<param index="0" name="enabled" type="bool" />
+			<description>
+				Turns the nodes' time ledger on or off: while on, the tree times every processing node's process and physics callbacks and sums them by the node's script path or class, read with [method get_process_ledger]. The cost is two clock reads a node a frame. A LONGSHOT fork method (patch #34).
 			</description>
 		</method>
 		<method name="unload_current_scene">

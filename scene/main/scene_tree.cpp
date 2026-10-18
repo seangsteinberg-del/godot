@@ -39,6 +39,7 @@ STATIC_ASSERT_INCOMPLETE_TYPE(class, RenderingServer);
 #include "core/io/resource_loader.h"
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/object/script_language.h"
 #include "core/object/worker_thread_pool.h"
 #include "core/os/os.h"
 #include "core/profiling/profiling.h"
@@ -1215,6 +1216,10 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 			continue;
 		}
 
+		// THE NODES' OWN TIME (longshot patch #34): the node's key taken before its callbacks (a node may free itself in them), its time after.
+		const bool ledger = process_ledger_on;
+		const StringName ledger_key = ledger ? _process_ledger_key(n) : StringName();
+		const uint64_t t_node = ledger ? OS::get_singleton()->get_ticks_usec() : 0;
 		if (p_physics) {
 			if (n->is_physics_processing_internal()) {
 				n->notification(Node::NOTIFICATION_INTERNAL_PHYSICS_PROCESS);
@@ -1230,9 +1235,68 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 				n->notification(Node::NOTIFICATION_PROCESS);
 			}
 		}
+		if (ledger) {
+			_process_ledger_add(ledger_key, p_physics, OS::get_singleton()->get_ticks_usec() - t_node);
+		}
 	}
 
 	p_group->call_queue.flush(); // Flush messages also after processing (for potential deferred calls).
+}
+
+// THE NODES' OWN TIME (longshot patch #34, the performance push 10-19): a node's key is its script's path (the system it belongs to) or,
+// with no script of its own, its class (a module's node doing its work in NOTIFICATION_PROCESS); the sums are read and begun again by
+// the game's ledger each window. The main thread's time stood unaccounted between the engine's frame numbers and the device's: the
+// scripts' and the modules' share of it by system is what this names.
+StringName SceneTree::_process_ledger_key(Node *p_node) const {
+	ScriptInstance *si = p_node->get_script_instance();
+	if (si) {
+		Ref<Script> s = si->get_script();
+		if (s.is_valid() && !s->get_path().is_empty()) {
+			return StringName(s->get_path());
+		}
+	}
+	return p_node->get_class_name();
+}
+
+void SceneTree::_process_ledger_add(const StringName &p_key, bool p_physics, uint64_t p_usec) {
+	process_ledger_lock.lock();
+	process_ledger_us[p_physics ? 1 : 0][p_key] += p_usec;
+	process_ledger_n[p_physics ? 1 : 0][p_key] += 1;
+	process_ledger_lock.unlock();
+}
+
+void SceneTree::set_process_ledger_enabled(bool p_enabled) {
+	process_ledger_lock.lock();
+	process_ledger_on = p_enabled;
+	for (int k = 0; k < 2; k++) {
+		process_ledger_us[k].clear();
+		process_ledger_n[k].clear();
+	}
+	process_ledger_lock.unlock();
+}
+
+Dictionary SceneTree::get_process_ledger(bool p_reset) {
+	Dictionary out;
+	process_ledger_lock.lock();
+	const char *names[2] = { "process", "physics" };
+	for (int k = 0; k < 2; k++) {
+		Dictionary us;
+		Dictionary calls;
+		for (const KeyValue<StringName, uint64_t> &kv : process_ledger_us[k]) {
+			us[String(kv.key)] = (int64_t)kv.value;
+		}
+		for (const KeyValue<StringName, uint32_t> &kv : process_ledger_n[k]) {
+			calls[String(kv.key)] = (int64_t)kv.value;
+		}
+		out[String(names[k]) + "_usec"] = us;
+		out[String(names[k]) + "_calls"] = calls;
+		if (p_reset) {
+			process_ledger_us[k].clear();
+			process_ledger_n[k].clear();
+		}
+	}
+	process_ledger_lock.unlock();
+	return out;
 }
 
 void SceneTree::_process_groups_thread(uint32_t p_index, bool p_physics) {
@@ -1915,6 +1979,9 @@ void SceneTree::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("create_timer", "time_sec", "process_always", "process_in_physics", "ignore_time_scale"), &SceneTree::create_timer, DEFVAL(true), DEFVAL(false), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("create_tween"), &SceneTree::create_tween);
 	ClassDB::bind_method(D_METHOD("get_processed_tweens"), &SceneTree::get_processed_tweens);
+	ClassDB::bind_method(D_METHOD("set_process_ledger_enabled", "enabled"), &SceneTree::set_process_ledger_enabled); // (longshot patch #34)
+	ClassDB::bind_method(D_METHOD("is_process_ledger_enabled"), &SceneTree::is_process_ledger_enabled);
+	ClassDB::bind_method(D_METHOD("get_process_ledger", "reset"), &SceneTree::get_process_ledger, DEFVAL(true));
 
 	ClassDB::bind_method(D_METHOD("get_node_count"), &SceneTree::get_node_count);
 	ClassDB::bind_method(D_METHOD("get_frame"), &SceneTree::get_frame);
