@@ -68,10 +68,10 @@ void WindowsTerminalLogger::logv(const char *p_format, va_list p_list, bool p_er
 	DWORD written = 0;
 	HANDLE h = p_err ? GetStdHandle(STD_ERROR_HANDLE) : GetStdHandle(STD_OUTPUT_HANDLE);
 	WriteFile(h, cstr_buf.ptr(), cstr_buf.length(), &written, nullptr);
-
-#ifdef DEBUG_ENABLED
-	FlushFileBuffers(h);
-#endif
+	// THE PRINT THAT COST A FRAME (longshot patch #37, 10-19): upstream ends every line of a debug build with FlushFileBuffers - with
+	// the output a file (every court's log, every take's) that commits the file to the physical disk: 31 ms a line on a hard disk, 1 ms
+	// on an SSD, against 8 us for the write alone. WriteFile has handed the line to the system already - a crash or a kill of the
+	// process loses nothing, only a power cut could - and no log is worth a frame a line. Nothing here flushes.
 }
 
 void WindowsTerminalLogger::log_error(const char *p_function, const char *p_file, int p_line, const char *p_code, const char *p_rationale, bool p_editor_notify, ErrorType p_type, const Vector<Ref<ScriptBacktrace>> &p_script_backtraces) {
