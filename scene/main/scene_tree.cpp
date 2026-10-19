@@ -1236,7 +1236,7 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 			}
 		}
 		if (ledger) {
-			_process_ledger_add(ledger_key, p_physics, OS::get_singleton()->get_ticks_usec() - t_node);
+			_process_ledger_add(ledger_key, p_physics ? 1 : 0, OS::get_singleton()->get_ticks_usec() - t_node);
 		}
 	}
 
@@ -1258,17 +1258,26 @@ StringName SceneTree::_process_ledger_key(Node *p_node) const {
 	return p_node->get_class_name();
 }
 
-void SceneTree::_process_ledger_add(const StringName &p_key, bool p_physics, uint64_t p_usec) {
+void SceneTree::_process_ledger_add(const StringName &p_key, int p_slot, uint64_t p_usec) {
 	process_ledger_lock.lock();
-	process_ledger_us[p_physics ? 1 : 0][p_key] += p_usec;
-	process_ledger_n[p_physics ? 1 : 0][p_key] += 1;
+	process_ledger_us[p_slot][p_key] += p_usec;
+	process_ledger_n[p_slot][p_key] += 1;
 	process_ledger_lock.unlock();
+}
+
+// THE DRAW TOO (longshot patch #35): a canvas item's draw callback runs in the frame outside any process callback, so the ledger
+// of #34 could not see the instruments' own drawing; CanvasItem::_redraw_callback hands its time in here under the node's key.
+void SceneTree::process_ledger_draw(Node *p_node, uint64_t p_usec) {
+	if (!process_ledger_on) {
+		return;
+	}
+	_process_ledger_add(_process_ledger_key(p_node), 2, p_usec);
 }
 
 void SceneTree::set_process_ledger_enabled(bool p_enabled) {
 	process_ledger_lock.lock();
 	process_ledger_on = p_enabled;
-	for (int k = 0; k < 2; k++) {
+	for (int k = 0; k < 3; k++) {
 		process_ledger_us[k].clear();
 		process_ledger_n[k].clear();
 	}
@@ -1278,8 +1287,8 @@ void SceneTree::set_process_ledger_enabled(bool p_enabled) {
 Dictionary SceneTree::get_process_ledger(bool p_reset) {
 	Dictionary out;
 	process_ledger_lock.lock();
-	const char *names[2] = { "process", "physics" };
-	for (int k = 0; k < 2; k++) {
+	const char *names[3] = { "process", "physics", "draw" };
+	for (int k = 0; k < 3; k++) {
 		Dictionary us;
 		Dictionary calls;
 		for (const KeyValue<StringName, uint64_t> &kv : process_ledger_us[k]) {

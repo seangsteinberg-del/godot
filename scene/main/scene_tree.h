@@ -120,12 +120,13 @@ private:
 
 	// THE NODES' OWN TIME (longshot patch #34): each processing node's time in its process and physics callbacks, by its script's
 	// path or its class, summed since the last read - a game's own ledger names the main thread's time by system. Off until asked.
+	// THE DRAW TOO (patch #35): a third slot, each canvas item's draw callback (CanvasItem::_redraw_callback hands it in).
 	bool process_ledger_on = false;
 	SpinLock process_ledger_lock;
-	HashMap<StringName, uint64_t> process_ledger_us[2];
-	HashMap<StringName, uint32_t> process_ledger_n[2];
+	HashMap<StringName, uint64_t> process_ledger_us[3];
+	HashMap<StringName, uint32_t> process_ledger_n[3];
 	StringName _process_ledger_key(Node *p_node) const;
-	void _process_ledger_add(const StringName &p_key, bool p_physics, uint64_t p_usec);
+	void _process_ledger_add(const StringName &p_key, int p_slot, uint64_t p_usec);
 	LocalVector<ProcessGroup *> local_process_group_cache; // Used when processing to group what needs to
 	uint64_t process_last_pass = 1;
 
@@ -448,6 +449,7 @@ public:
 	// THE NODES' OWN TIME (longshot patch #34).
 	void set_process_ledger_enabled(bool p_enabled);
 	bool is_process_ledger_enabled() const { return process_ledger_on; }
+	void process_ledger_draw(Node *p_node, uint64_t p_usec); // (patch #35: a canvas item's draw callback, by the node's key)
 	Dictionary get_process_ledger(bool p_reset = true);
 
 	//used by Main::start, don't use otherwise

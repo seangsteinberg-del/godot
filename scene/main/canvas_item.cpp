@@ -35,6 +35,7 @@ STATIC_ASSERT_INCOMPLETE_TYPE(class, RenderingServer);
 
 #include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
+#include "core/os/os.h"
 #include "scene/2d/canvas_group.h"
 #include "scene/main/canvas_layer.h"
 #include "scene/main/scene_tree.h"
@@ -169,9 +170,16 @@ void CanvasItem::_redraw_callback() {
 			TextServer::set_current_drawn_item_oversampling(get_viewport()->get_oversampling());
 		}
 		current_item_drawn = this;
+		// THE DRAW TOO (longshot patch #35): the callback's time to the tree's ledger, by this item's script or class
+		SceneTree *ledger_tree = SceneTree::get_singleton();
+		const bool ledger = ledger_tree && ledger_tree->is_process_ledger_enabled();
+		const uint64_t t_draw = ledger ? OS::get_singleton()->get_ticks_usec() : 0;
 		notification(NOTIFICATION_DRAW);
 		emit_signal(SceneStringName(draw));
 		GDVIRTUAL_CALL(_draw);
+		if (ledger) {
+			ledger_tree->process_ledger_draw(this, OS::get_singleton()->get_ticks_usec() - t_draw);
+		}
 		current_item_drawn = nullptr;
 		TextServer::set_current_drawn_item_oversampling(0.0);
 		drawing = false;
