@@ -2301,6 +2301,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("texture_3d_placeholder_create"), &RenderingServer::texture_3d_placeholder_create);
 
 	ClassDB::bind_method(D_METHOD("texture_2d_get", "texture"), &RenderingServer::texture_2d_get);
+	ClassDB::bind_method(D_METHOD("texture_2d_get_async", "texture", "callback"), &RenderingServer::texture_2d_get_async);
 	ClassDB::bind_method(D_METHOD("texture_2d_layer_get", "texture", "layer"), &RenderingServer::texture_2d_layer_get);
 	ClassDB::bind_method(D_METHOD("texture_3d_get", "texture"), &RenderingServer::_texture_3d_get);
 

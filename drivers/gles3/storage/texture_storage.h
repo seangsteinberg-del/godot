@@ -575,6 +575,7 @@ public:
 	virtual void texture_3d_placeholder_initialize(RID p_texture) override;
 
 	virtual Ref<Image> texture_2d_get(RID p_texture) const override;
+	virtual void texture_2d_get_async(RID p_texture, const Callable &p_callback) override { p_callback.call(texture_2d_get(p_texture)); } // longshot #38: the GL road reads at once
 	virtual Ref<Image> texture_2d_layer_get(RID p_texture, int p_layer) const override;
 	virtual Vector<Ref<Image>> texture_3d_get(RID p_texture) const override;
 

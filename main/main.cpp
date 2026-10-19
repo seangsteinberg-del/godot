@@ -5167,6 +5167,12 @@ bool Main::iteration() {
 	}
 #endif
 
+	if (exit && movie_writer) {
+		// THE TAKE'S LAST FRAMES (longshot #38): the pending readbacks forced now, while the viewport stands - the main loop is
+		// finalized before cleanup reaches movie_writer->end(), and a viewport texture gone cannot stall the device
+		movie_writer->finish_frames();
+	}
+
 	if (fixed_fps != -1) {
 		return exit;
 	}

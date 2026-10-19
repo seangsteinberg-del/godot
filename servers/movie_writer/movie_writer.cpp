@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 #include "core/io/dir_access.h"
+#include "core/object/callable_mp.h"
 #include "core/object/class_db.h"
 #include "core/os/time.h"
 #include "core/templates/rb_set.h"
@@ -133,6 +134,19 @@ void MovieWriter::begin(const Size2i &p_movie_size, uint32_t p_fps, const String
 	audio_mix_buffer.resize(mix_rate * audio_channels / fps);
 
 	write_begin(movie_size, p_fps, p_base_path);
+
+	// THE TAKE WITHOUT THE WAIT (longshot #38): the worker that encodes and writes, unless a script writes the frames
+	async_frames = !GDVIRTUAL_IS_OVERRIDDEN(_write_frame);
+	frames_requested = 0;
+	frames_written = 0;
+	worker_stop = false;
+	worker_encoding_usec.set(0);
+	if (async_frames) {
+		for (int i = 0; i < FRAMES_IN_FLIGHT_MAX; i++) {
+			frames_room.post();
+		}
+		worker.start(_worker_main, this);
+	}
 }
 
 void MovieWriter::_bind_methods() {
@@ -199,8 +213,47 @@ void MovieWriter::add_frame() {
 
 	RID main_vp_rid = RenderingServer::get_singleton()->viewport_find_from_screen_attachment(DisplayServerEnums::MAIN_WINDOW_ID);
 	RID main_vp_texture = RenderingServer::get_singleton()->viewport_get_texture(main_vp_rid);
-	Ref<Image> vp_tex = RenderingServer::get_singleton()->texture_2d_get(main_vp_texture);
+	main_vp_texture_rid = main_vp_texture;
+	const bool hdr_2d = RenderingServer::get_singleton()->viewport_is_using_hdr_2d(main_vp_rid);
 
+	RenderingServer::get_singleton()->viewport_set_measure_render_time(main_vp_rid, true);
+	cpu_time += RenderingServer::get_singleton()->viewport_get_measured_render_time_cpu(main_vp_rid);
+	cpu_time += RenderingServer::get_singleton()->get_frame_setup_time_cpu();
+	gpu_time += RenderingServer::get_singleton()->viewport_get_measured_render_time_gpu(main_vp_rid);
+
+	AudioDriverDummy::get_dummy_singleton()->mix_audio(mix_rate / fps, audio_mix_buffer.ptr());
+
+	if (!async_frames) {
+		// a script's writer: the frame read at once and handed over on this thread
+		PendingFrame fr;
+		fr.image = RenderingServer::get_singleton()->texture_2d_get(main_vp_texture);
+		fr.hdr_2d = hdr_2d;
+		ERR_FAIL_COND_MSG(fr.image.is_null(), "The take's frame could not be read from the device.");
+		_frame_prepare(fr);
+		uint64_t encoding_start_usec = Time::get_singleton()->get_ticks_usec();
+		write_frame(fr.image, audio_mix_buffer.ptr());
+		uint64_t encoding_end_usec = Time::get_singleton()->get_ticks_usec();
+		encoding_time_usec += encoding_end_usec - encoding_start_usec;
+		return;
+	}
+
+	// THE TAKE WITHOUT THE WAIT (longshot #38): this frame's audio kept under its serial, the device asked for its pixels (the copy
+	// rides this frame's command buffer, after its drawing), the worker writes it in serial order once the bytes are back
+	frames_room.wait();
+	const uint64_t serial = frames_requested++;
+	{
+		MutexLock lock(frames_mutex);
+		PendingFrame &fr = frames_pending[serial];
+		fr.serial = serial;
+		fr.hdr_2d = hdr_2d;
+		fr.audio = audio_mix_buffer;
+	}
+	RenderingServer::get_singleton()->texture_2d_get_async(main_vp_texture, callable_mp(this, &MovieWriter::_frame_read).bind(serial));
+}
+
+// the synchronous road's steps on a read-back frame: the crop and resize to the movie's size, the HDR 2D conversion
+void MovieWriter::_frame_prepare(PendingFrame &p_frame) {
+	Ref<Image> vp_tex = p_frame.image;
 	if (vp_tex->get_size() != movie_size) {
 		// Resize the texture to the output resolution if it differs from the current viewport size.
 		// This ensures all frames have the same resolution, as not all video formats and players
@@ -231,26 +284,119 @@ void MovieWriter::add_frame() {
 		vp_tex->resize(movie_size.width, movie_size.height, Image::INTERPOLATE_BILINEAR);
 	}
 
-	if (RenderingServer::get_singleton()->viewport_is_using_hdr_2d(main_vp_rid)) {
+	if (p_frame.hdr_2d) {
 		vp_tex->convert(Image::FORMAT_RGBA8);
 		vp_tex->linear_to_srgb();
 	}
+}
 
-	RenderingServer::get_singleton()->viewport_set_measure_render_time(main_vp_rid, true);
-	cpu_time += RenderingServer::get_singleton()->viewport_get_measured_render_time_cpu(main_vp_rid);
-	cpu_time += RenderingServer::get_singleton()->get_frame_setup_time_cpu();
-	gpu_time += RenderingServer::get_singleton()->viewport_get_measured_render_time_gpu(main_vp_rid);
+void MovieWriter::_frame_queue(const PendingFrame &p_frame) {
+	List<PendingFrame>::Element *e = frames_queue.back();
+	while (e && e->get().serial > p_frame.serial) {
+		e = e->prev();
+	}
+	if (e) {
+		frames_queue.insert_after(e, p_frame);
+	} else {
+		frames_queue.push_front(p_frame);
+	}
+}
 
-	AudioDriverDummy::get_dummy_singleton()->mix_audio(mix_rate / fps, audio_mix_buffer.ptr());
+// the device's answer (on the rendering thread, in a later frame's _begin_frame): the frame joins the queue in serial order
+void MovieWriter::_frame_read(const Ref<Image> &p_image, uint64_t p_serial) {
+	MutexLock lock(frames_mutex);
+	HashMap<uint64_t, PendingFrame>::Iterator it = frames_pending.find(p_serial);
+	ERR_FAIL_COND_MSG(!it, vformat("The take's frame %d came back from the device unasked.", p_serial));
+	PendingFrame fr = it->value;
+	frames_pending.remove(it);
+	fr.image = p_image; // (a null image is dropped by the worker, and said)
+	_frame_queue(fr);
+	frames_ready.post();
+}
 
-	uint64_t encoding_start_usec = Time::get_singleton()->get_ticks_usec();
-	write_frame(vp_tex, audio_mix_buffer.ptr());
-	uint64_t encoding_end_usec = Time::get_singleton()->get_ticks_usec();
-	encoding_time_usec += encoding_end_usec - encoding_start_usec;
+// the worker: every frame whose serial is the next one, prepared, encoded and written; it stops once told and drained
+void MovieWriter::_worker_main(void *p_self) {
+	MovieWriter *w = (MovieWriter *)p_self;
+	while (true) {
+		w->frames_ready.wait();
+		while (true) {
+			PendingFrame fr;
+			{
+				MutexLock lock(w->frames_mutex);
+				if (w->frames_queue.is_empty() || w->frames_queue.front()->get().serial != w->frames_written) {
+					break; // the next frame in order is not back yet
+				}
+				fr = w->frames_queue.front()->get();
+				w->frames_queue.pop_front();
+			}
+			if (fr.image.is_valid()) {
+				uint64_t t0 = Time::get_singleton()->get_ticks_usec();
+				w->_frame_prepare(fr);
+				Error err = w->write_frame(fr.image, fr.audio.ptr());
+				w->worker_encoding_usec.add(Time::get_singleton()->get_ticks_usec() - t0);
+				if (err != OK) {
+					ERR_PRINT(vformat("The take's frame %d could not be written (error %d).", fr.serial, err));
+				}
+			} else {
+				ERR_PRINT(vformat("The take's frame %d had no image: dropped.", fr.serial));
+			}
+			w->frames_written++;
+			w->frames_room.post();
+		}
+		bool done = false;
+		{
+			MutexLock lock(w->frames_mutex);
+			done = w->worker_stop && w->frames_queue.is_empty();
+		}
+		if (done) {
+			break;
+		}
+	}
+}
+
+// THE TAKE'S LAST FRAMES (longshot #38): called by the main loop's last iteration, after its add_frame and before the scene tree is
+// finalized. A synchronous read of the viewport's texture stalls every submitted frame and fires its pending readbacks, then submits the
+// frame being recorded - whose own readback (the last add_frame's) fires only on the next stall of its slot - so the read is repeated
+// until nothing is pending (two reads in practice). After the tree is gone the texture is gone, and end() can only report.
+void MovieWriter::finish_frames() {
+	if (!async_frames) {
+		return;
+	}
+	for (int i = 0; i < 8; i++) {
+		bool pending = false;
+		{
+			MutexLock lock(frames_mutex);
+			pending = !frames_pending.is_empty();
+		}
+		if (!pending) {
+			return;
+		}
+		Ref<Image> last = RenderingServer::get_singleton()->texture_2d_get(main_vp_texture_rid);
+	}
 }
 
 void MovieWriter::end() {
 	uint64_t encoding_start_usec = Time::get_singleton()->get_ticks_usec();
+	if (async_frames) {
+		// THE LAST FRAMES (longshot #38): finish_frames() has forced the pending readbacks in the main loop's last iteration, while the
+		// viewport stood (here the scene tree is finalized already: its texture is gone, and a read of it cannot stall the device). A
+		// frame the device never returned is dropped and said; the worker drains the queue in order and stops
+		{
+			MutexLock lock(frames_mutex);
+			for (const KeyValue<uint64_t, PendingFrame> &kv : frames_pending) {
+				ERR_PRINT(vformat("The take's frame %d never came back from the device: dropped.", kv.key));
+				_frame_queue(kv.value);
+			}
+			frames_pending.clear();
+			worker_stop = true;
+		}
+		frames_ready.post();
+		worker.wait_to_finish();
+		encoding_time_usec += worker_encoding_usec.get();
+		if (frames_written != frames_requested) {
+			ERR_PRINT(vformat("The take asked the device for %d frames and wrote %d.", frames_requested, frames_written));
+		}
+	}
 	write_end();
 	uint64_t encoding_end_usec = Time::get_singleton()->get_ticks_usec();
 	encoding_time_usec += encoding_end_usec - encoding_start_usec;

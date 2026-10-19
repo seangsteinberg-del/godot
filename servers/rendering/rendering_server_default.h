@@ -237,6 +237,7 @@ public:
 	FUNCRIDTEX0(texture_3d_placeholder)
 
 	FUNC1RC(Ref<Image>, texture_2d_get, RID)
+	FUNC2(texture_2d_get_async, RID, const Callable &)
 	FUNC2RC(Ref<Image>, texture_2d_layer_get, RID, int)
 	FUNC1RC(Vector<Ref<Image>>, texture_3d_get, RID)
 
