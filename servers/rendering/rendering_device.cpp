@@ -10153,7 +10153,7 @@ RID RenderingDevice::_shader_create_from_spirv(const Ref<RDShaderSPIRV> &p_spirv
 		}
 		stage_data.push_back(sd);
 	}
-	return shader_create_from_spirv(stage_data);
+	return shader_create_from_spirv(stage_data, p_shader_name); // (longshot patch #36: the script's name reached the device - upstream dropped it here)
 }
 
 RID RenderingDevice::_uniform_set_create(const TypedArray<RDUniform> &p_uniforms, RID p_shader, uint32_t p_shader_set) {
