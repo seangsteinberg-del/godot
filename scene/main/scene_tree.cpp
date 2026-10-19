@@ -1247,12 +1247,30 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 // with no script of its own, its class (a module's node doing its work in NOTIFICATION_PROCESS); the sums are read and begun again by
 // the game's ledger each window. The main thread's time stood unaccounted between the engine's frame numbers and the device's: the
 // scripts' and the modules' share of it by system is what this names.
-StringName SceneTree::_process_ledger_key(Node *p_node) const {
+static bool _ledger_script_path(Node *p_node, String &r_path) {
 	ScriptInstance *si = p_node->get_script_instance();
 	if (si) {
 		Ref<Script> s = si->get_script();
 		if (s.is_valid() && !s->get_path().is_empty()) {
-			return StringName(s->get_path());
+			r_path = s->get_path();
+			return true;
+		}
+	}
+	return false;
+}
+
+// THE DRAW UNDER ITS PANEL (longshot patch #39, 10-19): a node without a script is keyed under its nearest scripted ancestor -
+// "<that script's path>:<class>" - so a console's script-less children (its TextureRects, Labels, Panels) are summed under the
+// instrument that owns them instead of one anonymous class row (4.5 ms a frame of 'Control' in the lunar chase, no name to it).
+StringName SceneTree::_process_ledger_key(Node *p_node) const {
+	String own;
+	if (_ledger_script_path(p_node, own)) {
+		return StringName(own);
+	}
+	for (Node *up = p_node->get_parent(); up; up = up->get_parent()) {
+		String theirs;
+		if (_ledger_script_path(up, theirs)) {
+			return StringName(theirs + ":" + String(p_node->get_class_name()));
 		}
 	}
 	return p_node->get_class_name();
