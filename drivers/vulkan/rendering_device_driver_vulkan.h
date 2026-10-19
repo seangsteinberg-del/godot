@@ -135,6 +135,9 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 		PFN_vkCreateRayTracingPipelinesKHR CreateRaytracingPipelinesKHR = nullptr;
 		PFN_vkGetRayTracingShaderGroupHandlesKHR GetRayTracingShaderGroupHandlesKHR = nullptr;
 		PFN_vkCmdTraceRaysKHR CmdTraceRaysKHR = nullptr;
+		// THE SHADERS' OWN REGISTERS (longshot patch #36): VK_KHR_pipeline_executable_properties
+		PFN_vkGetPipelineExecutablePropertiesKHR GetPipelineExecutablePropertiesKHR = nullptr;
+		PFN_vkGetPipelineExecutableStatisticsKHR GetPipelineExecutableStatisticsKHR = nullptr;
 	};
 	// Debug marker extensions.
 	VkDebugReportObjectTypeEXT _convert_to_debug_report_objectType(VkObjectType p_object_type);
@@ -168,6 +171,10 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 	bool pipeline_cache_control_support = false;
 	bool device_fault_support = false;
 	bool framebuffer_depth_resolve = false;
+	// THE SHADERS' OWN REGISTERS (longshot patch #36): the device reports each pipeline's executables' statistics, and the project asked
+	// for them printed at every pipeline's creation (rendering/rendering_device/pipeline_statistics/print)
+	bool pipeline_executable_properties_support = false;
+	bool pipeline_statistics_print = false;
 #if defined(VK_TRACK_DEVICE_MEMORY)
 	bool device_memory_report_support = false;
 #endif
@@ -492,6 +499,8 @@ private:
 		TightLocalVector<uint64_t> original_stage_size;
 		VkPipelineLayout vk_pipeline_layout = VK_NULL_HANDLE;
 	};
+
+	void _print_pipeline_statistics(VkPipeline p_pipeline, const ShaderInfo *p_shader_info, const char *p_kind); // THE SHADERS' OWN REGISTERS (longshot patch #36)
 
 public:
 	virtual ShaderID shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) override final;

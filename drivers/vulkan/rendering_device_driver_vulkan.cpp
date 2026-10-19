@@ -586,6 +586,7 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 	_register_requested_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME, false);
+	_register_requested_device_extension(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME, false); // THE SHADERS' OWN REGISTERS (longshot patch #36)
 
 	// We don't actually use this extension, but some runtime components on some platforms
 	// can and will fill the validation layers with useless info otherwise if not enabled.
@@ -916,6 +917,7 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 		VkPhysicalDeviceRayTracingPipelineFeaturesKHR raytracing_pipeline_features = {};
 		VkPhysicalDeviceSynchronization2FeaturesKHR sync_2_features = {};
 		VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features = {};
+		VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_executable_features = {}; // THE SHADERS' OWN REGISTERS (longshot patch #36)
 
 		const bool use_1_2_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_2;
 		if (use_1_2_features) {
@@ -1006,6 +1008,12 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 			next_features = &sync_2_features;
 		}
 
+		if (enabled_device_extension_names.has(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME)) {
+			pipeline_executable_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR;
+			pipeline_executable_features.pNext = next_features;
+			next_features = &pipeline_executable_features;
+		}
+
 		VkPhysicalDeviceFeatures2 device_features_2 = {};
 		device_features_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		device_features_2.pNext = next_features;
@@ -1093,6 +1101,10 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 		if (enabled_device_extension_names.has(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
 			raytracing_capabilities.raytracing_pipeline_support = raytracing_pipeline_features.rayTracingPipeline;
 			raytracing_capabilities.validation = raytracing_validation_features.rayTracingValidation;
+		}
+
+		if (enabled_device_extension_names.has(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME)) {
+			pipeline_executable_properties_support = pipeline_executable_features.pipelineExecutableInfo; // THE SHADERS' OWN REGISTERS (longshot patch #36)
 		}
 	}
 
@@ -1397,6 +1409,15 @@ Error RenderingDeviceDriverVulkan::_initialize_device(const LocalVector<VkDevice
 		create_info_next = &pipeline_cache_control_features;
 	}
 
+	// THE SHADERS' OWN REGISTERS (longshot patch #36): the pipelines' executable statistics asked of the device
+	VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_executable_create_features = {};
+	if (pipeline_executable_properties_support) {
+		pipeline_executable_create_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR;
+		pipeline_executable_create_features.pNext = create_info_next;
+		pipeline_executable_create_features.pipelineExecutableInfo = VK_TRUE;
+		create_info_next = &pipeline_executable_create_features;
+	}
+
 	VkPhysicalDeviceFaultFeaturesEXT device_fault_features = {};
 	if (device_fault_support) {
 		device_fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
@@ -1544,6 +1565,16 @@ Error RenderingDeviceDriverVulkan::_initialize_device(const LocalVector<VkDevice
 			device_functions.CreateRaytracingPipelinesKHR = PFN_vkCreateRayTracingPipelinesKHR(functions.GetDeviceProcAddr(vk_device, "vkCreateRayTracingPipelinesKHR"));
 			device_functions.GetRayTracingShaderGroupHandlesKHR = PFN_vkGetRayTracingShaderGroupHandlesKHR(functions.GetDeviceProcAddr(vk_device, "vkGetRayTracingShaderGroupHandlesKHR"));
 			device_functions.CmdTraceRaysKHR = PFN_vkCmdTraceRaysKHR(functions.GetDeviceProcAddr(vk_device, "vkCmdTraceRaysKHR"));
+		}
+
+		if (pipeline_executable_properties_support) {
+			// THE SHADERS' OWN REGISTERS (longshot patch #36)
+			device_functions.GetPipelineExecutablePropertiesKHR = PFN_vkGetPipelineExecutablePropertiesKHR(functions.GetDeviceProcAddr(vk_device, "vkGetPipelineExecutablePropertiesKHR"));
+			device_functions.GetPipelineExecutableStatisticsKHR = PFN_vkGetPipelineExecutableStatisticsKHR(functions.GetDeviceProcAddr(vk_device, "vkGetPipelineExecutableStatisticsKHR"));
+			pipeline_statistics_print = GLOBAL_GET("rendering/rendering_device/pipeline_statistics/print");
+			if (pipeline_statistics_print) {
+				print_line("[pipelines] the shaders' own registers: each pipeline's executable statistics printed at its creation (rendering/rendering_device/pipeline_statistics/print)");
+			}
 		}
 	}
 
@@ -6227,6 +6258,9 @@ RDD::PipelineID RenderingDeviceDriverVulkan::render_pipeline_create(
 #endif
 
 	VkPipeline vk_pipeline = VK_NULL_HANDLE;
+	if (pipeline_statistics_print) {
+		pipeline_create_info.flags |= VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR; // THE SHADERS' OWN REGISTERS (longshot patch #36)
+	}
 	VkResult err = vkCreateGraphicsPipelines(vk_device, pipelines_cache.vk_cache, 1, &pipeline_create_info, VKC::get_allocation_callbacks(VK_OBJECT_TYPE_PIPELINE), &vk_pipeline);
 
 	// Don't print error for VK_ERROR_UNKNOWN on Adreno 660.
@@ -6235,6 +6269,9 @@ RDD::PipelineID RenderingDeviceDriverVulkan::render_pipeline_create(
 	}
 
 	ERR_FAIL_COND_V_MSG(err, PipelineID(), vformat("Couldn't create Vulkan graphics pipelines (VkResult error %d).", err));
+	if (pipeline_statistics_print) {
+		_print_pipeline_statistics(vk_pipeline, shader_info, "graphics");
+	}
 
 #if RECORD_PIPELINE_STATISTICS
 	{
@@ -6737,11 +6774,85 @@ RDD::PipelineID RenderingDeviceDriverVulkan::compute_pipeline_create(ShaderID p_
 		pipeline_create_info.stage.pSpecializationInfo = specialization_info;
 	}
 
+	if (pipeline_statistics_print) {
+		pipeline_create_info.flags |= VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR; // THE SHADERS' OWN REGISTERS (longshot patch #36)
+	}
 	VkPipeline vk_pipeline = VK_NULL_HANDLE;
 	VkResult err = vkCreateComputePipelines(vk_device, pipelines_cache.vk_cache, 1, &pipeline_create_info, VKC::get_allocation_callbacks(VK_OBJECT_TYPE_PIPELINE), &vk_pipeline);
 	ERR_FAIL_COND_V_MSG(err, PipelineID(), vformat("Couldn't create Vulkan compute pipelines (VkResult error %d).", err));
+	if (pipeline_statistics_print) {
+		_print_pipeline_statistics(vk_pipeline, shader_info, "compute");
+	}
 
 	return PipelineID(vk_pipeline);
+}
+
+// THE SHADERS' OWN REGISTERS (longshot patch #36, 10-19): each pipeline's executables' statistics as the device's driver reports them
+// under VK_KHR_pipeline_executable_properties (NVIDIA: the register count, the local memory - a kernel's spills - and the binary
+// size), one line an executable, printed at the pipeline's creation while rendering/rendering_device/pipeline_statistics/print is on:
+// the instrument that tells a thousand-line march kernel's occupancy from its registers, which no frame time can
+void RenderingDeviceDriverVulkan::_print_pipeline_statistics(VkPipeline p_pipeline, const ShaderInfo *p_shader_info, const char *p_kind) {
+	if (device_functions.GetPipelineExecutablePropertiesKHR == nullptr || device_functions.GetPipelineExecutableStatisticsKHR == nullptr) {
+		return;
+	}
+	VkPipelineInfoKHR pipeline_info = {};
+	pipeline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR;
+	pipeline_info.pipeline = p_pipeline;
+	uint32_t exec_count = 0;
+	if (device_functions.GetPipelineExecutablePropertiesKHR(vk_device, &pipeline_info, &exec_count, nullptr) != VK_SUCCESS || exec_count == 0) {
+		return;
+	}
+	LocalVector<VkPipelineExecutablePropertiesKHR> props;
+	props.resize(exec_count);
+	for (uint32_t i = 0; i < exec_count; i++) {
+		props[i] = {};
+		props[i].sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_PROPERTIES_KHR;
+	}
+	if (device_functions.GetPipelineExecutablePropertiesKHR(vk_device, &pipeline_info, &exec_count, props.ptr()) != VK_SUCCESS) {
+		return;
+	}
+	for (uint32_t i = 0; i < exec_count; i++) {
+		VkPipelineExecutableInfoKHR exec_info = {};
+		exec_info.sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_INFO_KHR;
+		exec_info.pipeline = p_pipeline;
+		exec_info.executableIndex = i;
+		uint32_t stat_count = 0;
+		if (device_functions.GetPipelineExecutableStatisticsKHR(vk_device, &exec_info, &stat_count, nullptr) != VK_SUCCESS) {
+			continue;
+		}
+		LocalVector<VkPipelineExecutableStatisticKHR> stats;
+		stats.resize(stat_count);
+		for (uint32_t j = 0; j < stat_count; j++) {
+			stats[j] = {};
+			stats[j].sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_STATISTIC_KHR;
+		}
+		if (stat_count > 0 && device_functions.GetPipelineExecutableStatisticsKHR(vk_device, &exec_info, &stat_count, stats.ptr()) != VK_SUCCESS) {
+			continue;
+		}
+		String line = vformat("[pipelines] %s '%s': %s (%s; subgroup %d)", String(p_kind), p_shader_info->name, String(props[i].name), String(props[i].description), (int)props[i].subgroupSize);
+		for (uint32_t j = 0; j < stat_count; j++) {
+			String v;
+			switch (stats[j].format) {
+				case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_BOOL32_KHR:
+					v = stats[j].value.b32 ? "yes" : "no";
+					break;
+				case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:
+					v = itos(stats[j].value.i64);
+					break;
+				case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_UINT64_KHR:
+					v = uitos(stats[j].value.u64);
+					break;
+				case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_FLOAT64_KHR:
+					v = rtos(stats[j].value.f64);
+					break;
+				default:
+					v = "?";
+					break;
+			}
+			line += vformat("; %s %s", String(stats[j].name), v);
+		}
+		print_line(line);
+	}
 }
 
 /*****************/
@@ -7176,7 +7287,10 @@ void RenderingDeviceDriverVulkan::set_object_name(ObjectType p_type, ID p_driver
 			}
 		} break;
 		case OBJECT_TYPE_SHADER: {
-			const ShaderInfo *shader_info = (const ShaderInfo *)p_driver_id.id;
+			ShaderInfo *shader_info = (ShaderInfo *)p_driver_id.id;
+			if (shader_info->name.is_empty()) {
+				shader_info->name = p_name; // THE SHADERS' OWN REGISTERS (longshot patch #36): the pipeline print names the shader by what named it
+			}
 			for (uint32_t i = 0; i < shader_info->vk_descriptor_set_layouts.size(); i++) {
 				_set_object_name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, (uint64_t)shader_info->vk_descriptor_set_layouts[i], p_name);
 			}

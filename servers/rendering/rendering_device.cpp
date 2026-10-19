@@ -242,7 +242,11 @@ Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source(ShaderStage p_
 RID RenderingDevice::shader_create_from_spirv(const Vector<ShaderStageSPIRVData> &p_spirv, const String &p_shader_name) {
 	Vector<uint8_t> bytecode = shader_compile_binary_from_spirv(p_spirv, p_shader_name);
 	ERR_FAIL_COND_V(bytecode.is_empty(), RID());
-	return shader_create_from_bytecode(bytecode);
+	RID shader = shader_create_from_bytecode(bytecode);
+	if (shader.is_valid() && !p_shader_name.is_empty()) {
+		set_resource_name(shader, p_shader_name); // THE SHADERS' OWN REGISTERS (longshot patch #36): the game's programs named for the device
+	}
+	return shader;
 }
 
 /********************************/
