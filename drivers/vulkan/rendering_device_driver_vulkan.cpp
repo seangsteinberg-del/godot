@@ -1616,6 +1616,7 @@ Error RenderingDeviceDriverVulkan::_initialize_allocator() {
 	if (buffer_device_address_support) {
 		allocator_info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 	}
+	const RenderingContextDriverVulkan::Functions &functions = context_driver->functions_get();
 	if (enabled_device_extension_names.has(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) && functions.GetPhysicalDeviceProperties2 != nullptr) {
 		allocator_info.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT; // THE CARD'S BUDGET (longshot patch #41): the heaps' live budgets
 	}
