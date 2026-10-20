@@ -99,7 +99,12 @@ void main() {
 		// disc's twilight half fell out with the space about it and the meter clamped at the ceiling on the bright half)
 		float floor_l = 1e-7;
 		vec2 rc = (vec2(pos) + 0.5) / vec2(params.source_size) * 2.0 - 1.0;
-		float wc = 0.3 + 0.7 * exp(-2.0 * dot(rc, rc));
+		// THE TEMPLATE'S MASK (patch 38, Longshot; SpaceEngine's AutoExpMaskSize 0.5 and AutoExpMaskValue 1: a centre-weighted mask of
+		// half the screen's half-size at full weight, falling to nought at the corners by the square): a planet's disc fills the centre
+		// of a frame from space and the black about it weighs nothing, so the eye keys on the disc; the softer bell before it (0.3 at
+		// the corners) let the space about a disc, lit by the galaxy's picture, drag the log mean down and open the eye to its ceiling
+		float rr = length(rc);
+		float wc = rr < 0.5 ? 1.0 : max(0.0, 1.0 - (rr - 0.5) * (rr - 0.5) / 0.8464);
 		float w = l > floor_l ? wc : 0.0;
 		tmp_data[t] = w * log(max(l, floor_l));
 		tmp_w[t] = w;
