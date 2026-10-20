@@ -42,7 +42,7 @@ private:
 	struct DummyTexture {
 		Ref<Image> image;
 	};
-	mutable RID_PtrOwner<DummyTexture> texture_owner;
+	mutable RID_PtrOwner<DummyTexture, true> texture_owner; // Longshot #45: textures load on threads, as the RD's owner
 
 public:
 	static TextureStorage *get_singleton() { return singleton; }
