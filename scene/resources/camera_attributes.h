@@ -98,6 +98,9 @@ private:
 	float auto_exposure_highlight_hold = 0.0;
 	// THE FILLED LIGHT (patch 22): the share of the frame's brightest FILLED block the meter reads at least (0: no law)
 	float auto_exposure_light_hold = 0.0;
+	// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject of the meter, in the buffer's
+	// pre-exposed units (0: the buffer's own black)
+	float auto_exposure_subject_floor = 0.0;
 
 	virtual void _update_auto_exposure() override;
 
@@ -137,6 +140,8 @@ public:
 	float get_auto_exposure_highlight_hold() const;
 	void set_auto_exposure_light_hold(float p_hold);
 	float get_auto_exposure_light_hold() const;
+	void set_auto_exposure_subject_floor(float p_floor);
+	float get_auto_exposure_subject_floor() const;
 
 	virtual float calculate_exposure_normalization() const override;
 

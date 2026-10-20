@@ -3215,6 +3215,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_night", "camera_attributes", "night_scale", "scotopic_luminance", "photopic_luminance"), &RenderingServer::camera_attributes_set_auto_exposure_night);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_highlight", "camera_attributes", "hold", "light_hold"), &RenderingServer::camera_attributes_set_auto_exposure_highlight);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_subject_floor", "camera_attributes", "floor"), &RenderingServer::camera_attributes_set_auto_exposure_subject_floor);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);

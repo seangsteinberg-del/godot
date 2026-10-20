@@ -717,6 +717,7 @@ public:
 	virtual void camera_attributes_set_auto_exposure(RID p_camera_attributes, bool p_enable, float p_min_sensitivity, float p_max_sensitivity, float p_speed, float p_scale) = 0;
 	virtual void camera_attributes_set_auto_exposure_night(RID p_camera_attributes, float p_night_scale, float p_scotopic_luminance, float p_photopic_luminance) = 0; // THE KEY FOLLOWS THE ADAPTATION (patch 13)
 	virtual void camera_attributes_set_auto_exposure_highlight(RID p_camera_attributes, float p_hold, float p_light_hold) = 0; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21), THE FILLED LIGHT (patch 22)
+	virtual void camera_attributes_set_auto_exposure_subject_floor(RID p_camera_attributes, float p_floor) = 0; // THE SUBJECT STANDS OVER THE BACKDROP (patch 43)
 
 	/* SCENARIO API */
 

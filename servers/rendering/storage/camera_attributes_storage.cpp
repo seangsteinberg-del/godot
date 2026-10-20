@@ -207,6 +207,19 @@ float RendererCameraAttributes::camera_attributes_get_auto_exposure_light_hold(R
 	return cam_attributes->auto_exposure_light_hold;
 }
 
+// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject of the meter
+void RendererCameraAttributes::camera_attributes_set_auto_exposure_subject_floor(RID p_camera_attributes, float p_floor) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL(cam_attributes);
+	cam_attributes->auto_exposure_subject_floor = MAX(p_floor, 0.0f);
+}
+
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_subject_floor(RID p_camera_attributes) {
+	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
+	ERR_FAIL_NULL_V(cam_attributes, 0.0);
+	return cam_attributes->auto_exposure_subject_floor;
+}
+
 float RendererCameraAttributes::camera_attributes_get_auto_exposure_min_sensitivity(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);

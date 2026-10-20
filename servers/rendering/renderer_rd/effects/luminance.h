@@ -63,6 +63,8 @@ private:
 		float highlight_cap; // a pixel's most for the highlight (twice a white ground in the buffer's units)
 		int32_t level; // the pass: 0 the pixels, 1 the blocks' means, 2 and on the blocks' max
 		float light_hold; // THE FILLED LIGHT (patch 22): the share of the brightest FILLED block the meter reads at least (0: no law)
+		float subject_floor; // THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject (0: the buffer's black)
+		float pad[3];
 	};
 
 	struct LuminanceReduce {
@@ -113,7 +115,7 @@ public:
 
 	Ref<LuminanceBuffers> get_luminance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers);
 	RID get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_buffers);
-	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false, float p_key_ratio = 1.0, float p_scotopic_luminance = 0.0, float p_photopic_luminance = 0.0, float p_history_scale = 1.0, float p_highlight_hold = 0.0, float p_highlight_cap = 0.0, float p_light_hold = 0.0);
+	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false, float p_key_ratio = 1.0, float p_scotopic_luminance = 0.0, float p_photopic_luminance = 0.0, float p_history_scale = 1.0, float p_highlight_hold = 0.0, float p_highlight_cap = 0.0, float p_light_hold = 0.0, float p_subject_floor = 0.0);
 
 	Luminance(bool p_prefer_raster_effects);
 	~Luminance();

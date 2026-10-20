@@ -587,9 +587,12 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		const float highlight_cap = 2.0f * MAX(exposure_now, 1.0e-6f);
 		// THE FILLED LIGHT (patch 22): and at least the light hold's share of the frame's brightest filled block (uncapped)
 		const float light_hold = RSG::camera_attributes->camera_attributes_get_auto_exposure_light_hold(p_render_data->camera_attributes);
+		// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject (the night sky's picture's top
+		// over the gain it is shown at, in the buffer's pre-exposed units as the game sets it)
+		const float subject_floor = RSG::camera_attributes->camera_attributes_get_auto_exposure_subject_floor(p_render_data->camera_attributes);
 		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate,
 				key_ratio, RSG::camera_attributes->camera_attributes_get_auto_exposure_scotopic_luminance(p_render_data->camera_attributes),
-				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale, highlight_hold, highlight_cap, light_hold);
+				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale, highlight_hold, highlight_cap, light_hold, subject_floor);
 
 		// Swap final reduce with prev luminance.
 

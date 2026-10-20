@@ -158,7 +158,7 @@ RID Luminance::get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_b
 	return RID();
 }
 
-void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale, float p_highlight_hold, float p_highlight_cap, float p_light_hold) {
+void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale, float p_highlight_hold, float p_highlight_cap, float p_light_hold, float p_subject_floor) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -221,6 +221,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.highlight_hold = MAX(p_highlight_hold, 0.0f); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21)
 		push_constant.highlight_cap = p_highlight_cap > 0.0f ? p_highlight_cap : 65504.0f;
 		push_constant.light_hold = MAX(p_light_hold, 0.0f); // THE FILLED LIGHT (patch 22)
+		push_constant.subject_floor = MAX(p_subject_floor, 0.0f); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43)
 		push_constant.level = 0;
 
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();

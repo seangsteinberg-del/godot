@@ -301,6 +301,19 @@ float CameraAttributesPractical::get_auto_exposure_light_hold() const {
 	return auto_exposure_light_hold;
 }
 
+// THE SUBJECT STANDS OVER THE BACKDROP (patch 43, Longshot): the luminance under which a pixel is no subject of the meter, in the
+// buffer's pre-exposed units - the night sky's picture is shown at its own level over the eye's most open gain, so the game sets the
+// floor at twice that level over that gain and the picture, the stars and the black about a world never drag the log mean down;
+// 0: the buffer's own black (a ten-millionth of a white ground)
+void CameraAttributesPractical::set_auto_exposure_subject_floor(float p_floor) {
+	auto_exposure_subject_floor = MAX(p_floor, 0.0f);
+	_update_auto_exposure();
+}
+
+float CameraAttributesPractical::get_auto_exposure_subject_floor() const {
+	return auto_exposure_subject_floor;
+}
+
 void CameraAttributesPractical::_update_auto_exposure() {
 	RS::get_singleton()->camera_attributes_set_auto_exposure(
 			get_rid(),
@@ -315,6 +328,7 @@ void CameraAttributesPractical::_update_auto_exposure() {
 			auto_exposure_scotopic * ((12.5 / 100.0) / exposure_sensitivity), // Convert from Sensitivity to Luminance
 			auto_exposure_photopic * ((12.5 / 100.0) / exposure_sensitivity)); // Convert from Sensitivity to Luminance
 	RS::get_singleton()->camera_attributes_set_auto_exposure_highlight(get_rid(), auto_exposure_highlight_hold, auto_exposure_light_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21), THE FILLED LIGHT (patch 22)
+	RS::get_singleton()->camera_attributes_set_auto_exposure_subject_floor(get_rid(), auto_exposure_subject_floor); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43)
 	emit_changed();
 }
 
@@ -361,6 +375,8 @@ void CameraAttributesPractical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_highlight_hold"), &CameraAttributesPractical::get_auto_exposure_highlight_hold);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_light_hold", "hold"), &CameraAttributesPractical::set_auto_exposure_light_hold);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_light_hold"), &CameraAttributesPractical::get_auto_exposure_light_hold);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_subject_floor", "floor"), &CameraAttributesPractical::set_auto_exposure_subject_floor);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_subject_floor"), &CameraAttributesPractical::get_auto_exposure_subject_floor);
 
 	ADD_GROUP("DOF Blur", "dof_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_blur_far_enabled"), "set_dof_blur_far_enabled", "is_dof_blur_far_enabled");
@@ -379,6 +395,7 @@ void CameraAttributesPractical::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_photopic_sensitivity", PROPERTY_HINT_RANGE, "0,64000,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_photopic_sensitivity", "get_auto_exposure_photopic_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_highlight_hold", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_highlight_hold", "get_auto_exposure_highlight_hold");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_light_hold", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_light_hold", "get_auto_exposure_light_hold");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_subject_floor", PROPERTY_HINT_RANGE, "0,1,0.000001,or_greater"), "set_auto_exposure_subject_floor", "get_auto_exposure_subject_floor");
 }
 
 CameraAttributesPractical::CameraAttributesPractical() {

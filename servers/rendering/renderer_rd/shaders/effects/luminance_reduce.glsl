@@ -67,6 +67,17 @@ layout(push_constant, std430) uniform Params {
 	// that fills the eye is the scene's light, and the eye exposes for it as a camera does - the sheet at the surface near white,
 	// its colour around it - where the log mean of a frame mostly black left a near fire many stops past white
 	float light_hold;
+	// THE SUBJECT STANDS OVER THE BACKDROP (patch 43, Longshot, 10-21): the luminance under which a pixel is no subject, in the buffer's
+	// units (0: the buffer's own black, a ten-millionth of a white ground). The night sky's PICTURE is shown at its own level over the
+	// eye's most open gain, so its buffer value is that level over the gain - at a moon's noon under a sun a ten-thousandth of ours
+	// it stood two decades under the giant's face, above the buffer's black, and dragged the log mean down until the highlight's hold
+	// pinned the face at white (the tenth wonders court: Ross 154's and Barnard's giants, flat white). The game sets the floor at
+	// twice the picture's top over that gain, so the picture, the stars and the black about a world are never the subject; a frame
+	// with no lit surface meters at the window's floor, the night's eye as before
+	float subject_floor;
+	float pad0;
+	float pad1;
+	float pad2;
 }
 params;
 
@@ -98,7 +109,7 @@ void main() {
 		// THE SUBJECT IS EVERY LIT PIXEL (patch 20 amended): the line under which a pixel is no subject is the buffer's own
 		// black - a ten-millionth of a white ground - never the window's floor (by day the key over its headroom: a dim
 		// disc's twilight half fell out with the space about it and the meter clamped at the ceiling on the bright half)
-		float floor_l = 1e-7;
+		float floor_l = max(1e-7, params.subject_floor); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the picture's top over the gain, or the black
 		vec2 rc = (vec2(pos) + 0.5) / vec2(params.source_size) * 2.0 - 1.0;
 		// THE TEMPLATE'S MASK (patch 38, Longshot; SpaceEngine's AutoExpMaskSize 0.5 and AutoExpMaskValue 1: a centre-weighted mask of
 		// half the screen's half-size at full weight, falling to nought at the corners by the square): a planet's disc fills the centre
