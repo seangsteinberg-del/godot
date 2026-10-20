@@ -2541,6 +2541,15 @@ uint64_t RenderingDeviceDriverMetal::get_lazily_memory_used() {
 	return 0; // TODO: Track this (grep for memoryless in Godot's Metal backend).
 }
 
+// THE CARD'S SIZE AND ITS BUDGET (longshot patch #41): Metal's one word for both - the working set the device recommends
+uint64_t RenderingDeviceDriverMetal::get_device_memory_size() {
+	return device->recommendedMaxWorkingSetSize();
+}
+
+uint64_t RenderingDeviceDriverMetal::get_device_memory_budget() {
+	return device->recommendedMaxWorkingSetSize();
+}
+
 uint64_t RenderingDeviceDriverMetal::limit_get(Limit p_limit) {
 	MetalDeviceProperties const &props = (*device_properties);
 	MetalLimits const &limits = props.limits;

@@ -603,6 +603,7 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 	}
 #endif
 	_register_requested_device_extension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME, false);
+	_register_requested_device_extension(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME, false); // THE CARD'S BUDGET (longshot patch #41): the heaps' live budgets through the allocator
 
 	{
 		// Debug marker extensions.
@@ -1614,6 +1615,9 @@ Error RenderingDeviceDriverVulkan::_initialize_allocator() {
 	}
 	if (buffer_device_address_support) {
 		allocator_info.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+	}
+	if (enabled_device_extension_names.has(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) && functions.GetPhysicalDeviceProperties2 != nullptr) {
+		allocator_info.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT; // THE CARD'S BUDGET (longshot patch #41): the heaps' live budgets
 	}
 	VkResult err = vmaCreateAllocator(&allocator_info, &allocator);
 	ERR_FAIL_COND_V_MSG(err, ERR_CANT_CREATE, vformat("Couldn't create Vulkan memory allocator (VkResult error %d).", err));
@@ -7394,6 +7398,35 @@ uint64_t RenderingDeviceDriverVulkan::get_total_memory_used() {
 	}
 
 	return total_memory_used;
+}
+
+// THE CARD'S SIZE AND ITS BUDGET (longshot patch #41): the device-local heaps' sizes, and their budgets as the allocator reports them
+// (VK_EXT_memory_budget's word on what this process may hold with the desktop and other programs in the card; the heap's size less
+// a margin where the device does not offer it)
+uint64_t RenderingDeviceDriverVulkan::get_device_memory_size() {
+	const VkPhysicalDeviceMemoryProperties *memory_properties = nullptr;
+	vmaGetMemoryProperties(allocator, &memory_properties);
+	uint64_t total = 0;
+	for (uint32_t i = 0; i < memory_properties->memoryHeapCount; i++) {
+		if (memory_properties->memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+			total += memory_properties->memoryHeaps[i].size;
+		}
+	}
+	return total;
+}
+
+uint64_t RenderingDeviceDriverVulkan::get_device_memory_budget() {
+	const VkPhysicalDeviceMemoryProperties *memory_properties = nullptr;
+	vmaGetMemoryProperties(allocator, &memory_properties);
+	VmaBudget *budgets = ALLOCA_ARRAY(VmaBudget, memory_properties->memoryHeapCount);
+	vmaGetHeapBudgets(allocator, budgets);
+	uint64_t total = 0;
+	for (uint32_t i = 0; i < memory_properties->memoryHeapCount; i++) {
+		if (memory_properties->memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+			total += budgets[i].budget;
+		}
+	}
+	return total;
 }
 
 uint64_t RenderingDeviceDriverVulkan::get_lazily_memory_used() {

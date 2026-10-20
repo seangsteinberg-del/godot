@@ -5794,6 +5794,27 @@ uint64_t RenderingDeviceDriverD3D12::get_lazily_memory_used() {
 	return 0;
 }
 
+// THE CARD'S SIZE AND ITS BUDGET (longshot patch #41): the adapter's dedicated video memory, and the local segment's budget as DXGI
+// reports it (what this process may hold now); the size where the adapter offers no budget
+uint64_t RenderingDeviceDriverD3D12::get_device_memory_size() {
+	DXGI_ADAPTER_DESC desc = {};
+	if (adapter && SUCCEEDED(adapter->GetDesc(&desc))) {
+		return desc.DedicatedVideoMemory;
+	}
+	return 0;
+}
+
+uint64_t RenderingDeviceDriverD3D12::get_device_memory_budget() {
+	ComPtr<IDXGIAdapter3> adapter3;
+	if (adapter && SUCCEEDED(adapter.As(&adapter3))) {
+		DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
+		if (SUCCEEDED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
+			return info.Budget;
+		}
+	}
+	return get_device_memory_size();
+}
+
 uint64_t RenderingDeviceDriverD3D12::limit_get(Limit p_limit) {
 	uint64_t safe_unbounded = ((uint64_t)1 << 30);
 	switch (p_limit) {

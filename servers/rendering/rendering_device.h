@@ -1934,6 +1934,10 @@ public:
 	};
 
 	uint64_t get_memory_usage(MemoryType p_type) const;
+	// THE CARD'S SIZE AND ITS BUDGET (longshot patch #41): the device-local memory the card holds and what the device will let this
+	// process hold now, in bytes - what a run sizes its caches from
+	uint64_t get_device_memory_size() const;
+	uint64_t get_device_memory_budget() const;
 	// THE DEVICE'S TEXTURES BY NAME (longshot patch #33): every live texture and buffer with its name and the bytes the driver holds for it.
 	TypedArray<Dictionary> texture_debug_usage();
 	TypedArray<Dictionary> buffer_debug_usage();
