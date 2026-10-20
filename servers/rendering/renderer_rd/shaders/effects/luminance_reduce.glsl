@@ -54,7 +54,8 @@ layout(push_constant, std430) uniform Params {
 	// THE HIGHLIGHT HOLDS THE WINDOW (patch 21, Longshot): the share of the frame's brightest lit block the meter reads at least (0: no
 	// law) - the day's window opens downward only as far as a sunlit cloud, a snowfield or a white hull stays at the display's
 	// white; a pixel counts at most the cap (twice a white ground in the buffer's units: a glint or a sun's disc is a light, not a
-	// surface); the block is 64 x 64 pixels (the pixels' means at the first rung, the blocks' means at the second, their max after)
+	// surface); the block is 8 x 8 pixels (the pixels' means at the first rung, their max from the second rung on: patch 42, 10-20 -
+	// a thin lit crescent fills an 8 x 8 block and holds the window, where a 64 x 64 mean let it clip)
 	float highlight_hold;
 	float highlight_cap;
 	int level;
@@ -146,7 +147,12 @@ void main() {
 	}
 
 	uint size = (BLOCK_SIZE * BLOCK_SIZE) >> 1;
-	bool h_max = params.level >= 2; // THE HIGHLIGHT (patch 21): the pixels and the blocks' means are summed, the blocks' max is kept after
+	// THE HIGHLIGHT (patch 21; patch 42, 10-20): the pixels are summed to the 8 x 8 means at the first rung and their MAX is kept from
+	// the second rung on - the brightest 8 x 8 lit block, not the brightest 64 x 64 mean: a thin lit crescent (a giant's limb at a
+	// moon's noon, ten pixels wide) filled a twentieth of the 64 x 64 block, so the block's mean let the crescent clip twentyfold and
+	// its glare fill half the frame (the wonders court 10-20); an 8 x 8 block a lit surface fills lands that surface at the display's
+	// white, the cap still keeping a glint or a sun's disc from counting past twice a white ground
+	bool h_max = params.level >= 1;
 
 	do {
 		if (t < size) {
