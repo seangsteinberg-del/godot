@@ -169,6 +169,8 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 	bool ray_query_support = false;
 	RaytracingCapabilities raytracing_capabilities;
 	bool pipeline_cache_control_support = false;
+	bool shader_clock_subgroup_support = false; // THE STEP'S OWN CLOCK (longshot patch #40): VK_KHR_shader_clock's two clocks
+	bool shader_clock_device_support = false;
 	bool device_fault_support = false;
 	bool framebuffer_depth_resolve = false;
 	// THE SHADERS' OWN REGISTERS (longshot patch #36): the device reports each pipeline's executables' statistics, and the project asked

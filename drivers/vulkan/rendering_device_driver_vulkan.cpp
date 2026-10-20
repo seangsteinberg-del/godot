@@ -576,6 +576,7 @@ Error RenderingDeviceDriverVulkan::_initialize_device_extensions() {
 	_register_requested_device_extension(VK_KHR_MAINTENANCE_2_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_EXT_PIPELINE_CREATION_CACHE_CONTROL_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME, false);
+	_register_requested_device_extension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME, false); // THE STEP'S OWN CLOCK (longshot patch #40): a shader reads the SM's clock
 	_register_requested_device_extension(VK_EXT_ASTC_DECODE_MODE_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, false);
 	_register_requested_device_extension(VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME, false);
@@ -918,6 +919,7 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 		VkPhysicalDeviceSynchronization2FeaturesKHR sync_2_features = {};
 		VkPhysicalDeviceRayTracingValidationFeaturesNV raytracing_validation_features = {};
 		VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_executable_features = {}; // THE SHADERS' OWN REGISTERS (longshot patch #36)
+		VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_features = {}; // THE STEP'S OWN CLOCK (longshot patch #40)
 
 		const bool use_1_2_features = physical_device_properties.apiVersion >= VK_API_VERSION_1_2;
 		if (use_1_2_features) {
@@ -1008,6 +1010,12 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 			next_features = &sync_2_features;
 		}
 
+		if (enabled_device_extension_names.has(VK_KHR_SHADER_CLOCK_EXTENSION_NAME)) {
+			shader_clock_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR;
+			shader_clock_features.pNext = next_features;
+			next_features = &shader_clock_features;
+		}
+
 		if (enabled_device_extension_names.has(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME)) {
 			pipeline_executable_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR;
 			pipeline_executable_features.pNext = next_features;
@@ -1083,6 +1091,11 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 
 		if (enabled_device_extension_names.has(VK_EXT_PIPELINE_CREATION_CACHE_CONTROL_EXTENSION_NAME)) {
 			pipeline_cache_control_support = pipeline_cache_control_features.pipelineCreationCacheControl;
+		}
+
+		if (enabled_device_extension_names.has(VK_KHR_SHADER_CLOCK_EXTENSION_NAME)) {
+			shader_clock_subgroup_support = shader_clock_features.shaderSubgroupClock; // THE STEP'S OWN CLOCK (longshot patch #40)
+			shader_clock_device_support = shader_clock_features.shaderDeviceClock;
 		}
 
 		if (enabled_device_extension_names.has(VK_EXT_DEVICE_FAULT_EXTENSION_NAME)) {
@@ -1460,6 +1473,15 @@ Error RenderingDeviceDriverVulkan::_initialize_device(const LocalVector<VkDevice
 		raytracing_validation_features.pNext = create_info_next;
 		raytracing_validation_features.rayTracingValidation = raytracing_capabilities.validation;
 		create_info_next = &raytracing_validation_features;
+	}
+
+	VkPhysicalDeviceShaderClockFeaturesKHR shader_clock_create_features = {}; // THE STEP'S OWN CLOCK (longshot patch #40)
+	if (shader_clock_subgroup_support || shader_clock_device_support) {
+		shader_clock_create_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR;
+		shader_clock_create_features.pNext = create_info_next;
+		shader_clock_create_features.shaderSubgroupClock = shader_clock_subgroup_support;
+		shader_clock_create_features.shaderDeviceClock = shader_clock_device_support;
+		create_info_next = &shader_clock_create_features;
 	}
 
 	VkPhysicalDeviceVulkan11Features vulkan_1_1_features = {};
