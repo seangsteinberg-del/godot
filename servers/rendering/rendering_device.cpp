@@ -1385,7 +1385,9 @@ Error RenderingDevice::buffer_get_data_async(RID p_buffer, const Callable &p_cal
 
 		_staging_buffer_execute_required_action(download_staging_buffers, required_action);
 
-		if (flush_frames) {
+		// LONGSHOT (10-20): as in texture_get_data_async - a flush that stalls every frame clears this frame's download lists,
+		// so the request's regions start at the list's new end whether or not it had regions before the flush
+		if (required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL) {
 			get_data_request.frame_local_count = 0;
 			get_data_request.frame_local_index = frames[frame].download_buffer_copy_regions.size();
 		}
@@ -2868,7 +2870,13 @@ Error RenderingDevice::texture_get_data_async(RID p_texture, uint32_t p_layer, c
 
 					_staging_buffer_execute_required_action(download_staging_buffers, required_action);
 
-					if (flush_frames) {
+					// LONGSHOT (10-20): a flush that stalls every frame processes and CLEARS this frame's pending download lists
+					// - the earlier requests of the frame among them - so this request's regions start again at the list's new
+					// end whether or not it had regions of its own before the flush. The upstream code reset the index only when
+					// it had (flush_frames): a request whose FIRST region forced the flush kept an index into the cleared list
+					// (eight planet maps read back in one frame, 512 regions each: the eighth's index 3584 into a list of 512 -
+					// the director's session died on it at Barnard's Star, 18:31).
+					if (required_action == STAGING_REQUIRED_ACTION_FLUSH_AND_STALL_ALL) {
 						get_data_request.frame_local_count = 0;
 						get_data_request.frame_local_index = frames[frame].download_buffer_texture_copy_regions.size();
 					}
