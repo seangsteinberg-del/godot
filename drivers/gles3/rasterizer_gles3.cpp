@@ -493,7 +493,9 @@ void RasterizerGLES3::set_boot_image_with_stretch(const Ref<Image> &p_image, con
 	RID texture = texture_storage->texture_allocate();
 	texture_storage->texture_2d_initialize(texture, p_image);
 
-	Rect2 screenrect = RenderingServerTypes::get_splash_stretched_screen_rect(p_image->get_size(), win_size, p_stretch_mode);
+	// LONGSHOT: the splash stands where its anchor puts it (application/boot_splash/anchor: the game's title's place)
+	const Vector2 anchor = GLOBAL_GET("application/boot_splash/anchor");
+	Rect2 screenrect = RenderingServerTypes::get_splash_stretched_screen_rect(p_image->get_size(), win_size, p_stretch_mode, anchor);
 
 #ifdef WINDOWS_ENABLED
 	if (!screen_flipped_y)

@@ -248,7 +248,9 @@ void RendererCompositorRD::set_boot_image_with_stretch(const Ref<Image> &p_image
 
 	Size2 window_size = DisplayServer::get_singleton()->window_get_size();
 
-	Rect2 screenrect = RenderingServerTypes::get_splash_stretched_screen_rect(p_image->get_size(), window_size, p_stretch_mode);
+	// LONGSHOT: the splash stands where its anchor puts it (application/boot_splash/anchor: the game's title's place)
+	const Vector2 anchor = GLOBAL_GET("application/boot_splash/anchor");
+	Rect2 screenrect = RenderingServerTypes::get_splash_stretched_screen_rect(p_image->get_size(), window_size, p_stretch_mode, anchor);
 	screenrect.position /= window_size;
 	screenrect.size /= window_size;
 

@@ -157,38 +157,45 @@ struct BlitToScreen {
 /* BACKGROUND */
 
 // Helper for RSE::SplashStretchMode, put here for convenience.
-inline Rect2 get_splash_stretched_screen_rect(const Size2 &p_image_size, const Size2 &p_window_size, RSE::SplashStretchMode p_stretch_mode) {
+// LONGSHOT (the boot, drawing BOOT1): `p_anchor` is where the image stands in the window's room past it, 0..1 each way
+// (the project setting application/boot_splash/anchor; the default its centre, upstream's) - the game's title stands at
+// its canvas's foot on the left, and its splash is the title's own nameplate in the dark exactly there, so it stands by
+// the same anchor. KEEP fits the image inside the window whatever its shape, as the canvas's own `expand` aspect does:
+// upstream scaled every landscape window by its height, and a window narrower than the image (16:10 against 16:9) cut
+// the image's sides off.
+inline Rect2 get_splash_stretched_screen_rect(const Size2 &p_image_size, const Size2 &p_window_size, RSE::SplashStretchMode p_stretch_mode, const Vector2 &p_anchor = Vector2(0.5, 0.5)) {
 	Size2 imgsize = p_image_size;
 	Rect2 screenrect;
 	switch (p_stretch_mode) {
 		case RSE::SPLASH_STRETCH_MODE_DISABLED: {
 			screenrect.size = imgsize;
-			screenrect.position = ((p_window_size - screenrect.size) / 2.0).floor();
+			screenrect.position = ((p_window_size - screenrect.size) * p_anchor).floor();
 		} break;
 		case RSE::SPLASH_STRETCH_MODE_KEEP: {
-			if (p_window_size.width > p_window_size.height) {
-				// Scale horizontally.
+			const double window_aspect = (double)p_window_size.width / p_window_size.height;
+			const double img_aspect = (double)imgsize.width / imgsize.height;
+			if (window_aspect > img_aspect) {
+				// The window wider than the image: its height fills.
 				screenrect.size.y = p_window_size.height;
 				screenrect.size.x = imgsize.width * p_window_size.height / imgsize.height;
-				screenrect.position.x = (p_window_size.width - screenrect.size.x) / 2;
 			} else {
-				// Scale vertically.
+				// The window narrower: its width fills.
 				screenrect.size.x = p_window_size.width;
 				screenrect.size.y = imgsize.height * p_window_size.width / imgsize.width;
-				screenrect.position.y = (p_window_size.height - screenrect.size.y) / 2;
 			}
+			screenrect.position = (p_window_size - screenrect.size) * p_anchor;
 		} break;
 		case RSE::SPLASH_STRETCH_MODE_KEEP_WIDTH: {
 			// Scale vertically.
 			screenrect.size.x = p_window_size.width;
 			screenrect.size.y = imgsize.height * p_window_size.width / imgsize.width;
-			screenrect.position.y = (p_window_size.height - screenrect.size.y) / 2;
+			screenrect.position.y = (p_window_size.height - screenrect.size.y) * p_anchor.y;
 		} break;
 		case RSE::SPLASH_STRETCH_MODE_KEEP_HEIGHT: {
 			// Scale horizontally.
 			screenrect.size.y = p_window_size.height;
 			screenrect.size.x = imgsize.width * p_window_size.height / imgsize.height;
-			screenrect.position.x = (p_window_size.width - screenrect.size.x) / 2;
+			screenrect.position.x = (p_window_size.width - screenrect.size.x) * p_anchor.x;
 		} break;
 		case RSE::SPLASH_STRETCH_MODE_COVER: {
 			double window_aspect = (double)p_window_size.width / p_window_size.height;
@@ -198,12 +205,12 @@ inline Rect2 get_splash_stretched_screen_rect(const Size2 &p_image_size, const S
 				// Scale vertically.
 				screenrect.size.x = p_window_size.width;
 				screenrect.size.y = imgsize.height * p_window_size.width / imgsize.width;
-				screenrect.position.y = (p_window_size.height - screenrect.size.y) / 2;
+				screenrect.position.y = (p_window_size.height - screenrect.size.y) * p_anchor.y;
 			} else {
 				// Scale horizontally.
 				screenrect.size.y = p_window_size.height;
 				screenrect.size.x = imgsize.width * p_window_size.height / imgsize.height;
-				screenrect.position.x = (p_window_size.width - screenrect.size.x) / 2;
+				screenrect.position.x = (p_window_size.width - screenrect.size.x) * p_anchor.x;
 			}
 		} break;
 		case RSE::SPLASH_STRETCH_MODE_IGNORE: {

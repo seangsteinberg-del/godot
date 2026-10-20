@@ -3932,6 +3932,8 @@ void Main::setup_boot_logo() {
 		const bool boot_logo_image = GLOBAL_DEF_BASIC("application/boot_splash/show_image", true);
 
 		const RSE::SplashStretchMode boot_stretch_mode = GLOBAL_DEF_BASIC(PropertyInfo(Variant::INT, "application/boot_splash/stretch_mode", PROPERTY_HINT_ENUM, "Disabled,Keep,Keep Width,Keep Height,Cover,Ignore"), 1);
+		// LONGSHOT: where the splash stands in the window's room past it (0..1 each way; the renderers read it as they draw it)
+		GLOBAL_DEF_BASIC(PropertyInfo(Variant::VECTOR2, "application/boot_splash/anchor", PROPERTY_HINT_RANGE, "0,1,0.01"), Vector2(0.5, 0.5));
 		const bool boot_logo_filter = GLOBAL_DEF_BASIC("application/boot_splash/use_filter", true);
 		String boot_logo_path = GLOBAL_DEF_BASIC(PropertyInfo(Variant::STRING, "application/boot_splash/image", PROPERTY_HINT_FILE, "*.png"), String());
 
