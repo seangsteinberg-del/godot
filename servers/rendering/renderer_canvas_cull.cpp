@@ -122,6 +122,9 @@ void RendererCanvasCull::_collect_ysort_children(RendererCanvasCull::Item *p_can
 				} else {
 					real_t f = Engine::get_singleton()->get_physics_interpolation_fraction();
 					TransformInterpolator::interpolate_transform_2d(child_items[i]->xform_prev, child_items[i]->xform_curr, child_xform, f);
+					if (RSG::canvas_render->drawn) {
+						RSG::canvas_render->drawn->animated = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+					}
 				}
 
 				if (snapping_2d_transforms_to_pixel) {
@@ -262,6 +265,9 @@ void RendererCanvasCull::_attach_canvas_item_for_draw(RendererCanvasCull::Item *
 
 		if (ci->update_when_visible) {
 			RenderingServerDefault::redraw_request();
+			if (RSG::canvas_render->drawn) {
+				RSG::canvas_render->drawn->animated = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+			}
 		}
 
 		if (ci->commands != nullptr || ci->copy_back_buffer) {
@@ -354,6 +360,9 @@ void RendererCanvasCull::_cull_canvas_item(Item *p_canvas_item, const Transform2
 		} else {
 			real_t f = Engine::get_singleton()->get_physics_interpolation_fraction();
 			TransformInterpolator::interpolate_transform_2d(ci->xform_prev, ci->xform_curr, self_xform, f);
+			if (RSG::canvas_render->drawn) {
+				RSG::canvas_render->drawn->animated = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: it moves between ticks)
+			}
 		}
 
 		Transform2D parent_xform = p_parent_xform;
@@ -514,15 +523,45 @@ bool RendererCanvasCull::was_sdf_used() {
 RID RendererCanvasCull::canvas_allocate() {
 	return canvas_owner.allocate_rid();
 }
+void RendererCanvasCull::_canvas_touch_canvas(RID p_canvas) {
+	Canvas *canvas = canvas_owner.get_or_null(p_canvas);
+	if (canvas) {
+		canvas->version++;
+	}
+	if (canvas) {
+		canvas->version++;
+	}
+}
+
+void RendererCanvasCull::_canvas_touch(RID p_parent) {
+	// the item's parents walked up to its canvas (an item under an item under ... a canvas); an item in no canvas bumps nothing
+	RID rid = p_parent;
+	for (int guard = 0; guard < 256 && rid.is_valid(); guard++) {
+		if (canvas_owner.owns(rid)) {
+			canvas_owner.get_or_null(rid)->version++;
+			return;
+		}
+		Item *item = canvas_item_owner.get_or_null(rid);
+		if (!item) {
+			return;
+		}
+		rid = item->parent;
+	}
+}
+
 void RendererCanvasCull::canvas_initialize(RID p_rid) {
 	canvas_owner.initialize_rid(p_rid);
 }
 
 void RendererCanvasCull::canvas_set_item_mirroring(RID p_canvas, RID p_item, const Point2 &p_mirroring) {
 	Canvas *canvas = canvas_owner.get_or_null(p_canvas);
+	if (canvas) {
+		canvas->version++;
+	}
 	ERR_FAIL_NULL(canvas);
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	int idx = canvas->find_item(canvas_item);
 	ERR_FAIL_COND(idx == -1);
@@ -538,6 +577,7 @@ void RendererCanvasCull::canvas_set_item_repeat(RID p_item, const Point2 &p_repe
 	ERR_FAIL_COND(p_repeat_times < 0);
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	bool is_repeat_source = (p_repeat_size.x || p_repeat_size.y) && p_repeat_times;
 	canvas_item->repeat_source = is_repeat_source;
@@ -548,6 +588,9 @@ void RendererCanvasCull::canvas_set_item_repeat(RID p_item, const Point2 &p_repe
 
 void RendererCanvasCull::canvas_set_modulate(RID p_canvas, const Color &p_color) {
 	Canvas *canvas = canvas_owner.get_or_null(p_canvas);
+	if (canvas) {
+		canvas->version++;
+	}
 	ERR_FAIL_NULL(canvas);
 	canvas->modulate = p_color;
 }
@@ -558,6 +601,9 @@ void RendererCanvasCull::canvas_set_disable_scale(bool p_disable) {
 
 void RendererCanvasCull::canvas_set_parent(RID p_canvas, RID p_parent, float p_scale) {
 	Canvas *canvas = canvas_owner.get_or_null(p_canvas);
+	if (canvas) {
+		canvas->version++;
+	}
 	ERR_FAIL_NULL(canvas);
 
 	canvas->parent = p_parent;
@@ -574,8 +620,10 @@ void RendererCanvasCull::canvas_item_initialize(RID p_rid) {
 }
 
 void RendererCanvasCull::canvas_item_set_parent(RID p_item, RID p_parent) {
+	_canvas_touch(p_parent); // the canvas it goes to
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	if (canvas_item->parent.is_valid()) {
 		if (canvas_owner.owns(canvas_item->parent)) {
@@ -620,6 +668,7 @@ void RendererCanvasCull::canvas_item_set_parent(RID p_item, RID p_parent) {
 void RendererCanvasCull::canvas_item_set_visible(RID p_item, bool p_visible) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->visible = p_visible;
 
@@ -629,6 +678,7 @@ void RendererCanvasCull::canvas_item_set_visible(RID p_item, bool p_visible) {
 void RendererCanvasCull::canvas_item_set_light_mask(RID p_item, int p_mask) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->light_mask = p_mask;
 }
@@ -636,6 +686,7 @@ void RendererCanvasCull::canvas_item_set_light_mask(RID p_item, int p_mask) {
 void RendererCanvasCull::canvas_item_set_transform(RID p_item, const Transform2D &p_transform) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	if (_interpolation_data.interpolation_enabled && canvas_item->interpolated) {
 		if (!canvas_item->on_interpolate_transform_list) {
@@ -652,6 +703,7 @@ void RendererCanvasCull::canvas_item_set_transform(RID p_item, const Transform2D
 void RendererCanvasCull::canvas_item_set_visibility_layer(RID p_item, uint32_t p_visibility_layer) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->visibility_layer = p_visibility_layer;
 }
@@ -667,6 +719,7 @@ uint32_t RendererCanvasCull::canvas_item_get_visibility_layer(RID p_item) {
 void RendererCanvasCull::canvas_item_set_clip(RID p_item, bool p_clip) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->clip = p_clip;
 }
@@ -674,6 +727,7 @@ void RendererCanvasCull::canvas_item_set_clip(RID p_item, bool p_clip) {
 void RendererCanvasCull::canvas_item_set_distance_field_mode(RID p_item, bool p_enable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->distance_field = p_enable;
 }
@@ -681,6 +735,7 @@ void RendererCanvasCull::canvas_item_set_distance_field_mode(RID p_item, bool p_
 void RendererCanvasCull::canvas_item_set_custom_rect(RID p_item, bool p_custom_rect, const Rect2 &p_rect) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->custom_rect = p_custom_rect;
 	canvas_item->rect = p_rect;
@@ -689,6 +744,7 @@ void RendererCanvasCull::canvas_item_set_custom_rect(RID p_item, bool p_custom_r
 void RendererCanvasCull::canvas_item_set_modulate(RID p_item, const Color &p_color) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->modulate = p_color;
 }
@@ -696,6 +752,7 @@ void RendererCanvasCull::canvas_item_set_modulate(RID p_item, const Color &p_col
 void RendererCanvasCull::canvas_item_set_self_modulate(RID p_item, const Color &p_color) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->self_modulate = p_color;
 }
@@ -703,6 +760,7 @@ void RendererCanvasCull::canvas_item_set_self_modulate(RID p_item, const Color &
 void RendererCanvasCull::canvas_item_set_draw_behind_parent(RID p_item, bool p_enable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->behind = p_enable;
 }
@@ -710,6 +768,7 @@ void RendererCanvasCull::canvas_item_set_draw_behind_parent(RID p_item, bool p_e
 void RendererCanvasCull::canvas_item_set_use_identity_transform(RID p_item, bool p_enable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->use_identity_transform = p_enable;
 }
@@ -717,6 +776,7 @@ void RendererCanvasCull::canvas_item_set_use_identity_transform(RID p_item, bool
 void RendererCanvasCull::canvas_item_set_update_when_visible(RID p_item, bool p_update) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->update_when_visible = p_update;
 }
@@ -747,6 +807,7 @@ float RendererCanvasCull::canvas_item_get_compensated_antialiasing_width(float p
 void RendererCanvasCull::canvas_item_add_line(RID p_item, const Point2 &p_from, const Point2 &p_to, const Color &p_color, float p_width, bool p_antialiased) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandPrimitive *line = canvas_item->alloc_command<Item::CommandPrimitive>();
 	ERR_FAIL_NULL(line);
@@ -981,6 +1042,7 @@ void RendererCanvasCull::canvas_item_add_polyline(RID p_item, const Vector<Point
 	ERR_FAIL_COND(p_points.size() < 2);
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Color color = Color(1, 1, 1, 1);
 
@@ -1300,6 +1362,7 @@ void RendererCanvasCull::canvas_item_add_multiline(RID p_item, const Vector<Poin
 void RendererCanvasCull::canvas_item_add_rect(RID p_item, const Rect2 &p_rect, const Color &p_color, bool p_antialiased) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	// Adjust the rectangle size to account for the antialiasing width.
 	const Rect2 &rect_adjusted = p_antialiased ? p_rect.grow(-FEATHER_SIZE * 0.25f) : p_rect;
@@ -1467,6 +1530,7 @@ void RendererCanvasCull::canvas_item_add_rect(RID p_item, const Rect2 &p_rect, c
 void RendererCanvasCull::canvas_item_add_ellipse(RID p_item, const Point2 &p_pos, float p_major, float p_minor, const Color &p_color, bool p_antialiased) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	static const int ellipse_segments = 64;
 
@@ -1570,6 +1634,7 @@ void RendererCanvasCull::canvas_item_add_circle(RID p_item, const Point2 &p_pos,
 void RendererCanvasCull::canvas_item_add_texture_rect(RID p_item, const Rect2 &p_rect, RID p_texture, bool p_tile, const Color &p_modulate, bool p_transpose) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandRect *rect = canvas_item->alloc_command<Item::CommandRect>();
 	ERR_FAIL_NULL(rect);
@@ -1601,6 +1666,7 @@ void RendererCanvasCull::canvas_item_add_texture_rect(RID p_item, const Rect2 &p
 void RendererCanvasCull::canvas_item_add_msdf_texture_rect_region(RID p_item, const Rect2 &p_rect, RID p_texture, const Rect2 &p_src_rect, const Color &p_modulate, int p_outline_size, float p_px_range, float p_scale) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandRect *rect = canvas_item->alloc_command<Item::CommandRect>();
 	ERR_FAIL_NULL(rect);
@@ -1635,6 +1701,7 @@ void RendererCanvasCull::canvas_item_add_msdf_texture_rect_region(RID p_item, co
 void RendererCanvasCull::canvas_item_add_lcd_texture_rect_region(RID p_item, const Rect2 &p_rect, RID p_texture, const Rect2 &p_src_rect, const Color &p_modulate) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandRect *rect = canvas_item->alloc_command<Item::CommandRect>();
 	ERR_FAIL_NULL(rect);
@@ -1667,6 +1734,7 @@ void RendererCanvasCull::canvas_item_add_lcd_texture_rect_region(RID p_item, con
 void RendererCanvasCull::canvas_item_add_texture_rect_region(RID p_item, const Rect2 &p_rect, RID p_texture, const Rect2 &p_src_rect, const Color &p_modulate, bool p_transpose, bool p_clip_uv) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandRect *rect = canvas_item->alloc_command<Item::CommandRect>();
 	ERR_FAIL_NULL(rect);
@@ -1708,6 +1776,7 @@ void RendererCanvasCull::canvas_item_add_texture_rect_region(RID p_item, const R
 void RendererCanvasCull::canvas_item_add_nine_patch(RID p_item, const Rect2 &p_rect, const Rect2 &p_source, RID p_texture, const Vector2 &p_topleft, const Vector2 &p_bottomright, RSE::NinePatchAxisMode p_x_axis_mode, RSE::NinePatchAxisMode p_y_axis_mode, bool p_draw_center, const Color &p_modulate) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandNinePatch *style = canvas_item->alloc_command<Item::CommandNinePatch>();
 	ERR_FAIL_NULL(style);
@@ -1732,6 +1801,7 @@ void RendererCanvasCull::canvas_item_add_primitive(RID p_item, const Vector<Poin
 
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandPrimitive *prim = canvas_item->alloc_command<Item::CommandPrimitive>();
 	ERR_FAIL_NULL(prim);
@@ -1758,6 +1828,7 @@ void RendererCanvasCull::canvas_item_add_primitive(RID p_item, const Vector<Poin
 void RendererCanvasCull::canvas_item_add_polygon(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs, RID p_texture) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 #ifdef DEBUG_ENABLED
 	int pointcount = p_points.size();
 	ERR_FAIL_COND(pointcount < 3);
@@ -1779,6 +1850,7 @@ void RendererCanvasCull::canvas_item_add_polygon(RID p_item, const Vector<Point2
 void RendererCanvasCull::canvas_item_add_triangle_array(RID p_item, const Vector<int> &p_indices, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs, const Vector<int> &p_bones, const Vector<float> &p_weights, RID p_texture, int p_count) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	int vertex_count = p_points.size();
 	ERR_FAIL_COND(vertex_count == 0);
@@ -1800,6 +1872,7 @@ void RendererCanvasCull::canvas_item_add_triangle_array(RID p_item, const Vector
 void RendererCanvasCull::canvas_item_add_set_transform(RID p_item, const Transform2D &p_transform) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandTransform *tr = canvas_item->alloc_command<Item::CommandTransform>();
 	ERR_FAIL_NULL(tr);
@@ -1809,6 +1882,7 @@ void RendererCanvasCull::canvas_item_add_set_transform(RID p_item, const Transfo
 void RendererCanvasCull::canvas_item_add_mesh(RID p_item, const RID &p_mesh, const Transform2D &p_transform, const Color &p_modulate, RID p_texture) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 	ERR_FAIL_COND(!p_mesh.is_valid());
 
 	Item::CommandMesh *m = canvas_item->alloc_command<Item::CommandMesh>();
@@ -1828,6 +1902,7 @@ void RendererCanvasCull::canvas_item_add_mesh(RID p_item, const RID &p_mesh, con
 void RendererCanvasCull::canvas_item_add_particles(RID p_item, RID p_particles, RID p_texture) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandParticles *part = canvas_item->alloc_command<Item::CommandParticles>();
 	ERR_FAIL_NULL(part);
@@ -1842,6 +1917,7 @@ void RendererCanvasCull::canvas_item_add_particles(RID p_item, RID p_particles, 
 void RendererCanvasCull::canvas_item_add_multimesh(RID p_item, RID p_mesh, RID p_texture) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandMultiMesh *mm = canvas_item->alloc_command<Item::CommandMultiMesh>();
 	ERR_FAIL_NULL(mm);
@@ -1853,6 +1929,7 @@ void RendererCanvasCull::canvas_item_add_multimesh(RID p_item, RID p_mesh, RID p
 void RendererCanvasCull::canvas_item_add_clip_ignore(RID p_item, bool p_ignore) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandClipIgnore *ci = canvas_item->alloc_command<Item::CommandClipIgnore>();
 	ERR_FAIL_NULL(ci);
@@ -1862,6 +1939,7 @@ void RendererCanvasCull::canvas_item_add_clip_ignore(RID p_item, bool p_ignore) 
 void RendererCanvasCull::canvas_item_add_animation_slice(RID p_item, double p_animation_length, double p_slice_begin, double p_slice_end, double p_offset) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	Item::CommandAnimationSlice *as = canvas_item->alloc_command<Item::CommandAnimationSlice>();
 	ERR_FAIL_NULL(as);
@@ -1874,6 +1952,7 @@ void RendererCanvasCull::canvas_item_add_animation_slice(RID p_item, double p_an
 void RendererCanvasCull::canvas_item_set_sort_children_by_y(RID p_item, bool p_enable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->sort_y = p_enable;
 
@@ -1885,6 +1964,7 @@ void RendererCanvasCull::canvas_item_set_z_index(RID p_item, int p_z) {
 
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->z_index = p_z;
 }
@@ -1892,6 +1972,7 @@ void RendererCanvasCull::canvas_item_set_z_index(RID p_item, int p_z) {
 void RendererCanvasCull::canvas_item_set_z_as_relative_to_parent(RID p_item, bool p_enable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->z_relative = p_enable;
 }
@@ -1899,6 +1980,7 @@ void RendererCanvasCull::canvas_item_set_z_as_relative_to_parent(RID p_item, boo
 void RendererCanvasCull::canvas_item_attach_skeleton(RID p_item, RID p_skeleton) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 	if (canvas_item->skeleton == p_skeleton) {
 		return;
 	}
@@ -1928,6 +2010,7 @@ void RendererCanvasCull::canvas_item_attach_skeleton(RID p_item, RID p_skeleton)
 void RendererCanvasCull::canvas_item_set_copy_to_backbuffer(RID p_item, bool p_enable, const Rect2 &p_rect) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 	if (p_enable && (canvas_item->copy_back_buffer == nullptr)) {
 		canvas_item->copy_back_buffer = memnew(RendererCanvasRender::Item::CopyBackBuffer);
 	}
@@ -1945,6 +2028,7 @@ void RendererCanvasCull::canvas_item_set_copy_to_backbuffer(RID p_item, bool p_e
 void RendererCanvasCull::canvas_item_clear(RID p_item) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->clear();
 
@@ -1958,6 +2042,7 @@ void RendererCanvasCull::canvas_item_clear(RID p_item) {
 void RendererCanvasCull::canvas_item_set_draw_index(RID p_item, int p_index) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->index = p_index;
 
@@ -1977,6 +2062,7 @@ void RendererCanvasCull::canvas_item_set_draw_index(RID p_item, int p_index) {
 void RendererCanvasCull::canvas_item_set_material(RID p_item, RID p_material) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->material = p_material;
 	_item_queue_update(canvas_item, true);
@@ -1985,6 +2071,7 @@ void RendererCanvasCull::canvas_item_set_material(RID p_item, RID p_material) {
 void RendererCanvasCull::canvas_item_set_use_parent_material(RID p_item, bool p_enable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	canvas_item->use_parent_material = p_enable;
 	_item_queue_update(canvas_item, true);
@@ -2023,6 +2110,7 @@ void RendererCanvasCull::canvas_item_get_instance_shader_parameter_list(RID p_it
 void RendererCanvasCull::canvas_item_set_visibility_notifier(RID p_item, bool p_enable, const Rect2 &p_area, const Callable &p_enter_callable, const Callable &p_exit_callable) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	if (p_enable) {
 		if (!canvas_item->visibility_notifier) {
@@ -2052,12 +2140,14 @@ bool RendererCanvasCull::canvas_item_get_debug_redraw() const {
 void RendererCanvasCull::canvas_item_set_interpolated(RID p_item, bool p_interpolated) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 	canvas_item->interpolated = p_interpolated;
 }
 
 void RendererCanvasCull::canvas_item_reset_physics_interpolation(RID p_item) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 	canvas_item->xform_prev = canvas_item->xform_curr;
 }
 
@@ -2065,6 +2155,7 @@ void RendererCanvasCull::canvas_item_reset_physics_interpolation(RID p_item) {
 void RendererCanvasCull::canvas_item_transform_physics_interpolation(RID p_item, const Transform2D &p_transform) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 	canvas_item->xform_prev = p_transform * canvas_item->xform_prev;
 	canvas_item->xform_curr = p_transform * canvas_item->xform_curr;
 }
@@ -2072,6 +2163,7 @@ void RendererCanvasCull::canvas_item_transform_physics_interpolation(RID p_item,
 void RendererCanvasCull::canvas_item_set_canvas_group_mode(RID p_item, RSE::CanvasGroupMode p_mode, float p_clear_margin, bool p_fit_empty, float p_fit_margin, bool p_blur_mipmaps) {
 	Item *canvas_item = canvas_item_owner.get_or_null(p_item);
 	ERR_FAIL_NULL(canvas_item);
+	_canvas_touch(canvas_item->parent);
 
 	if (p_mode == RSE::CANVAS_GROUP_MODE_DISABLED) {
 		if (canvas_item->canvas_group != nullptr) {
@@ -2102,6 +2194,7 @@ void RendererCanvasCull::canvas_light_initialize(RID p_rid) {
 void RendererCanvasCull::canvas_light_set_mode(RID p_light, RSE::CanvasLightMode p_mode) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	if (clight->mode == p_mode) {
 		return;
@@ -2123,6 +2216,7 @@ void RendererCanvasCull::canvas_light_set_mode(RID p_light, RSE::CanvasLightMode
 void RendererCanvasCull::canvas_light_attach_to_canvas(RID p_light, RID p_canvas) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	if (clight->canvas.is_valid()) {
 		Canvas *canvas = canvas_owner.get_or_null(clight->canvas);
@@ -2152,6 +2246,7 @@ void RendererCanvasCull::canvas_light_attach_to_canvas(RID p_light, RID p_canvas
 void RendererCanvasCull::canvas_light_set_enabled(RID p_light, bool p_enabled) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->enabled = p_enabled;
 }
@@ -2159,6 +2254,7 @@ void RendererCanvasCull::canvas_light_set_enabled(RID p_light, bool p_enabled) {
 void RendererCanvasCull::canvas_light_set_texture_scale(RID p_light, float p_scale) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->scale = p_scale;
 }
@@ -2166,6 +2262,7 @@ void RendererCanvasCull::canvas_light_set_texture_scale(RID p_light, float p_sca
 void RendererCanvasCull::canvas_light_set_transform(RID p_light, const Transform2D &p_transform) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	if (_interpolation_data.interpolation_enabled && clight->interpolated) {
 		if (!clight->on_interpolate_transform_list) {
@@ -2182,6 +2279,7 @@ void RendererCanvasCull::canvas_light_set_transform(RID p_light, const Transform
 void RendererCanvasCull::canvas_light_set_texture(RID p_light, RID p_texture) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	if (clight->texture == p_texture) {
 		return;
@@ -2194,6 +2292,7 @@ void RendererCanvasCull::canvas_light_set_texture(RID p_light, RID p_texture) {
 void RendererCanvasCull::canvas_light_set_texture_offset(RID p_light, const Vector2 &p_offset) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->texture_offset = p_offset;
 }
@@ -2201,6 +2300,7 @@ void RendererCanvasCull::canvas_light_set_texture_offset(RID p_light, const Vect
 void RendererCanvasCull::canvas_light_set_color(RID p_light, const Color &p_color) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->color = p_color;
 }
@@ -2208,6 +2308,7 @@ void RendererCanvasCull::canvas_light_set_color(RID p_light, const Color &p_colo
 void RendererCanvasCull::canvas_light_set_height(RID p_light, float p_height) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->height = p_height;
 }
@@ -2215,6 +2316,7 @@ void RendererCanvasCull::canvas_light_set_height(RID p_light, float p_height) {
 void RendererCanvasCull::canvas_light_set_energy(RID p_light, float p_energy) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->energy = p_energy;
 }
@@ -2222,6 +2324,7 @@ void RendererCanvasCull::canvas_light_set_energy(RID p_light, float p_energy) {
 void RendererCanvasCull::canvas_light_set_z_range(RID p_light, int p_min_z, int p_max_z) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->z_min = p_min_z;
 	clight->z_max = p_max_z;
@@ -2230,6 +2333,7 @@ void RendererCanvasCull::canvas_light_set_z_range(RID p_light, int p_min_z, int 
 void RendererCanvasCull::canvas_light_set_layer_range(RID p_light, int p_min_layer, int p_max_layer) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->layer_max = p_max_layer;
 	clight->layer_min = p_min_layer;
@@ -2238,6 +2342,7 @@ void RendererCanvasCull::canvas_light_set_layer_range(RID p_light, int p_min_lay
 void RendererCanvasCull::canvas_light_set_item_cull_mask(RID p_light, int p_mask) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->item_mask = p_mask;
 }
@@ -2245,6 +2350,7 @@ void RendererCanvasCull::canvas_light_set_item_cull_mask(RID p_light, int p_mask
 void RendererCanvasCull::canvas_light_set_item_shadow_cull_mask(RID p_light, int p_mask) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->item_shadow_mask = p_mask;
 }
@@ -2252,6 +2358,7 @@ void RendererCanvasCull::canvas_light_set_item_shadow_cull_mask(RID p_light, int
 void RendererCanvasCull::canvas_light_set_directional_distance(RID p_light, float p_distance) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->directional_distance = p_distance;
 }
@@ -2259,6 +2366,7 @@ void RendererCanvasCull::canvas_light_set_directional_distance(RID p_light, floa
 void RendererCanvasCull::canvas_light_set_blend_mode(RID p_light, RSE::CanvasLightBlendMode p_mode) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->blend_mode = p_mode;
 }
@@ -2266,6 +2374,7 @@ void RendererCanvasCull::canvas_light_set_blend_mode(RID p_light, RSE::CanvasLig
 void RendererCanvasCull::canvas_light_set_shadow_enabled(RID p_light, bool p_enabled) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	if (clight->use_shadow == p_enabled) {
 		return;
@@ -2278,6 +2387,7 @@ void RendererCanvasCull::canvas_light_set_shadow_enabled(RID p_light, bool p_ena
 void RendererCanvasCull::canvas_light_set_shadow_filter(RID p_light, RSE::CanvasLightShadowFilter p_filter) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->shadow_filter = p_filter;
 }
@@ -2285,6 +2395,7 @@ void RendererCanvasCull::canvas_light_set_shadow_filter(RID p_light, RSE::Canvas
 void RendererCanvasCull::canvas_light_set_shadow_color(RID p_light, const Color &p_color) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 
 	clight->shadow_color = p_color;
 }
@@ -2292,24 +2403,28 @@ void RendererCanvasCull::canvas_light_set_shadow_color(RID p_light, const Color 
 void RendererCanvasCull::canvas_light_set_shadow_smooth(RID p_light, float p_smooth) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 	clight->shadow_smooth = p_smooth;
 }
 
 void RendererCanvasCull::canvas_light_set_interpolated(RID p_light, bool p_interpolated) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 	clight->interpolated = p_interpolated;
 }
 
 void RendererCanvasCull::canvas_light_reset_physics_interpolation(RID p_light) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 	clight->xform_prev = clight->xform_curr;
 }
 
 void RendererCanvasCull::canvas_light_transform_physics_interpolation(RID p_light, const Transform2D &p_transform) {
 	RendererCanvasRender::Light *clight = canvas_light_owner.get_or_null(p_light);
 	ERR_FAIL_NULL(clight);
+	_canvas_touch_canvas(clight->canvas);
 	clight->xform_prev = p_transform * clight->xform_prev;
 	clight->xform_curr = p_transform * clight->xform_curr;
 }
@@ -2324,6 +2439,7 @@ void RendererCanvasCull::canvas_light_occluder_initialize(RID p_rid) {
 void RendererCanvasCull::canvas_light_occluder_attach_to_canvas(RID p_occluder, RID p_canvas) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 
 	if (occluder->canvas.is_valid()) {
 		Canvas *canvas = canvas_owner.get_or_null(occluder->canvas);
@@ -2345,6 +2461,7 @@ void RendererCanvasCull::canvas_light_occluder_attach_to_canvas(RID p_occluder, 
 void RendererCanvasCull::canvas_light_occluder_set_enabled(RID p_occluder, bool p_enabled) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 
 	occluder->enabled = p_enabled;
 }
@@ -2352,6 +2469,7 @@ void RendererCanvasCull::canvas_light_occluder_set_enabled(RID p_occluder, bool 
 void RendererCanvasCull::canvas_light_occluder_set_polygon(RID p_occluder, RID p_polygon) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 
 	if (occluder->polygon.is_valid()) {
 		LightOccluderPolygon *occluder_poly = canvas_light_occluder_polygon_owner.get_or_null(occluder->polygon);
@@ -2380,6 +2498,7 @@ void RendererCanvasCull::canvas_light_occluder_set_polygon(RID p_occluder, RID p
 void RendererCanvasCull::canvas_light_occluder_set_as_sdf_collision(RID p_occluder, bool p_enable) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 
 	occluder->sdf_collision = p_enable;
 }
@@ -2387,6 +2506,7 @@ void RendererCanvasCull::canvas_light_occluder_set_as_sdf_collision(RID p_occlud
 void RendererCanvasCull::canvas_light_occluder_set_transform(RID p_occluder, const Transform2D &p_xform) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 
 	if (_interpolation_data.interpolation_enabled && occluder->interpolated) {
 		if (!occluder->on_interpolate_transform_list) {
@@ -2403,6 +2523,7 @@ void RendererCanvasCull::canvas_light_occluder_set_transform(RID p_occluder, con
 void RendererCanvasCull::canvas_light_occluder_set_light_mask(RID p_occluder, int p_mask) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 
 	occluder->light_mask = p_mask;
 }
@@ -2410,18 +2531,21 @@ void RendererCanvasCull::canvas_light_occluder_set_light_mask(RID p_occluder, in
 void RendererCanvasCull::canvas_light_occluder_set_interpolated(RID p_occluder, bool p_interpolated) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 	occluder->interpolated = p_interpolated;
 }
 
 void RendererCanvasCull::canvas_light_occluder_reset_physics_interpolation(RID p_occluder) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 	occluder->xform_prev = occluder->xform_curr;
 }
 
 void RendererCanvasCull::canvas_light_occluder_transform_physics_interpolation(RID p_occluder, const Transform2D &p_transform) {
 	RendererCanvasRender::LightOccluderInstance *occluder = canvas_light_occluder_owner.get_or_null(p_occluder);
 	ERR_FAIL_NULL(occluder);
+	_canvas_touch_canvas(occluder->canvas);
 	occluder->xform_prev = p_transform * occluder->xform_prev;
 	occluder->xform_curr = p_transform * occluder->xform_curr;
 }
@@ -2436,6 +2560,7 @@ void RendererCanvasCull::canvas_occluder_polygon_initialize(RID p_rid) {
 }
 
 void RendererCanvasCull::canvas_occluder_polygon_set_shape(RID p_occluder_polygon, const Vector<Vector2> &p_shape, bool p_closed) {
+	canvas_global_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	LightOccluderPolygon *occluder_poly = canvas_light_occluder_polygon_owner.get_or_null(p_occluder_polygon);
 	ERR_FAIL_NULL(occluder_poly);
 
@@ -2460,6 +2585,7 @@ void RendererCanvasCull::canvas_occluder_polygon_set_shape(RID p_occluder_polygo
 }
 
 void RendererCanvasCull::canvas_occluder_polygon_set_cull_mode(RID p_occluder_polygon, RSE::CanvasOccluderPolygonCullMode p_mode) {
+	canvas_global_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	LightOccluderPolygon *occluder_poly = canvas_light_occluder_polygon_owner.get_or_null(p_occluder_polygon);
 	ERR_FAIL_NULL(occluder_poly);
 	occluder_poly->cull_mode = p_mode;
@@ -2481,18 +2607,22 @@ void RendererCanvasCull::canvas_texture_initialize(RID p_rid) {
 }
 
 void RendererCanvasCull::canvas_texture_set_channel(RID p_canvas_texture, RSE::CanvasTextureChannel p_channel, RID p_texture) {
+	canvas_global_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	RSG::texture_storage->canvas_texture_set_channel(p_canvas_texture, p_channel, p_texture);
 }
 
 void RendererCanvasCull::canvas_texture_set_shading_parameters(RID p_canvas_texture, const Color &p_base_color, float p_shininess) {
+	canvas_global_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	RSG::texture_storage->canvas_texture_set_shading_parameters(p_canvas_texture, p_base_color, p_shininess);
 }
 
 void RendererCanvasCull::canvas_texture_set_texture_filter(RID p_canvas_texture, RSE::CanvasItemTextureFilter p_filter) {
+	canvas_global_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	RSG::texture_storage->canvas_texture_set_texture_filter(p_canvas_texture, p_filter);
 }
 
 void RendererCanvasCull::canvas_texture_set_texture_repeat(RID p_canvas_texture, RSE::CanvasItemTextureRepeat p_repeat) {
+	canvas_global_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	RSG::texture_storage->canvas_texture_set_texture_repeat(p_canvas_texture, p_repeat);
 }
 
@@ -2635,6 +2765,7 @@ bool RendererCanvasCull::free(RID p_rid) {
 		canvas_owner.free(p_rid);
 
 	} else if (canvas_item_owner.owns(p_rid)) {
+		_canvas_touch(canvas_item_owner.get_or_null(p_rid)->parent); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: an item freed leaves its canvas changed)
 		Item *canvas_item = canvas_item_owner.get_or_null(p_rid);
 		ERR_FAIL_NULL_V(canvas_item, true);
 		_interpolation_data.notify_free_canvas_item(p_rid, *canvas_item);

@@ -30,6 +30,9 @@
 
 #pragma once
 
+#include "core/templates/local_vector.h"
+#include "core/templates/pair.h"
+
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_types.h"
 
@@ -109,6 +112,12 @@ public:
 	virtual void texture_debug_usage(List<RenderingServerTypes::TextureInfo> *r_info) = 0;
 
 	virtual void texture_set_force_redraw_if_visible(RID p_texture, bool p_enable) = 0;
+	// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): a texture's version (bumped by a CPU update, a replace, a size override, a proxy's
+	// retarget; a render target's when its viewport renders; 0 for no texture), the mark of a render target rendered, and the record of a
+	// texture drawn (a canvas texture's channels each) - a renderer that keeps none leaves these
+	virtual uint64_t texture_get_version(RID p_texture) const { return 0; }
+	virtual void render_target_mark_rendered(RID p_render_target) {}
+	virtual void texture_record_drawn(RID p_texture, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) {}
 
 	virtual Size2 texture_size_with_proxy(RID p_proxy) = 0;
 

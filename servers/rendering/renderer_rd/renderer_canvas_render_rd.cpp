@@ -791,6 +791,9 @@ void RendererCanvasRenderRD::canvas_render_items(RID p_to_render_target, Item *p
 				if (md->shader_data->uses_time) {
 					time_used = true;
 				}
+				if (drawn) {
+					_record_drawn_material(material, md->shader_data); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+				}
 			}
 		}
 
@@ -913,6 +916,9 @@ void RendererCanvasRenderRD::canvas_render_items(RID p_to_render_target, Item *p
 
 	if (time_used) {
 		RenderingServerDefault::redraw_request();
+		if (drawn) {
+			drawn->animated = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a TIME shader moves every frame)
+		}
 	}
 
 	texture_info_map.clear();
@@ -1549,6 +1555,7 @@ void RendererCanvasRenderRD::CanvasShaderData::set_code(const String &p_code) {
 	uses_screen_texture_mipmaps = false;
 	uses_sdf = false;
 	uses_time = false;
+	uses_global_uniforms = false;
 	_clear_vertex_input_mask_cache();
 
 	if (code.is_empty()) {
@@ -1591,6 +1598,11 @@ void RendererCanvasRenderRD::CanvasShaderData::set_code(const String &p_code) {
 
 	uses_screen_texture_mipmaps = gen_code.uses_screen_texture_mipmaps;
 	uses_screen_texture = gen_code.uses_screen_texture;
+	for (const KeyValue<StringName, ShaderLanguage::ShaderNode::Uniform> &E : uniforms) {
+		if (E.value.scope == ShaderLanguage::ShaderNode::Uniform::SCOPE_GLOBAL) {
+			uses_global_uniforms = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: its picture moves with the globals)
+		}
+	}
 
 	pipeline_hash_map.clear_pipelines();
 
@@ -1727,6 +1739,7 @@ void RendererCanvasRenderRD::update() {
 }
 
 RendererCanvasRenderRD::RendererCanvasRenderRD() {
+	records_drawn = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: this renderer keeps the record)
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
 	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
 
@@ -2885,6 +2898,9 @@ void RendererCanvasRenderRD::_record_item_commands(const Item *p_item, RenderTar
 				skipping = !(local_time >= as->slice_begin && local_time < as->slice_end);
 
 				RenderingServerDefault::redraw_request(); // animation visible means redraw request
+				if (drawn) {
+					drawn->animated = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+				}
 			} break;
 		}
 
@@ -3172,6 +3188,9 @@ void RendererCanvasRenderRD::_render_batch(RD::DrawListID p_draw_list, CanvasSha
 				}
 
 				RenderingServerDefault::redraw_request(); // Active particles means redraw request.
+				if (drawn) {
+					drawn->animated = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+				}
 
 				int dpc = particles_storage->particles_get_draw_passes(particles);
 				if (dpc == 0) {
@@ -3311,9 +3330,20 @@ void RendererCanvasRenderRD::_allocate_instance_buffer() {
 	state.instance_data = reinterpret_cast<InstanceData *>(state.instance_buffers.map_raw_for_upload(0));
 }
 
+// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): the material drawn and the textures it holds, with their versions; whether it reads the globals
+void RendererCanvasRenderRD::_record_drawn_material(RID p_material, const CanvasShaderData *p_shader_data) {
+	if (p_shader_data->uses_global_uniforms) {
+		drawn->globals = true;
+	}
+	RendererRD::MaterialStorage::get_singleton()->material_record_drawn(p_material, drawn->materials, drawn->textures, drawn->animated);
+}
+
 void RendererCanvasRenderRD::_prepare_batch_texture_info(RID p_texture, TextureState &p_state, TextureInfo *p_info) {
 	if (p_texture.is_null()) {
 		p_texture = default_canvas_texture;
+	}
+	if (drawn) {
+		RendererRD::TextureStorage::get_singleton()->texture_record_drawn(p_texture, drawn->textures, drawn->animated); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	}
 
 	RendererRD::TextureStorage::CanvasTextureInfo info =

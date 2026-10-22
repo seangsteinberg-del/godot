@@ -30,6 +30,9 @@
 
 #pragma once
 
+#include "core/templates/local_vector.h"
+#include "core/templates/pair.h"
+
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_types.h"
 #include "servers/rendering/storage/utilities.h"
@@ -87,6 +90,12 @@ public:
 	virtual Variant material_get_param(RID p_material, const StringName &p_param) const = 0;
 
 	virtual void material_set_next_pass(RID p_material, RID p_next_material) = 0;
+	// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): a material's version (bumped when a parameter takes a new value, its shader, its next
+	// pass, its shader's code or default textures are set; 0 for no material), the global shader parameters' (bumped when one takes a new
+	// value, or one is added, removed or loaded), and the record of a material drawn - a renderer that keeps none leaves these
+	virtual uint64_t material_get_version(RID p_material) const { return 0; }
+	virtual uint64_t global_shader_parameters_version() const { return 0; }
+	virtual void material_record_drawn(RID p_material, LocalVector<Pair<RID, uint64_t>> &r_materials, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) {}
 
 	virtual bool material_is_animated(RID p_material) = 0;
 	virtual bool material_casts_shadows(RID p_material) = 0;

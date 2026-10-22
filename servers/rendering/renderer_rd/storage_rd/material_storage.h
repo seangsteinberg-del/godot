@@ -299,6 +299,7 @@ private:
 		HashMap<StringName, Variant> params;
 		int32_t priority = 0;
 		RID next_pass;
+		uint64_t version = 1; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 		SelfList<Material> update_element;
 
 		Dependency dependency;
@@ -498,6 +499,10 @@ public:
 	virtual Variant material_get_param(RID p_material, const StringName &p_param) const override;
 
 	virtual void material_set_next_pass(RID p_material, RID p_next_material) override;
+	virtual uint64_t material_get_version(RID p_material) const override; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+	virtual uint64_t global_shader_parameters_version() const override { return globals_serial; }
+	virtual void material_record_drawn(RID p_material, LocalVector<Pair<RID, uint64_t>> &r_materials, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) override;
+	uint64_t globals_serial = 1;
 	virtual void material_set_render_priority(RID p_material, int priority) override;
 
 	virtual bool material_is_animated(RID p_material) override;

@@ -912,7 +912,8 @@ public:
 		UPDATE_ONCE, //then goes to disabled
 		UPDATE_WHEN_VISIBLE, // default
 		UPDATE_WHEN_PARENT_VISIBLE,
-		UPDATE_ALWAYS
+		UPDATE_ALWAYS,
+		UPDATE_WHEN_CHANGED
 	};
 
 private:

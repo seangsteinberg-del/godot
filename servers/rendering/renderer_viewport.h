@@ -32,6 +32,7 @@
 
 #include "core/templates/rid_owner.h"
 #include "servers/display/display_server_enums.h"
+#include "servers/rendering/renderer_canvas_render.h"
 #include "servers/rendering/renderer_scene_render.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_types.h"
@@ -40,6 +41,7 @@
 class RendererViewport {
 public:
 	struct CanvasBase {
+		uint64_t version = 1; // THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: bumped by the canvas cull on every change under this canvas
 	};
 
 	struct Viewport {
@@ -107,6 +109,14 @@ public:
 		float mesh_lod_threshold = 1.0;
 
 		uint64_t last_pass = 0;
+
+		// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (WHEN_CHANGED): what its last render drew and the versions it stood at; a setting of its own
+		// moved sets changed_force (every viewport_set_*), and a viewport made renders once whatever its canvases
+		bool changed_force = true;
+		uint64_t seen_canvases = 0;
+		uint64_t seen_cull = 0;
+		uint64_t seen_globals = 0;
+		RendererCanvasRender::Drawn drawn;
 
 		RSE::ViewportDebugDraw debug_draw = RSE::VIEWPORT_DEBUG_DRAW_DISABLED;
 
@@ -210,6 +220,8 @@ private:
 	void _configure_3d_render_buffers(Viewport *p_viewport);
 	void _draw_3d(Viewport *p_viewport);
 	void _draw_viewport(Viewport *p_viewport);
+	uint64_t _viewport_canvases_version(const Viewport *p_viewport) const; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+	bool _viewport_changed(const Viewport *p_viewport) const;
 	DisplayServerEnums::WindowID _get_containing_window(Viewport *p_viewport);
 
 	int occlusion_rays_per_thread = 512;

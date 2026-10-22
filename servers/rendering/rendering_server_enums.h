@@ -495,6 +495,10 @@ enum ViewportUpdateMode {
 	VIEWPORT_UPDATE_WHEN_VISIBLE, // Default
 	VIEWPORT_UPDATE_WHEN_PARENT_VISIBLE,
 	VIEWPORT_UPDATE_ALWAYS,
+	VIEWPORT_UPDATE_WHEN_CHANGED, // THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): rendered on a frame when something its last render
+	                              // drew has moved since - a canvas item, a material, a texture, a global shader parameter it reads, a
+	                              // setting of its own - or it drew an animation; otherwise the frame it has stands (a 2D viewport's mode:
+	                              // one that draws a 3D world renders as ALWAYS)
 };
 
 enum ViewportClearMode {

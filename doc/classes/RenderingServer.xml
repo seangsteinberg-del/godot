@@ -5389,6 +5389,9 @@
 		<constant name="VIEWPORT_UPDATE_ALWAYS" value="4" enum="ViewportUpdateMode">
 			Always update the viewport's render target.
 		</constant>
+		<constant name="VIEWPORT_UPDATE_WHEN_CHANGED" value="5" enum="ViewportUpdateMode">
+			Update the viewport's render target only when something its last render drew has changed since (see [constant SubViewport.UPDATE_WHEN_CHANGED]). A LONGSHOT fork mode.
+		</constant>
 		<constant name="VIEWPORT_CLEAR_ALWAYS" value="0" enum="ViewportClearMode">
 			Always clear the viewport's render target before drawing.
 		</constant>

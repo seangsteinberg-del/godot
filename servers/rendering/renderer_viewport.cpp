@@ -342,6 +342,13 @@ void RendererViewport::_draw_viewport(Viewport *p_viewport) {
 		timestamp_vp_map[rt_id] = p_viewport->self;
 	}
 
+	// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a viewport in that mode has the canvas renderer record what this render draws
+	const bool record_drawn = p_viewport->update_mode == RSE::VIEWPORT_UPDATE_WHEN_CHANGED && p_viewport->disable_3d && RSG::canvas_render->records_drawn;
+	if (record_drawn) {
+		p_viewport->drawn.clear();
+		RSG::canvas_render->drawn = &p_viewport->drawn;
+	}
+
 	if (OS::get_singleton()->get_current_rendering_method() == "gl_compatibility") {
 		// This is currently needed for GLES to keep the current window being rendered to up to date
 		DisplayServer::get_singleton()->gl_window_make_current(p_viewport->viewport_to_screen);
@@ -757,6 +764,10 @@ void RendererViewport::_draw_viewport(Viewport *p_viewport) {
 		RSG::texture_storage->render_target_do_msaa_resolve(p_viewport->render_target);
 	}
 
+	if (record_drawn) {
+		RSG::canvas_render->drawn = nullptr;
+	}
+
 	if (p_viewport->measure_render_time) {
 		String rt_id = "vp_end_" + itos(p_viewport->self.get_id());
 		RSG::utilities->capture_timestamp(rt_id);
@@ -777,6 +788,44 @@ DisplayServerEnums::WindowID RendererViewport::_get_containing_window(Viewport *
 	}
 
 	return DisplayServerEnums::INVALID_WINDOW_ID;
+}
+
+// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): the sum of its canvases' versions (each bumped by the cull on every change under it)
+uint64_t RendererViewport::_viewport_canvases_version(const Viewport *p_viewport) const {
+	uint64_t sum = 0;
+	for (const KeyValue<RID, Viewport::CanvasData> &E : p_viewport->canvas_map) {
+		if (E.value.canvas) {
+			sum += E.value.canvas->version;
+		}
+	}
+	return sum;
+}
+
+// whether anything its last render drew has moved since: a setting of its own, an animation it drew (every frame while it does), the
+// cull's global (an occluder polygon's shape, a canvas texture's channels), its canvases, the global shader parameters when it drew a
+// shader reading one, the materials it drew, the textures it drew (a nested viewport's render target among them, marked when that
+// viewport renders)
+bool RendererViewport::_viewport_changed(const Viewport *p_viewport) const {
+	if (p_viewport->changed_force || p_viewport->drawn.animated) {
+		return true;
+	}
+	if (RSG::canvas->canvas_global_version() != p_viewport->seen_cull || _viewport_canvases_version(p_viewport) != p_viewport->seen_canvases) {
+		return true;
+	}
+	if (p_viewport->drawn.globals && RSG::material_storage->global_shader_parameters_version() != p_viewport->seen_globals) {
+		return true;
+	}
+	for (const Pair<RID, uint64_t> &m : p_viewport->drawn.materials) {
+		if (RSG::material_storage->material_get_version(m.first) != m.second) {
+			return true;
+		}
+	}
+	for (const Pair<RID, uint64_t> &tx : p_viewport->drawn.textures) {
+		if (RSG::texture_storage->texture_get_version(tx.first) != tx.second) {
+			return true;
+		}
+	}
+	return false;
 }
 
 void RendererViewport::draw_viewports(bool p_swap_buffers) {
@@ -832,8 +881,8 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 		} else
 #endif // XR_DISABLED
 		{
-			if (vp->update_mode == RSE::VIEWPORT_UPDATE_ALWAYS || vp->update_mode == RSE::VIEWPORT_UPDATE_ONCE) {
-				visible = true;
+			if (vp->update_mode == RSE::VIEWPORT_UPDATE_ALWAYS || vp->update_mode == RSE::VIEWPORT_UPDATE_ONCE || vp->update_mode == RSE::VIEWPORT_UPDATE_WHEN_CHANGED) {
+				visible = true; // (WHEN_CHANGED: as ALWAYS here - its children read a visible parent; whether it renders is decided at its turn below)
 			}
 
 			if (vp->update_mode == RSE::VIEWPORT_UPDATE_WHEN_VISIBLE && RSG::texture_storage->render_target_was_used(vp->render_target)) {
@@ -867,6 +916,24 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 
 		if (vp->last_pass != draw_viewports_pass) {
 			continue; //should not draw
+		}
+
+		if (vp->update_mode == RSE::VIEWPORT_UPDATE_WHEN_CHANGED && vp->disable_3d && RSG::canvas_render->records_drawn) {
+			// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): decided here, at its turn - its children rendered before it, so a
+			// child's new frame is seen this pass. Nothing moved: the frame it has stands, and this frame drew nothing for it.
+			if (!_viewport_changed(vp)) {
+				for (int k = 0; k < RSE::VIEWPORT_RENDER_INFO_TYPE_MAX; k++) {
+					for (int j = 0; j < RSE::VIEWPORT_RENDER_INFO_MAX; j++) {
+						vp->render_info.info[k][j] = 0;
+					}
+				}
+				continue;
+			}
+			// (the versions this render stands at: what moves after it is the next render's)
+			vp->changed_force = false;
+			vp->seen_cull = RSG::canvas->canvas_global_version();
+			vp->seen_canvases = _viewport_canvases_version(vp);
+			vp->seen_globals = RSG::material_storage->global_shader_parameters_version();
 		}
 
 		RENDER_TIMESTAMP("> Render Viewport " + itos(i));
@@ -952,6 +1019,8 @@ void RendererViewport::draw_viewports(bool p_swap_buffers) {
 			}
 		}
 
+		RSG::texture_storage->render_target_mark_rendered(vp->render_target); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: its texture is new to whoever draws it)
+
 		if (vp->update_mode == RSE::VIEWPORT_UPDATE_ONCE) {
 			vp->update_mode = RSE::VIEWPORT_UPDATE_DISABLED;
 		}
@@ -1003,6 +1072,7 @@ void RendererViewport::viewport_initialize(RID p_rid) {
 void RendererViewport::viewport_set_use_xr(RID p_viewport, bool p_use_xr) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->use_xr == p_use_xr) {
 		return;
@@ -1022,6 +1092,7 @@ void RendererViewport::viewport_set_use_xr(RID p_viewport, bool p_use_xr) {
 void RendererViewport::viewport_set_scaling_3d_mode(RID p_viewport, RSE::ViewportScaling3DMode p_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	const String rendering_method = OS::get_singleton()->get_current_rendering_method();
 	if (rendering_method != "forward_plus") {
 		if (p_mode == RSE::VIEWPORT_SCALING_3D_MODE_FSR) {
@@ -1060,6 +1131,7 @@ void RendererViewport::viewport_set_scaling_3d_mode(RID p_viewport, RSE::Viewpor
 void RendererViewport::viewport_set_fsr_sharpness(RID p_viewport, float p_sharpness) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->fsr_sharpness = p_sharpness;
 	_configure_3d_render_buffers(viewport);
@@ -1068,6 +1140,7 @@ void RendererViewport::viewport_set_fsr_sharpness(RID p_viewport, float p_sharpn
 void RendererViewport::viewport_set_texture_mipmap_bias(RID p_viewport, float p_mipmap_bias) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->texture_mipmap_bias = p_mipmap_bias;
 	_configure_3d_render_buffers(viewport);
@@ -1076,6 +1149,7 @@ void RendererViewport::viewport_set_texture_mipmap_bias(RID p_viewport, float p_
 void RendererViewport::viewport_set_anisotropic_filtering_level(RID p_viewport, RSE::ViewportAnisotropicFiltering p_anisotropic_filtering_level) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->anisotropic_filtering_level = p_anisotropic_filtering_level;
 	_configure_3d_render_buffers(viewport);
@@ -1084,6 +1158,7 @@ void RendererViewport::viewport_set_anisotropic_filtering_level(RID p_viewport, 
 void RendererViewport::viewport_set_scaling_3d_scale(RID p_viewport, float p_scaling_3d_scale) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	// Clamp to reasonable values that are actually useful.
 	// Values above 2.0 don't serve a practical purpose since the viewport
@@ -1101,6 +1176,7 @@ void RendererViewport::viewport_set_size(RID p_viewport, int p_width, int p_heig
 
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	_viewport_set_size(viewport, p_width, p_height, p_view_count);
 }
@@ -1127,6 +1203,7 @@ bool RendererViewport::_viewport_requires_motion_vectors(Viewport *p_viewport) {
 void RendererViewport::viewport_set_active(RID p_viewport, bool p_active) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (p_active) {
 		ERR_FAIL_COND_MSG(active_viewports.has(viewport), "Can't make active a Viewport that is already active.");
@@ -1142,6 +1219,7 @@ void RendererViewport::viewport_set_active(RID p_viewport, bool p_active) {
 void RendererViewport::viewport_set_parent_viewport(RID p_viewport, RID p_parent_viewport) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->parent = p_parent_viewport;
 }
@@ -1149,6 +1227,10 @@ void RendererViewport::viewport_set_parent_viewport(RID p_viewport, RID p_parent
 void RendererViewport::viewport_set_clear_mode(RID p_viewport, RSE::ViewportClearMode p_clear_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	if (viewport->clear_mode == p_clear_mode) {
+		return; // (the same setting again moves nothing: a mode re-asserted every frame kept every frame rendering)
+	}
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->clear_mode = p_clear_mode;
 }
@@ -1156,6 +1238,7 @@ void RendererViewport::viewport_set_clear_mode(RID p_viewport, RSE::ViewportClea
 void RendererViewport::viewport_attach_to_screen(RID p_viewport, const Rect2 &p_rect, DisplayServerEnums::WindowID p_screen) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (p_screen != DisplayServerEnums::INVALID_WINDOW_ID) {
 		// If using OpenGL we can optimize this operation by rendering directly to system_fbo
@@ -1182,6 +1265,7 @@ void RendererViewport::viewport_attach_to_screen(RID p_viewport, const Rect2 &p_
 void RendererViewport::viewport_set_render_direct_to_screen(RID p_viewport, bool p_enable) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (p_enable == viewport->viewport_render_direct_to_screen) {
 		return;
@@ -1206,6 +1290,10 @@ void RendererViewport::viewport_set_render_direct_to_screen(RID p_viewport, bool
 void RendererViewport::viewport_set_update_mode(RID p_viewport, RSE::ViewportUpdateMode p_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	if (viewport->update_mode == p_mode) {
+		return; // (the same setting again moves nothing: a mode re-asserted every frame kept every frame rendering)
+	}
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->update_mode = p_mode;
 }
@@ -1244,6 +1332,7 @@ RID RendererViewport::viewport_get_occluder_debug_texture(RID p_viewport) const 
 void RendererViewport::viewport_set_prev_camera_data(RID p_viewport, const RendererSceneRender::CameraData *p_camera_data) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	uint64_t frame = RSG::rasterizer->get_frame_number();
 	if (viewport->prev_camera_data_frame != frame) {
 		viewport->prev_camera_data = *p_camera_data;
@@ -1260,6 +1349,10 @@ const RendererSceneRender::CameraData *RendererViewport::viewport_get_prev_camer
 void RendererViewport::viewport_set_disable_2d(RID p_viewport, bool p_disable) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	if (viewport->disable_2d == p_disable) {
+		return; // (the same setting again moves nothing: a mode re-asserted every frame kept every frame rendering)
+	}
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->disable_2d = p_disable;
 }
@@ -1267,6 +1360,7 @@ void RendererViewport::viewport_set_disable_2d(RID p_viewport, bool p_disable) {
 void RendererViewport::viewport_set_environment_mode(RID p_viewport, RSE::ViewportEnvironmentMode p_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->disable_environment = p_mode;
 }
@@ -1284,6 +1378,10 @@ bool RendererViewport::viewport_is_environment_disabled(Viewport *viewport) {
 void RendererViewport::viewport_set_disable_3d(RID p_viewport, bool p_disable) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	if (viewport->disable_3d == p_disable) {
+		return; // (the same setting again moves nothing: a mode re-asserted every frame kept every frame rendering)
+	}
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->disable_3d = p_disable;
 }
@@ -1291,6 +1389,7 @@ void RendererViewport::viewport_set_disable_3d(RID p_viewport, bool p_disable) {
 void RendererViewport::viewport_attach_camera(RID p_viewport, RID p_camera) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->camera = p_camera;
 }
@@ -1298,6 +1397,7 @@ void RendererViewport::viewport_attach_camera(RID p_viewport, RID p_camera) {
 void RendererViewport::viewport_set_scenario(RID p_viewport, RID p_scenario) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->scenario.is_valid()) {
 		RSG::scene->scenario_remove_viewport_visibility_mask(viewport->scenario, p_viewport);
@@ -1312,6 +1412,7 @@ void RendererViewport::viewport_set_scenario(RID p_viewport, RID p_scenario) {
 void RendererViewport::viewport_attach_canvas(RID p_viewport, RID p_canvas) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	ERR_FAIL_COND(viewport->canvas_map.has(p_canvas));
 	RendererCanvasCull::Canvas *canvas = RSG::canvas->canvas_owner.get_or_null(p_canvas);
@@ -1327,6 +1428,7 @@ void RendererViewport::viewport_attach_canvas(RID p_viewport, RID p_canvas) {
 void RendererViewport::viewport_remove_canvas(RID p_viewport, RID p_canvas) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RendererCanvasCull::Canvas *canvas = RSG::canvas->canvas_owner.get_or_null(p_canvas);
 	ERR_FAIL_NULL(canvas);
@@ -1338,6 +1440,7 @@ void RendererViewport::viewport_remove_canvas(RID p_viewport, RID p_canvas) {
 void RendererViewport::viewport_set_canvas_transform(RID p_viewport, RID p_canvas, const Transform2D &p_offset) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	ERR_FAIL_COND(!viewport->canvas_map.has(p_canvas));
 	viewport->canvas_map[p_canvas].transform = p_offset;
@@ -1349,6 +1452,7 @@ void RendererViewport::viewport_set_transparent_background(RID p_viewport, bool 
 	if (viewport->transparent_bg == p_enabled) {
 		return;
 	}
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RSG::texture_storage->render_target_set_transparent(viewport->render_target, p_enabled);
 	viewport->transparent_bg = p_enabled;
@@ -1357,6 +1461,7 @@ void RendererViewport::viewport_set_transparent_background(RID p_viewport, bool 
 void RendererViewport::viewport_set_global_canvas_transform(RID p_viewport, const Transform2D &p_transform) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->global_transform = p_transform;
 }
@@ -1364,6 +1469,7 @@ void RendererViewport::viewport_set_global_canvas_transform(RID p_viewport, cons
 void RendererViewport::viewport_set_canvas_stacking(RID p_viewport, RID p_canvas, int p_layer, int p_sublayer) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	ERR_FAIL_COND(!viewport->canvas_map.has(p_canvas));
 	viewport->canvas_map[p_canvas].layer = p_layer;
@@ -1373,6 +1479,7 @@ void RendererViewport::viewport_set_canvas_stacking(RID p_viewport, RID p_canvas
 void RendererViewport::viewport_set_positional_shadow_atlas_size(RID p_viewport, int p_size, bool p_16_bits) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->shadow_atlas_size = p_size;
 	viewport->shadow_atlas_16_bits = p_16_bits;
@@ -1383,6 +1490,7 @@ void RendererViewport::viewport_set_positional_shadow_atlas_size(RID p_viewport,
 void RendererViewport::viewport_set_positional_shadow_atlas_quadrant_subdivision(RID p_viewport, int p_quadrant, int p_subdiv) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RSG::light_storage->shadow_atlas_set_quadrant_subdivision(viewport->shadow_atlas, p_quadrant, p_subdiv);
 }
@@ -1390,6 +1498,7 @@ void RendererViewport::viewport_set_positional_shadow_atlas_quadrant_subdivision
 void RendererViewport::viewport_set_msaa_2d(RID p_viewport, RSE::ViewportMSAA p_msaa) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->msaa_2d == p_msaa) {
 		return;
@@ -1401,6 +1510,7 @@ void RendererViewport::viewport_set_msaa_2d(RID p_viewport, RSE::ViewportMSAA p_
 void RendererViewport::viewport_set_msaa_3d(RID p_viewport, RSE::ViewportMSAA p_msaa) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->msaa_3d == p_msaa) {
 		return;
@@ -1412,6 +1522,7 @@ void RendererViewport::viewport_set_msaa_3d(RID p_viewport, RSE::ViewportMSAA p_
 void RendererViewport::viewport_set_use_hdr_2d(RID p_viewport, bool p_use_hdr_2d) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->use_hdr_2d == p_use_hdr_2d) {
 		return;
@@ -1431,6 +1542,7 @@ bool RendererViewport::viewport_is_using_hdr_2d(RID p_viewport) const {
 void RendererViewport::viewport_set_screen_space_aa(RID p_viewport, RSE::ViewportScreenSpaceAA p_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	if (OS::get_singleton()->get_current_rendering_method() == "gl_compatibility" && p_mode != RSE::VIEWPORT_SCREEN_SPACE_AA_DISABLED) {
 		WARN_PRINT_ONCE_ED("Screen-space AA is only available when using the Forward+ or Mobile renderer.");
 		return;
@@ -1446,6 +1558,7 @@ void RendererViewport::viewport_set_screen_space_aa(RID p_viewport, RSE::Viewpor
 void RendererViewport::viewport_set_use_taa(RID p_viewport, bool p_use_taa) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	if (OS::get_singleton()->get_current_rendering_method() != "forward_plus") {
 		WARN_PRINT_ONCE_ED("TAA is only available when using the Forward+ renderer.");
 		return;
@@ -1469,6 +1582,7 @@ void RendererViewport::viewport_set_use_taa(RID p_viewport, bool p_use_taa) {
 void RendererViewport::viewport_set_use_debanding(RID p_viewport, bool p_use_debanding) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->use_debanding == p_use_debanding) {
 		return;
@@ -1481,6 +1595,7 @@ void RendererViewport::viewport_set_use_debanding(RID p_viewport, bool p_use_deb
 void RendererViewport::viewport_set_force_motion_vectors(RID p_viewport, bool p_force_motion_vectors) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	_viewport_set_force_motion_vectors(viewport, p_force_motion_vectors);
 }
@@ -1504,6 +1619,7 @@ void RendererViewport::_viewport_set_force_motion_vectors(RendererViewport::View
 void RendererViewport::viewport_set_use_occlusion_culling(RID p_viewport, bool p_use_occlusion_culling) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	if (viewport->use_occlusion_culling == p_use_occlusion_culling) {
 		return;
@@ -1539,6 +1655,7 @@ void RendererViewport::viewport_set_occlusion_culling_build_quality(RSE::Viewpor
 void RendererViewport::viewport_set_mesh_lod_threshold(RID p_viewport, float p_pixels) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->mesh_lod_threshold = p_pixels;
 }
@@ -1558,6 +1675,7 @@ int RendererViewport::viewport_get_render_info(RID p_viewport, RSE::ViewportRend
 void RendererViewport::viewport_set_debug_draw(RID p_viewport, RSE::ViewportDebugDraw p_draw) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	bool motion_vectors_before = _viewport_requires_motion_vectors(viewport);
 	viewport->debug_draw = p_draw;
@@ -1571,6 +1689,7 @@ void RendererViewport::viewport_set_debug_draw(RID p_viewport, RSE::ViewportDebu
 void RendererViewport::viewport_set_measure_render_time(RID p_viewport, bool p_enable) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->measure_render_time = p_enable;
 }
@@ -1592,12 +1711,14 @@ float RendererViewport::viewport_get_measured_render_time_gpu(RID p_viewport) co
 void RendererViewport::viewport_set_snap_2d_transforms_to_pixel(RID p_viewport, bool p_enabled) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	viewport->snap_2d_transforms_to_pixel = p_enabled;
 }
 
 void RendererViewport::viewport_set_snap_2d_vertices_to_pixel(RID p_viewport, bool p_enabled) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	viewport->snap_2d_vertices_to_pixel = p_enabled;
 }
 
@@ -1605,6 +1726,7 @@ void RendererViewport::viewport_set_default_canvas_item_texture_filter(RID p_vie
 	ERR_FAIL_COND_MSG(p_filter == RSE::CANVAS_ITEM_TEXTURE_FILTER_DEFAULT, "Viewport does not accept DEFAULT as texture filter (it's the topmost choice already).)");
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->texture_filter = p_filter;
 }
@@ -1612,6 +1734,7 @@ void RendererViewport::viewport_set_default_canvas_item_texture_repeat(RID p_vie
 	ERR_FAIL_COND_MSG(p_repeat == RSE::CANVAS_ITEM_TEXTURE_REPEAT_DEFAULT, "Viewport does not accept DEFAULT as texture repeat (it's the topmost choice already).)");
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	viewport->texture_repeat = p_repeat;
 }
@@ -1619,6 +1742,7 @@ void RendererViewport::viewport_set_default_canvas_item_texture_repeat(RID p_vie
 void RendererViewport::viewport_set_sdf_oversize_and_scale(RID p_viewport, RSE::ViewportSDFOversize p_size, RSE::ViewportSDFScale p_scale) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RSG::texture_storage->render_target_set_sdf_size_and_scale(viewport->render_target, p_size, p_scale);
 }
@@ -1640,6 +1764,7 @@ RID RendererViewport::viewport_find_from_screen_attachment(DisplayServerEnums::W
 void RendererViewport::viewport_set_vrs_mode(RID p_viewport, RSE::ViewportVRSMode p_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RSG::texture_storage->render_target_set_vrs_mode(viewport->render_target, p_mode);
 	_configure_3d_render_buffers(viewport);
@@ -1648,6 +1773,7 @@ void RendererViewport::viewport_set_vrs_mode(RID p_viewport, RSE::ViewportVRSMod
 void RendererViewport::viewport_set_vrs_update_mode(RID p_viewport, RSE::ViewportVRSUpdateMode p_mode) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RSG::texture_storage->render_target_set_vrs_update_mode(viewport->render_target, p_mode);
 }
@@ -1655,6 +1781,7 @@ void RendererViewport::viewport_set_vrs_update_mode(RID p_viewport, RSE::Viewpor
 void RendererViewport::viewport_set_vrs_texture(RID p_viewport, RID p_texture) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 
 	RSG::texture_storage->render_target_set_vrs_texture(viewport->render_target, p_texture);
 	_configure_3d_render_buffers(viewport);
@@ -1719,6 +1846,7 @@ void RendererViewport::handle_timestamp(String p_timestamp, uint64_t p_cpu_time,
 void RendererViewport::viewport_set_canvas_cull_mask(RID p_viewport, uint32_t p_canvas_cull_mask) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
 	viewport->canvas_cull_mask = p_canvas_cull_mask;
 }
 

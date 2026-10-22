@@ -202,6 +202,9 @@ private:
 
 		CanvasTexture *canvas_texture = nullptr;
 
+		uint64_t version = 1; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+		bool redraw_if_visible = false;
+
 		void cleanup();
 	};
 
@@ -642,6 +645,11 @@ public:
 	virtual void texture_debug_usage(List<RenderingServerTypes::TextureInfo> *r_info) override;
 
 	virtual void texture_set_force_redraw_if_visible(RID p_texture, bool p_enable) override;
+	virtual uint64_t texture_get_version(RID p_texture) const override; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+	virtual void render_target_mark_rendered(RID p_render_target) override;
+	virtual void texture_record_drawn(RID p_texture, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) override;
+	void _texture_touched(Texture *p_texture);
+	void _texture_record_one(RID p_rid, const Texture *p_texture, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated);
 
 	virtual Size2 texture_size_with_proxy(RID p_proxy) override;
 

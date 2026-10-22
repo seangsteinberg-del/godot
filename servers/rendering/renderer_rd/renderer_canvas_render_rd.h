@@ -164,6 +164,7 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 		bool uses_screen_texture_mipmaps = false;
 		bool uses_sdf = false;
 		bool uses_time = false;
+		bool uses_global_uniforms = false; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 
 		void _clear_vertex_input_mask_cache();
 		void _create_pipeline(PipelineKey p_pipeline_key);
@@ -677,6 +678,7 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 	void _record_item_commands(const Item *p_item, RenderTarget p_render_target, const Transform2D &p_base_transform, Item *&r_current_clip, Light *p_lights, bool &r_batch_broken, bool &r_sdf_used, Batch *&r_current_batch);
 	void _render_batch(RD::DrawListID p_draw_list, CanvasShaderData *p_shader_data, RenderingDevice::FramebufferFormatID p_framebuffer_format, Light *p_lights, Batch const *p_batch, RenderingServerTypes::RenderInfo *r_render_info = nullptr);
 	void _prepare_batch_texture_info(RID p_texture, TextureState &p_state, TextureInfo *p_info);
+	void _record_drawn_material(RID p_material, const CanvasShaderData *p_shader_data); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 
 	// non-UMA
 	InstanceData *new_instance_data(Batch &p_current_batch, const InstanceData &template_instance, bool p_use_push_data = false);

@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "core/templates/local_vector.h"
+#include "core/templates/pair.h"
 #include "servers/rendering/rendering_server_enums.h"
 #include "servers/rendering/rendering_server_types.h"
 
@@ -38,6 +40,25 @@ class RenderingServer;
 class RendererCanvasRender {
 public:
 	static RendererCanvasRender *singleton;
+
+	// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): what one viewport's render drew, for the viewport that asked - each material
+	// and texture with its version at the draw, whether a shader reading the global uniforms was drawn, whether an animation was (a TIME
+	// shader, an animation slice, live particles, an item that asks a redraw while visible, an interpolated item, a texture that redraws
+	// while visible). A renderer that keeps the record says so in records_drawn and fills `drawn` while the viewport sets it.
+	struct Drawn {
+		bool animated = false;
+		bool globals = false;
+		LocalVector<Pair<RID, uint64_t>> materials;
+		LocalVector<Pair<RID, uint64_t>> textures;
+		void clear() {
+			animated = false;
+			globals = false;
+			materials.clear();
+			textures.clear();
+		}
+	};
+	bool records_drawn = false;
+	Drawn *drawn = nullptr;
 
 	enum CanvasRectFlags {
 		CANVAS_RECT_REGION = 1,

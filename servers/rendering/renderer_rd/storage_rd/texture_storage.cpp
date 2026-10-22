@@ -1633,6 +1633,7 @@ void TextureStorage::_texture_2d_update(RID p_texture, const Ref<Image> &p_image
 	TextureToRDFormat f;
 	Ref<Image> validated = _validate_texture_format(p_image, f);
 
+	_texture_touched(tex); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	RD::get_singleton()->texture_update(tex->rd_texture, p_layer, validated->get_data());
 }
 
@@ -1675,6 +1676,7 @@ void TextureStorage::texture_3d_update(RID p_texture, const Vector<Ref<Image>> &
 		}
 	}
 
+	_texture_touched(tex); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	RD::get_singleton()->texture_update(tex->rd_texture, 0, all_data);
 }
 
@@ -1706,8 +1708,10 @@ void TextureStorage::texture_proxy_update(RID p_texture, RID p_proxy_to) {
 
 	// Copy canvas_texture so it doesn't leak.
 	CanvasTexture *canvas_texture = tex->canvas_texture;
+	const uint64_t version_was = tex->version; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: the proxy's own version, moved on)
 
 	*tex = *proxy_to;
+	tex->version = version_was + 1;
 
 	tex->proxy_to = p_proxy_to;
 	tex->is_render_target = false;
@@ -2066,8 +2070,10 @@ void TextureStorage::texture_replace(RID p_texture, RID p_by_texture) {
 
 	Vector<RID> proxies_to_update = tex->proxies;
 	Vector<RID> proxies_to_redirect = by_tex->proxies;
+	const uint64_t version_was = tex->version; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: its own version, moved on)
 
 	*tex = *by_tex;
+	tex->version = version_was + 1;
 
 	tex->proxies = proxies_to_update; //restore proxies, so they can be updated
 
@@ -2095,6 +2101,7 @@ void TextureStorage::texture_set_size_override(RID p_texture, int p_width, int p
 
 	tex->width_2d = p_width;
 	tex->height_2d = p_height;
+	_texture_touched(tex); // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 }
 
 void TextureStorage::texture_set_path(RID p_texture, const String &p_path) {
@@ -2184,6 +2191,70 @@ void TextureStorage::texture_debug_usage(List<RenderingServerTypes::TextureInfo>
 }
 
 void TextureStorage::texture_set_force_redraw_if_visible(RID p_texture, bool p_enable) {
+	// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): a texture that redraws by itself (a video's, a camera's, an animated one) is an
+	// animation to the viewport that draws it
+	Texture *tex = texture_owner.get_or_null(p_texture);
+	ERR_FAIL_NULL(tex);
+	tex->redraw_if_visible = p_enable;
+}
+
+// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): a texture written is new, and so are its proxies
+void TextureStorage::_texture_touched(Texture *p_texture) {
+	p_texture->version++;
+	for (int i = 0; i < p_texture->proxies.size(); i++) {
+		Texture *proxy = texture_owner.get_or_null(p_texture->proxies[i]);
+		if (proxy) {
+			proxy->version++;
+		}
+	}
+}
+
+uint64_t TextureStorage::texture_get_version(RID p_texture) const {
+	const Texture *tex = texture_owner.get_or_null(p_texture);
+	return tex ? tex->version : 0;
+}
+
+void TextureStorage::render_target_mark_rendered(RID p_render_target) {
+	RenderTarget *rt = render_target_owner.get_or_null(p_render_target);
+	if (!rt) {
+		return;
+	}
+	Texture *tex = texture_owner.get_or_null(rt->texture);
+	if (tex) {
+		_texture_touched(tex); // (and its proxies: a ViewportTexture draws the target through one)
+	}
+}
+
+void TextureStorage::_texture_record_one(RID p_rid, const Texture *p_texture, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) {
+	if (p_texture->redraw_if_visible) {
+		r_animated = true;
+	}
+	for (const Pair<RID, uint64_t> &tx : r_textures) {
+		if (tx.first == p_rid) {
+			return;
+		}
+	}
+	r_textures.push_back(Pair<RID, uint64_t>(p_rid, p_texture->version));
+}
+
+// a texture drawn: itself, or a canvas texture's channels each
+void TextureStorage::texture_record_drawn(RID p_texture, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) {
+	const Texture *tex = texture_owner.get_or_null(p_texture);
+	if (tex) {
+		_texture_record_one(p_texture, tex, r_textures, r_animated);
+		return;
+	}
+	const CanvasTexture *ct = canvas_texture_owner.get_or_null(p_texture);
+	if (!ct) {
+		return;
+	}
+	const RID parts[3] = { ct->diffuse, ct->normal_map, ct->specular };
+	for (int i = 0; i < 3; i++) {
+		const Texture *part = parts[i].is_valid() ? texture_owner.get_or_null(parts[i]) : nullptr;
+		if (part) {
+			_texture_record_one(parts[i], part, r_textures, r_animated);
+		}
+	}
 }
 
 Size2 TextureStorage::texture_size_with_proxy(RID p_proxy) {

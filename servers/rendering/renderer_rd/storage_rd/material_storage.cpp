@@ -1790,6 +1790,7 @@ void MaterialStorage::_global_shader_uniform_mark_buffer_dirty(int32_t p_index, 
 }
 
 void MaterialStorage::global_shader_parameter_add(const StringName &p_name, RSE::GlobalShaderParameterType p_type, const Variant &p_value) {
+	globals_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	ERR_FAIL_COND(global_shader_uniforms.variables.has(p_name));
 	GlobalShaderUniforms::Variable gv;
 	gv.type = p_type;
@@ -1828,6 +1829,7 @@ void MaterialStorage::global_shader_parameter_add(const StringName &p_name, RSE:
 }
 
 void MaterialStorage::global_shader_parameter_remove(const StringName &p_name) {
+	globals_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	if (!global_shader_uniforms.variables.has(p_name)) {
 		return;
 	}
@@ -1859,6 +1861,9 @@ Vector<StringName> MaterialStorage::global_shader_parameter_get_list() const {
 void MaterialStorage::global_shader_parameter_set(const StringName &p_name, const Variant &p_value) {
 	ERR_FAIL_COND(!global_shader_uniforms.variables.has(p_name));
 	GlobalShaderUniforms::Variable &gv = global_shader_uniforms.variables[p_name];
+	if (!(gv.value == p_value)) {
+		globals_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: the same value again moves nothing)
+	}
 	gv.value = p_value;
 	if (gv.override.get_type() == Variant::NIL) {
 		if (gv.buffer_index >= 0) {
@@ -1886,6 +1891,9 @@ void MaterialStorage::global_shader_parameter_set_override(const StringName &p_n
 
 	GlobalShaderUniforms::Variable &gv = global_shader_uniforms.variables[p_name];
 
+	if (!(gv.override == p_value)) {
+		globals_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+	}
 	gv.override = p_value;
 
 	if (gv.buffer_index >= 0) {
@@ -1937,6 +1945,7 @@ RSE::GlobalShaderParameterType MaterialStorage::global_shader_parameter_get_type
 }
 
 void MaterialStorage::global_shader_parameters_load_settings(bool p_load_textures) {
+	globals_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	List<PropertyInfo> settings;
 	ProjectSettings::get_singleton()->get_property_list(&settings);
 
@@ -2017,6 +2026,7 @@ void MaterialStorage::global_shader_parameters_load_settings(bool p_load_texture
 }
 
 void MaterialStorage::global_shader_parameters_clear() {
+	globals_serial++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	global_shader_uniforms.variables.clear(); //not right but for now enough
 }
 
@@ -2281,6 +2291,7 @@ void MaterialStorage::shader_set_code(RID p_shader, const String &p_code) {
 
 	for (Material *E : shader->owners) {
 		Material *material = E;
+		material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a shader's code is its materials' look)
 		material->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_MATERIAL);
 		_material_queue_update(material, true, true);
 	}
@@ -2337,6 +2348,7 @@ void MaterialStorage::shader_set_default_texture_parameter(RID p_shader, const S
 
 		for (Material *E : shader->owners) {
 			Material *material = E;
+			material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 			_material_queue_update(material, false, true);
 		}
 	}
@@ -2481,6 +2493,7 @@ void MaterialStorage::material_free(RID p_rid) {
 void MaterialStorage::material_set_shader(RID p_material, RID p_shader) {
 	Material *material = material_owner.get_or_null(p_material);
 	ERR_FAIL_NULL(material);
+	material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 
 	if (material->data) {
 		memdelete(material->data);
@@ -2542,9 +2555,17 @@ void MaterialStorage::material_set_param(RID p_material, const StringName &p_par
 	ERR_FAIL_NULL(material);
 
 	if (p_value.get_type() == Variant::NIL) {
+		if (material->params.has(p_param)) {
+			material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+		}
 		material->params.erase(p_param);
 	} else {
 		ERR_FAIL_COND(p_value.get_type() == Variant::OBJECT); //object not allowed
+		// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: the same value again moves nothing of the picture
+		const Variant *was = material->params.getptr(p_param);
+		if (!was || !(*was == p_value)) {
+			material->version++;
+		}
 		material->params[p_param] = p_value;
 	}
 
@@ -2566,6 +2587,47 @@ Variant MaterialStorage::material_get_param(RID p_material, const StringName &p_
 	}
 }
 
+// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22)
+uint64_t MaterialStorage::material_get_version(RID p_material) const {
+	const Material *material = material_owner.get_or_null(p_material);
+	return material ? material->version : 0;
+}
+
+// the material drawn, with its version, once; the textures its parameters and its shader's defaults hold (a viewport's texture among
+// them changes with no word to the material), each with its version
+void MaterialStorage::material_record_drawn(RID p_material, LocalVector<Pair<RID, uint64_t>> &r_materials, LocalVector<Pair<RID, uint64_t>> &r_textures, bool &r_animated) {
+	for (const Pair<RID, uint64_t> &m : r_materials) {
+		if (m.first == p_material) {
+			return;
+		}
+	}
+	const Material *material = material_owner.get_or_null(p_material);
+	if (!material) {
+		return;
+	}
+	r_materials.push_back(Pair<RID, uint64_t>(p_material, material->version));
+	TextureStorage *texture_storage = TextureStorage::get_singleton();
+	for (const KeyValue<StringName, Variant> &E : material->params) {
+		if (E.value.get_type() == Variant::RID) {
+			texture_storage->texture_record_drawn(E.value, r_textures, r_animated);
+		} else if (E.value.get_type() == Variant::ARRAY) {
+			Array a = E.value;
+			for (int i = 0; i < a.size(); i++) {
+				if (a[i].get_type() == Variant::RID) {
+					texture_storage->texture_record_drawn(a[i], r_textures, r_animated);
+				}
+			}
+		}
+	}
+	if (material->shader) {
+		for (const KeyValue<StringName, HashMap<int, RID>> &E : material->shader->default_texture_parameter) {
+			for (const KeyValue<int, RID> &E2 : E.value) {
+				texture_storage->texture_record_drawn(E2.value, r_textures, r_animated);
+			}
+		}
+	}
+}
+
 void MaterialStorage::material_set_next_pass(RID p_material, RID p_next_material) {
 	Material *material = material_owner.get_or_null(p_material);
 	ERR_FAIL_NULL(material);
@@ -2574,6 +2636,7 @@ void MaterialStorage::material_set_next_pass(RID p_material, RID p_next_material
 		return;
 	}
 
+	material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 	material->next_pass = p_next_material;
 	if (material->data) {
 		material->data->set_next_pass(p_next_material);

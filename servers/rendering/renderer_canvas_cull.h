@@ -143,6 +143,13 @@ public:
 
 	RID_Owner<RendererCanvasRender::LightOccluderInstance, true> canvas_light_occluder_owner;
 
+	// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED (Longshot, 10-22): every mutator bumps the version of the canvas it changes - an item's by
+	// walking its parents up to its canvas, a light's or an occluder's by theirs, a canvas's its own - and what belongs to no one canvas
+	// (an occluder polygon's shape, a canvas texture's channels) bumps the global
+	uint64_t canvas_global_serial = 1;
+	void _canvas_touch(RID p_parent);
+	void _canvas_touch_canvas(RID p_canvas);
+
 	struct Canvas : public RendererViewport::CanvasBase {
 		HashSet<RID> viewports;
 		struct ChildItem {
@@ -226,6 +233,7 @@ public:
 	bool was_sdf_used();
 
 	RID canvas_allocate();
+	uint64_t canvas_global_version() const { return canvas_global_serial; }
 	void canvas_initialize(RID p_rid);
 
 	void canvas_set_item_mirroring(RID p_canvas, RID p_item, const Point2 &p_mirroring);

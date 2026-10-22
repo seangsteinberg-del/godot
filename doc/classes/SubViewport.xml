@@ -65,5 +65,8 @@
 		<constant name="UPDATE_ALWAYS" value="4" enum="UpdateMode">
 			Always update the render target.
 		</constant>
+		<constant name="UPDATE_WHEN_CHANGED" value="5" enum="UpdateMode">
+			Update the render target only when something its last render drew has changed since: a canvas item under its canvases, a material it drew (a parameter set to a new value, its shader, its next pass, the shader's code or default textures), a texture it drew (written from the CPU, replaced, or the render target of another viewport that rendered), a global shader parameter read by a shader it drew, or one of its own settings. While it draws an animation (a [code]TIME[/code] shader, an animation slice, live particles, an interpolated item, a texture that redraws while visible) it updates every frame. Otherwise it keeps its last frame and nothing is drawn for it. A 2D mode: a viewport that renders a 3D world ([member disable_3d] false), or a renderer that keeps no such record (Compatibility), updates as [constant UPDATE_ALWAYS]. A LONGSHOT fork mode.
+		</constant>
 	</constants>
 </class>
