@@ -590,9 +590,11 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject (the night sky's picture's top
 		// over the gain it is shown at, in the buffer's pre-exposed units as the game sets it)
 		const float subject_floor = RSG::camera_attributes->camera_attributes_get_auto_exposure_subject_floor(p_render_data->camera_attributes);
+		// THE SUBJECT IS A SURFACE (patch 47): the least share of the frame's lit weight that is a subject (the star points alone never are)
+		const float subject_min_share = RSG::camera_attributes->camera_attributes_get_auto_exposure_subject_min_share(p_render_data->camera_attributes);
 		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate,
 				key_ratio, RSG::camera_attributes->camera_attributes_get_auto_exposure_scotopic_luminance(p_render_data->camera_attributes),
-				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale, highlight_hold, highlight_cap, light_hold, subject_floor);
+				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale, highlight_hold, highlight_cap, light_hold, subject_floor, subject_min_share);
 
 		// Swap final reduce with prev luminance.
 

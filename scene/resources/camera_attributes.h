@@ -101,6 +101,9 @@ private:
 	// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject of the meter, in the buffer's
 	// pre-exposed units (0: the buffer's own black)
 	float auto_exposure_subject_floor = 0.0;
+	// THE SUBJECT IS A SURFACE (patch 47): the least share of the frame's lit weight that is a subject of the meter; under it the frame
+	// meters at the window's floor as a frame with no lit pixel does (the star points alone never close the eye) (0: no law)
+	float auto_exposure_subject_min_share = 0.0;
 
 	virtual void _update_auto_exposure() override;
 
@@ -142,6 +145,8 @@ public:
 	float get_auto_exposure_light_hold() const;
 	void set_auto_exposure_subject_floor(float p_floor);
 	float get_auto_exposure_subject_floor() const;
+	void set_auto_exposure_subject_min_share(float p_share);
+	float get_auto_exposure_subject_min_share() const;
 
 	virtual float calculate_exposure_normalization() const override;
 

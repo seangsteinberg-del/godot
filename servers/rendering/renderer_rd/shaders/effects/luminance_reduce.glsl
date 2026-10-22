@@ -75,7 +75,12 @@ layout(push_constant, std430) uniform Params {
 	// twice the picture's top over that gain, so the picture, the stars and the black about a world are never the subject; a frame
 	// with no lit surface meters at the window's floor, the night's eye as before
 	float subject_floor;
-	float pad0;
+	// THE SUBJECT IS A SURFACE (patch 47, Longshot, 10-22): the least weight of lit pixels (the centre mask's sum) a frame must hold
+	// for them to be its subject; under it the frame meters at the window's floor as a frame with no lit pixel does. The night sky's
+	// star points stand over the picture's band and over the floor, a few pixels each; in deep space with no lit surface they were
+	// the only pixels counted and the eye closed on them until the stars stood at grey. The game sets it at half a percent of the
+	// frame's weight: a sunlit face, a crescent, a near hull are surfaces and count; the stars never do (0: no law)
+	float subject_min_weight;
 	float pad1;
 	float pad2;
 }
@@ -194,7 +199,8 @@ void main() {
 #ifdef WRITE_LUMINANCE
 		// THE METER READS THE SUBJECT (patch 20): the weighted logs over the weight - a frame with no lit pixel meters at the
 		// floor, as every pixel did before
-		avg = wavg > 1e-9 ? avg / wavg : log(max(params.min_luminance, 1e-20));   // no lit pixel: the window's floor, as before
+		// THE SUBJECT IS A SURFACE (patch 47): too little lit weight (the stars alone) is no subject either
+		avg = wavg > max(1e-9, params.subject_min_weight) ? avg / wavg : log(max(params.min_luminance, 1e-20));   // no lit pixel: the window's floor, as before
 		// the mean of the logs back to a luminance (the frame's geometric mean), written as the EFFECTIVE luminance: the
 		// adaptation times the day's key over the key it earns (the readers divide by it and multiply by the day's key),
 		// the window mapped through the same law; the history is effective too

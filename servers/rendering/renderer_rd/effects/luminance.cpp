@@ -158,7 +158,22 @@ RID Luminance::get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_b
 	return RID();
 }
 
-void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale, float p_highlight_hold, float p_highlight_cap, float p_light_hold, float p_subject_floor) {
+// THE SUBJECT IS A SURFACE (patch 47, Longshot): the centre mask's integral over the frame (luminance_reduce.glsl's wc, a function of
+// the normalized place alone: one mean for every aspect), so a share of the frame's weight is a number of the mask's units
+static float subject_mask_integral(const Size2i &p_size) {
+	const int nx = 64, ny = 36;
+	double sum = 0.0;
+	for (int j = 0; j < ny; j++) {
+		for (int i = 0; i < nx; i++) {
+			const double rx = (i + 0.5) / nx * 2.0 - 1.0, ry = (j + 0.5) / ny * 2.0 - 1.0;
+			const double rr = Math::sqrt(rx * rx + ry * ry);
+			sum += rr < 0.5 ? 1.0 : MAX(0.0, 1.0 - (rr - 0.5) * (rr - 0.5) / 0.8464);
+		}
+	}
+	return float(sum / double(nx * ny) * double(p_size.x) * double(p_size.y));
+}
+
+void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set, float p_key_ratio, float p_scotopic_luminance, float p_photopic_luminance, float p_history_scale, float p_highlight_hold, float p_highlight_cap, float p_light_hold, float p_subject_floor, float p_subject_min_share) {
 	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
 	ERR_FAIL_NULL(uniform_set_cache);
 	MaterialStorage *material_storage = MaterialStorage::get_singleton();
@@ -222,6 +237,7 @@ void Luminance::luminance_reduction(RID p_source_texture, const Size2i p_source_
 		push_constant.highlight_cap = p_highlight_cap > 0.0f ? p_highlight_cap : 65504.0f;
 		push_constant.light_hold = MAX(p_light_hold, 0.0f); // THE FILLED LIGHT (patch 22)
 		push_constant.subject_floor = MAX(p_subject_floor, 0.0f); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43)
+		push_constant.subject_min_weight = p_subject_min_share > 0.0f ? p_subject_min_share * subject_mask_integral(p_source_size) : 0.0f; // THE SUBJECT IS A SURFACE (patch 47)
 		push_constant.level = 0;
 
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
