@@ -181,6 +181,7 @@ public:
 
 	void remove_shape(GodotShape3D *p_shape) override;
 	void remove_shape(int p_index);
+	void clear_shapes(); // THE SHAPES CLEARED AT ONCE (LONGSHOT, patch #48): every shape gone in one pass, never one at a time
 
 	virtual void set_space(GodotSpace3D *p_space) = 0;
 

@@ -313,9 +313,7 @@ void GodotPhysicsServer3D::area_clear_shapes(RID p_area) {
 	GodotArea3D *area = area_owner.get_or_null(p_area);
 	ERR_FAIL_NULL(area);
 
-	while (area->get_shape_count()) {
-		area->remove_shape(0);
-	}
+	area->clear_shapes(); // THE SHAPES CLEARED AT ONCE (LONGSHOT, patch #48)
 }
 
 void GodotPhysicsServer3D::area_set_shape_disabled(RID p_area, int p_shape_idx, bool p_disabled) {
@@ -560,9 +558,7 @@ void GodotPhysicsServer3D::body_clear_shapes(RID p_body) {
 	GodotBody3D *body = body_owner.get_or_null(p_body);
 	ERR_FAIL_NULL(body);
 
-	while (body->get_shape_count()) {
-		body->remove_shape(0);
-	}
+	body->clear_shapes(); // THE SHAPES CLEARED AT ONCE (LONGSHOT, patch #48)
 }
 
 void GodotPhysicsServer3D::body_set_enable_continuous_collision_detection(RID p_body, bool p_enable) {
@@ -1614,9 +1610,7 @@ void GodotPhysicsServer3D::free_rid(RID p_rid) {
 
 		body->set_space(nullptr);
 
-		while (body->get_shape_count()) {
-			body->remove_shape(0);
-		}
+		body->clear_shapes(); // THE SHAPES CLEARED AT ONCE (LONGSHOT, patch #48): the cover's tile bodies, hundreds of hulls each, left in one pass
 
 		body_owner.free(p_rid);
 		memdelete(body);
@@ -1632,9 +1626,7 @@ void GodotPhysicsServer3D::free_rid(RID p_rid) {
 
 		area->set_space(nullptr);
 
-		while (area->get_shape_count()) {
-			area->remove_shape(0);
-		}
+		area->clear_shapes(); // THE SHAPES CLEARED AT ONCE (LONGSHOT, patch #48)
 
 		area_owner.free(p_rid);
 		memdelete(area);

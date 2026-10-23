@@ -125,6 +125,22 @@ void GodotCollisionObject3D::remove_shape(int p_index) {
 	}
 }
 
+// THE SHAPES CLEARED AT ONCE (LONGSHOT, patch #48): a body of n shapes freed one at a time (remove_shape(0) in a loop) shifted the rest down n times -
+// n^2/2 copies - and the ground cover's tile bodies carry hundreds of hulls each (the cover's leave phase: 5-7 ms of the main thread a frame
+// while flying low). Every shape is unregistered from the broadphase once, disowned once, and the vector cleared whole.
+void GodotCollisionObject3D::clear_shapes() {
+	if (space) {
+		_unregister_shapes();
+	}
+	for (int i = 0; i < shapes.size(); i++) {
+		shapes[i].shape->remove_owner(this);
+	}
+	shapes.clear();
+	if (!pending_shape_update_list.in_list()) {
+		GodotPhysicsServer3D::godot_singleton->pending_shape_update_list.add(&pending_shape_update_list);
+	}
+}
+
 void GodotCollisionObject3D::_set_static(bool p_static) {
 	if (_static == p_static) {
 		return;
