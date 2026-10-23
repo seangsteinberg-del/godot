@@ -711,6 +711,10 @@ bool SceneTree::process(double p_time) {
 		}
 	}
 
+	if (process_ledger_on) {
+		_process_ledger_frame_take(); // THE HITCH'S OWNERS (patch #49): the iteration before, by owner
+	}
+
 	emit_signal(SNAME("process_frame"));
 
 	MessageQueue::get_singleton()->flush(); //small little hack
@@ -1292,12 +1296,47 @@ void SceneTree::process_ledger_draw(Node *p_node, uint64_t p_usec) {
 	_process_ledger_add(_process_ledger_key(p_node), 2, p_usec);
 }
 
+// THE HITCH'S OWNERS (longshot patch #49): the sums' growth since the last take, by owner, kept as the last iteration's; an owner whose sum
+// was reset (get_process_ledger(true) between takes) reads as its whole sum - the same frame the window opens, said once.
+void SceneTree::_process_ledger_frame_take() {
+	process_ledger_lock.lock();
+	for (int k = 0; k < 3; k++) {
+		process_ledger_frame[k].clear();
+		for (const KeyValue<StringName, uint64_t> &kv : process_ledger_us[k]) {
+			uint64_t *was = process_ledger_last[k].getptr(kv.key);
+			uint64_t before = (was && *was <= kv.value) ? *was : 0;
+			if (kv.value > before) {
+				process_ledger_frame[k][kv.key] = kv.value - before;
+			}
+		}
+		process_ledger_last[k] = process_ledger_us[k];
+	}
+	process_ledger_lock.unlock();
+}
+
+Dictionary SceneTree::get_process_ledger_frame() {
+	Dictionary out;
+	process_ledger_lock.lock();
+	const char *names[3] = { "process", "physics", "draw" };
+	for (int k = 0; k < 3; k++) {
+		Dictionary us;
+		for (const KeyValue<StringName, uint64_t> &kv : process_ledger_frame[k]) {
+			us[String(kv.key)] = (int64_t)kv.value;
+		}
+		out[String(names[k]) + "_usec"] = us;
+	}
+	process_ledger_lock.unlock();
+	return out;
+}
+
 void SceneTree::set_process_ledger_enabled(bool p_enabled) {
 	process_ledger_lock.lock();
 	process_ledger_on = p_enabled;
 	for (int k = 0; k < 3; k++) {
 		process_ledger_us[k].clear();
 		process_ledger_n[k].clear();
+		process_ledger_last[k].clear();
+		process_ledger_frame[k].clear();
 	}
 	process_ledger_lock.unlock();
 }
@@ -2009,6 +2048,7 @@ void SceneTree::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_process_ledger_enabled", "enabled"), &SceneTree::set_process_ledger_enabled); // (longshot patch #34)
 	ClassDB::bind_method(D_METHOD("is_process_ledger_enabled"), &SceneTree::is_process_ledger_enabled);
 	ClassDB::bind_method(D_METHOD("get_process_ledger", "reset"), &SceneTree::get_process_ledger, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("get_process_ledger_frame"), &SceneTree::get_process_ledger_frame);
 
 	ClassDB::bind_method(D_METHOD("get_node_count"), &SceneTree::get_node_count);
 	ClassDB::bind_method(D_METHOD("get_frame"), &SceneTree::get_frame);

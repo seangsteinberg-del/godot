@@ -125,6 +125,12 @@ private:
 	SpinLock process_ledger_lock;
 	HashMap<StringName, uint64_t> process_ledger_us[3];
 	HashMap<StringName, uint32_t> process_ledger_n[3];
+	// THE HITCH'S OWNERS (longshot patch #49): the last whole iteration's time by owner - each slot's sums as they stood at the top of the
+	// iteration before, and the deltas since, taken at the top of every process() while the ledger is on; the game's frame ledger
+	// reads the deltas on the frame it finds slow (the owners of a hitch, never a window's mean).
+	HashMap<StringName, uint64_t> process_ledger_last[3];
+	HashMap<StringName, uint64_t> process_ledger_frame[3];
+	void _process_ledger_frame_take();
 	StringName _process_ledger_key(Node *p_node) const;
 	void _process_ledger_add(const StringName &p_key, int p_slot, uint64_t p_usec);
 	LocalVector<ProcessGroup *> local_process_group_cache; // Used when processing to group what needs to
@@ -451,6 +457,7 @@ public:
 	bool is_process_ledger_enabled() const { return process_ledger_on; }
 	void process_ledger_draw(Node *p_node, uint64_t p_usec); // (patch #35: a canvas item's draw callback, by the node's key)
 	Dictionary get_process_ledger(bool p_reset = true);
+	Dictionary get_process_ledger_frame(); // (patch #49: the last whole iteration's time by owner, usec, the three slots)
 
 	//used by Main::start, don't use otherwise
 	void add_current_scene(Node *p_current);
