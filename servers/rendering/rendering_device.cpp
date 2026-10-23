@@ -37,6 +37,7 @@
 #include "core/io/file_access.h"
 #include "core/object/class_db.h"
 #include "core/os/os.h"
+#include "core/version.h"
 #include "core/profiling/profiling.h"
 #include "core/templates/fixed_vector.h"
 #include "servers/rendering/rendering_device_binds.h"
@@ -225,13 +226,49 @@ void RenderingDevice::_free_dependencies(RID p_id) {
 /**** SHADER INFRASTRUCTURE ****/
 /*******************************/
 
+// THE SPIR-V CACHED ON DISK (Longshot patch #53, 10-22): the cache file of a program compiled from its source - under the user's shader cache, named by
+// the hash of the stage, the shader language and SPIR-V versions, the engine's build and the source's own bytes; empty when the
+// directory cannot be made (the program is then compiled as before)
+static String _spirv_cache_path(int p_stage, const String &p_source, int p_language_version, int p_spirv_version) {
+	const String dir = OS::get_singleton()->get_user_data_dir().path_join("shader_cache").path_join("spirv");
+	if (!DirAccess::exists(dir)) {
+		Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+		if (da.is_null() || da->make_dir_recursive(dir) != OK) {
+			return String();
+		}
+	}
+	const String key = itos(p_stage) + "|" + itos(p_language_version) + "|" + itos(p_spirv_version) + "|" + String(VERSION_HASH) + "|" + p_source;
+	return dir.path_join(key.sha256_text() + ".spv");
+}
+
 Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source(ShaderStage p_stage, const String &p_source_code, ShaderLanguage p_language, String *r_error, bool p_allow_cache) {
 	switch (p_language) {
 #ifdef MODULE_GLSLANG_ENABLED
 		case ShaderLanguage::SHADER_LANGUAGE_GLSL: {
 			ShaderLanguageVersion language_version = driver->get_shader_container_format().get_shader_language_version();
 			ShaderSpirvVersion spirv_version = driver->get_shader_container_format().get_shader_spirv_version();
-			return compile_glslang_shader(p_stage, ShaderIncludeDB::parse_include_files(p_source_code), language_version, spirv_version, r_error);
+			const String parsed = ShaderIncludeDB::parse_include_files(p_source_code);
+			// THE SPIR-V CACHED ON DISK (Longshot patch #53, 10-22): a program compiled from its source at a boot - the game's clouds, sky, terrain, ocean,
+			// lens and exhaust kernels - is compiled by glslang once and its SPIR-V kept under the user's shader cache; a later boot reads the
+			// same SPIR-V back (the same bytes, so the same program: nothing drawn changes) and the device's own pipeline cache does the rest
+			const String cache_path = p_allow_cache ? _spirv_cache_path(int(p_stage), parsed, int(language_version), int(spirv_version)) : String();
+			if (!cache_path.is_empty() && FileAccess::exists(cache_path)) {
+				const Vector<uint8_t> cached = FileAccess::get_file_as_bytes(cache_path);
+				if (cached.size() >= 20 && (cached.size() % 4) == 0 && *reinterpret_cast<const uint32_t *>(cached.ptr()) == 0x07230203u) {
+					print_line(vformat("[spirv] the program %s read from the cache (%d KB)", cache_path.get_file().substr(0, 12), int(cached.size() / 1024)));
+					return cached;
+				}
+			}
+			const uint64_t t_compile = OS::get_singleton()->get_ticks_usec();
+			Vector<uint8_t> spirv = compile_glslang_shader(p_stage, parsed, language_version, spirv_version, r_error);
+			if (!cache_path.is_empty() && !spirv.is_empty()) {
+				Ref<FileAccess> f = FileAccess::open(cache_path, FileAccess::WRITE);
+				if (f.is_valid()) {
+					f->store_buffer(spirv.ptr(), spirv.size());
+				}
+				print_line(vformat("[spirv] the program %s compiled in %d ms and cached (%d KB)", cache_path.get_file().substr(0, 12), int((OS::get_singleton()->get_ticks_usec() - t_compile) / 1000), int(spirv.size() / 1024)));
+			}
+			return spirv;
 		}
 #endif
 		default:
@@ -8698,16 +8735,39 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 		pipeline_cache_file_path = vformat("user://vulkan/pipelines.%s.%s",
 				OS::get_singleton()->get_current_rendering_method(),
 				device.name.validate_filename().replace_char(' ', '_').to_lower());
+		// THE PIPELINE CACHE IS THE BUILD'S (Longshot patch #54, 10-22): the file is the engine build's own (the build's hash in its name), so the pipelines
+		// of every earlier build no longer pile up in one file read and parsed at every boot and written whole at every growth (the
+		// director's card's file had grown to 572 MB over the fork's builds; the other card's was 3 MB); the device's cache files of
+		// other builds are removed at the make, and the boot says what it read and how long it took
+		const String build_tag = String(VERSION_HASH).substr(0, 12);
+		const String cache_stem = pipeline_cache_file_path.get_file();
+		pipeline_cache_file_path += "." + build_tag;
 		if (Engine::get_singleton()->is_editor_hint()) {
 			pipeline_cache_file_path += ".editor";
 		}
 		pipeline_cache_file_path += ".cache";
 
+		const uint64_t t_cache = OS::get_singleton()->get_ticks_usec();
 		Vector<uint8_t> cache_data = _load_pipeline_cache();
+		int stale_files = 0;
+		{
+			Ref<DirAccess> da = DirAccess::open(pipeline_cache_file_path.get_base_dir());
+			if (da.is_valid()) {
+				da->list_dir_begin();
+				for (String n = da->get_next(); !n.is_empty(); n = da->get_next()) {
+					if (!da->current_is_dir() && n.begins_with(cache_stem + ".") && n.ends_with(".cache") && !n.contains("." + build_tag + ".")) {
+						if (da->remove(n) == OK) {
+							stale_files++;
+						}
+					}
+				}
+				da->list_dir_end();
+			}
+		}
 		pipeline_cache_enabled = driver->pipeline_cache_create(cache_data);
 		if (pipeline_cache_enabled) {
 			pipeline_cache_size = driver->pipeline_cache_query_size();
-			print_verbose(vformat("Startup PSO cache (%.1f MiB)", pipeline_cache_size / (1024.0f * 1024.0f)));
+			print_line(vformat("[pipelines] the cache %s: %.1f MiB read and taken in %d ms; %d cache files of other builds removed", pipeline_cache_file_path.get_file(), pipeline_cache_size / (1024.0f * 1024.0f), int((OS::get_singleton()->get_ticks_usec() - t_cache) / 1000), stale_files));
 		}
 	}
 
