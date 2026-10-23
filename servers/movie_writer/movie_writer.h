@@ -54,6 +54,7 @@ class MovieWriter : public Object {
 	float cpu_time = 0.0f;
 	float gpu_time = 0.0f;
 	uint64_t encoding_time_usec = 0;
+	static uint64_t frame_usec; // THE WAITS NAMED (Longshot patch #51): the writer's share of the main thread's frame, cumulative microseconds (the audio mixed, the room waited, the read asked)
 
 	String project_name;
 
@@ -124,6 +125,7 @@ public:
 	virtual void get_supported_extensions(List<String> *r_extensions) const;
 
 	static void add_writer(MovieWriter *p_writer);
+	static uint64_t get_frame_usec(); // THE WAITS NAMED (Longshot patch #51)
 	static MovieWriter *find_writer_for_file(const String &p_file);
 
 	void begin(const Size2i &p_movie_size, uint32_t p_fps, const String &p_base_path);

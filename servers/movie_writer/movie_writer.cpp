@@ -44,6 +44,11 @@
 
 MovieWriter *MovieWriter::writers[MovieWriter::MAX_WRITERS];
 uint32_t MovieWriter::writer_count = 0;
+uint64_t MovieWriter::frame_usec = 0; // THE WAITS NAMED (Longshot patch #51)
+
+uint64_t MovieWriter::get_frame_usec() {
+	return frame_usec;
+}
 
 void MovieWriter::add_writer(MovieWriter *p_writer) {
 	ERR_FAIL_COND(writer_count == MAX_WRITERS);
@@ -151,6 +156,7 @@ void MovieWriter::begin(const Size2i &p_movie_size, uint32_t p_fps, const String
 
 void MovieWriter::_bind_methods() {
 	ClassDB::bind_static_method("MovieWriter", D_METHOD("add_writer", "writer"), &MovieWriter::add_writer);
+	ClassDB::bind_static_method("MovieWriter", D_METHOD("get_frame_usec"), &MovieWriter::get_frame_usec); // THE WAITS NAMED (Longshot patch #51)
 
 	GDVIRTUAL_BIND(_get_audio_mix_rate)
 	GDVIRTUAL_BIND(_get_audio_speaker_mode)
@@ -198,6 +204,7 @@ void MovieWriter::set_extensions_hint() {
 }
 
 void MovieWriter::add_frame() {
+	const uint64_t frame_t0 = Time::get_singleton()->get_ticks_usec(); // THE WAITS NAMED (Longshot patch #51): the writer's share of the frame
 	const int movie_time_seconds = Engine::get_singleton()->get_frames_drawn() / fps;
 	const int frame_remainder = Engine::get_singleton()->get_frames_drawn() % fps;
 	const String movie_time = vformat("%s:%s:%s:%s",
@@ -234,6 +241,7 @@ void MovieWriter::add_frame() {
 		write_frame(fr.image, audio_mix_buffer.ptr());
 		uint64_t encoding_end_usec = Time::get_singleton()->get_ticks_usec();
 		encoding_time_usec += encoding_end_usec - encoding_start_usec;
+		frame_usec += Time::get_singleton()->get_ticks_usec() - frame_t0;
 		return;
 	}
 
@@ -249,6 +257,7 @@ void MovieWriter::add_frame() {
 		fr.audio = audio_mix_buffer;
 	}
 	RenderingServer::get_singleton()->texture_2d_get_async(main_vp_texture, callable_mp(this, &MovieWriter::_frame_read).bind(serial));
+	frame_usec += Time::get_singleton()->get_ticks_usec() - frame_t0;
 }
 
 // the synchronous road's steps on a read-back frame: the crop and resize to the movie's size, the HDR 2D conversion

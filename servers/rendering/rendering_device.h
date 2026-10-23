@@ -1852,6 +1852,7 @@ private:
 	int frame = 0;
 	TightLocalVector<Frame> frames;
 	uint64_t frames_drawn = 0;
+	uint64_t wait_usec[2] = { 0, 0 }; // THE WAITS NAMED (Longshot patch #51, 10-22): the fence's wait at a frame's begin and the queue's submit with the present, cumulative microseconds
 
 	// Whenever logic/physics request a graphics operation (not just deleting a resource) that requires
 	// us to flush all graphics commands, we must set frames_pending_resources_for_processing = frames.size().
@@ -1934,6 +1935,7 @@ public:
 	};
 
 	uint64_t get_memory_usage(MemoryType p_type) const;
+	uint64_t get_wait_usec(int p_kind) const; // THE WAITS NAMED (Longshot patch #51): 0 the fence waited at a frame's begin, 1 the queue's submit with the present - microseconds since the device stood
 	// THE CARD'S SIZE AND ITS BUDGET (longshot patch #41): the device-local memory the card holds and what the device will let this
 	// process hold now, in bytes - what a run sizes its caches from
 	uint64_t get_device_memory_size() const;

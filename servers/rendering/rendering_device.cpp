@@ -8123,6 +8123,11 @@ TypedArray<Dictionary> RenderingDevice::buffer_debug_usage() {
 	return out;
 }
 
+// THE WAITS NAMED (Longshot patch #51): the two waits the device takes on the calling thread, cumulative - the seat's ledger differences them
+uint64_t RenderingDevice::get_wait_usec(int p_kind) const {
+	return wait_usec[CLAMP(p_kind, 0, 1)];
+}
+
 uint64_t RenderingDevice::get_memory_usage(MemoryType p_type) const {
 	switch (p_type) {
 		case MEMORY_BUFFERS: {
@@ -8300,7 +8305,9 @@ void RenderingDevice::_execute_frame(bool p_present) {
 			: RDD::SemaphoreID(nullptr);
 	const bool present_swap_chain = frame_can_present && !separate_present_queue;
 
+	const uint64_t submit_t0 = OS::get_singleton()->get_ticks_usec(); // THE WAITS NAMED (Longshot patch #51): the queue's submit with the present
 	execute_chained_cmds(present_swap_chain, frames[frame].fence, semaphore);
+	wait_usec[1] += OS::get_singleton()->get_ticks_usec() - submit_t0;
 	// Indicate the fence has been signaled so the next time the frame's contents need to be
 	// used, the CPU needs to wait on the work to be completed.
 	frames[frame].fence_signaled = true;
@@ -8308,7 +8315,9 @@ void RenderingDevice::_execute_frame(bool p_present) {
 	if (frame_can_present) {
 		if (separate_present_queue) {
 			// Issue the presentation separately if the presentation queue is different from the main queue.
+			const uint64_t present_t0 = OS::get_singleton()->get_ticks_usec();
 			driver->command_queue_execute_and_present(present_queue, frames[frame].semaphore, {}, {}, {}, frames[frame].swap_chains_to_present);
+			wait_usec[1] += OS::get_singleton()->get_ticks_usec() - present_t0; // THE WAITS NAMED: the separate queue's present
 		}
 
 		frames[frame].swap_chains_to_present.clear();
@@ -8320,7 +8329,9 @@ void RenderingDevice::_stall_for_frame(uint32_t p_frame) {
 
 	if (frames[p_frame].fence_signaled) {
 		GodotProfileZoneGroupedFirst(_profile_zone, "driver->fence_wait");
+		const uint64_t wait_t0 = OS::get_singleton()->get_ticks_usec();
 		driver->fence_wait(frames[p_frame].fence);
+		wait_usec[0] += OS::get_singleton()->get_ticks_usec() - wait_t0; // THE WAITS NAMED (Longshot patch #51): the fence's wait
 		frames[p_frame].fence_signaled = false;
 
 		// Flush any pending requests for asynchronous buffer downloads.
@@ -9326,6 +9337,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_device_pipeline_cache_uuid"), &RenderingDevice::get_device_pipeline_cache_uuid);
 
 	ClassDB::bind_method(D_METHOD("get_memory_usage", "type"), &RenderingDevice::get_memory_usage);
+	ClassDB::bind_method(D_METHOD("get_wait_usec", "kind"), &RenderingDevice::get_wait_usec); // THE WAITS NAMED (Longshot patch #51)
 	ClassDB::bind_method(D_METHOD("get_device_memory_size"), &RenderingDevice::get_device_memory_size);
 	ClassDB::bind_method(D_METHOD("get_device_memory_budget"), &RenderingDevice::get_device_memory_budget);
 	ClassDB::bind_method(D_METHOD("texture_debug_usage"), &RenderingDevice::texture_debug_usage); // (longshot patch #33)
