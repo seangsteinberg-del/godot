@@ -260,6 +260,24 @@ void MeshStorage::mesh_set_blend_shape_count(RID p_mesh, int p_blend_shape_count
 }
 
 /// Returns stride
+// THE MESHES NAME THEIR BUFFERS (Longshot patch #55, 10-22): a surface's buffers named by its mesh's path for the device's census - "meshfile:<folder> <path>",
+// the folder the path's first two segments, so the census groups a folder's meshes as one family and names the dearest whole
+static String _mesh_buffer_name(const String &p_path) {
+	String folder = p_path.trim_prefix("res://");
+	const int slash = folder.find("/");
+	if (slash >= 0) {
+		const int slash2 = folder.find("/", slash + 1);
+		folder = slash2 >= 0 ? folder.substr(0, slash2) : folder.substr(0, slash);
+	}
+	return "meshfile:" + folder + " " + p_path;
+}
+
+static void _name_mesh_buffer(RID p_rid, const String &p_name) {
+	if (p_rid.is_valid()) {
+		RD::get_singleton()->set_resource_name(p_rid, p_name);
+	}
+}
+
 void MeshStorage::mesh_add_surface(RID p_mesh, const RenderingServerTypes::SurfaceData &p_surface) {
 	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
 	ERR_FAIL_NULL(mesh);
@@ -496,6 +514,17 @@ void MeshStorage::mesh_add_surface(RID p_mesh, const RenderingServerTypes::Surfa
 	s->material = new_surface.material;
 
 	mesh->surfaces = (Mesh::Surface **)memrealloc(mesh->surfaces, sizeof(Mesh::Surface *) * (mesh->surface_count + 1));
+	if (!mesh->path.is_empty()) {
+		// THE MESHES NAME THEIR BUFFERS: a surface added to a mesh that has its path already (a mesh made empty and filled) named at its making
+		const String bn = _mesh_buffer_name(mesh->path);
+		_name_mesh_buffer(s->vertex_buffer, bn + " vertex");
+		_name_mesh_buffer(s->attribute_buffer, bn + " attribute");
+		_name_mesh_buffer(s->skin_buffer, bn + " skin");
+		_name_mesh_buffer(s->index_buffer, bn + " index");
+		for (uint32_t l = 0; l < s->lod_count; l++) {
+			_name_mesh_buffer(s->lods[l].index_buffer, bn + " lod");
+		}
+	}
 	mesh->surfaces[mesh->surface_count] = s;
 	mesh->surface_count++;
 
@@ -832,6 +861,18 @@ void MeshStorage::mesh_set_path(RID p_mesh, const String &p_path) {
 	ERR_FAIL_NULL(mesh);
 
 	mesh->path = p_path;
+	// THE MESHES NAME THEIR BUFFERS: the surfaces made before the path came (a loaded mesh: its surfaces first, its path after) named now
+	const String bn = _mesh_buffer_name(p_path);
+	for (uint32_t i = 0; i < mesh->surface_count; i++) {
+		Mesh::Surface *s = mesh->surfaces[i];
+		_name_mesh_buffer(s->vertex_buffer, bn + " vertex");
+		_name_mesh_buffer(s->attribute_buffer, bn + " attribute");
+		_name_mesh_buffer(s->skin_buffer, bn + " skin");
+		_name_mesh_buffer(s->index_buffer, bn + " index");
+		for (uint32_t l = 0; l < s->lod_count; l++) {
+			_name_mesh_buffer(s->lods[l].index_buffer, bn + " lod");
+		}
+	}
 }
 
 String MeshStorage::mesh_get_path(RID p_mesh) const {
