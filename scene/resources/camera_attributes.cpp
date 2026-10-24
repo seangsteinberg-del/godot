@@ -94,6 +94,35 @@ float CameraAttributes::get_auto_exposure_scale() const {
 	return auto_exposure_scale;
 }
 
+// THE EYE IS A CAMERA (patch 57): the adaptation toward a darker scene runs at its own speed (the eye opens slowly, closes fast)
+void CameraAttributes::set_auto_exposure_speed_dark(float p_speed) {
+	auto_exposure_speed_dark = MAX(p_speed, 0.0f);
+	_update_auto_exposure();
+}
+
+float CameraAttributes::get_auto_exposure_speed_dark() const {
+	return auto_exposure_speed_dark;
+}
+
+// the meter's window: the share of the frame's lit weight under it (the darkest pixels ignored) and under its top (the brightest ignored)
+void CameraAttributes::set_auto_exposure_window_low(float p_share) {
+	auto_exposure_window_low = CLAMP(p_share, 0.0f, 1.0f);
+	_update_auto_exposure();
+}
+
+float CameraAttributes::get_auto_exposure_window_low() const {
+	return auto_exposure_window_low;
+}
+
+void CameraAttributes::set_auto_exposure_window_high(float p_share) {
+	auto_exposure_window_high = CLAMP(p_share, 0.0f, 1.0f);
+	_update_auto_exposure();
+}
+
+float CameraAttributes::get_auto_exposure_window_high() const {
+	return auto_exposure_window_high;
+}
+
 RID CameraAttributes::get_rid() const {
 	return camera_attributes;
 }
@@ -125,6 +154,12 @@ void CameraAttributes::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_speed"), &CameraAttributes::get_auto_exposure_speed);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_scale", "exposure_grey"), &CameraAttributes::set_auto_exposure_scale);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_scale"), &CameraAttributes::get_auto_exposure_scale);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_speed_dark", "speed"), &CameraAttributes::set_auto_exposure_speed_dark);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_speed_dark"), &CameraAttributes::get_auto_exposure_speed_dark);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_window_low", "share"), &CameraAttributes::set_auto_exposure_window_low);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_window_low"), &CameraAttributes::get_auto_exposure_window_low);
+	ClassDB::bind_method(D_METHOD("set_auto_exposure_window_high", "share"), &CameraAttributes::set_auto_exposure_window_high);
+	ClassDB::bind_method(D_METHOD("get_auto_exposure_window_high"), &CameraAttributes::get_auto_exposure_window_high);
 
 	ADD_GROUP("Exposure", "exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "exposure_sensitivity", PROPERTY_HINT_RANGE, "0.1,32000.0,0.1,suffix:ISO"), "set_exposure_sensitivity", "get_exposure_sensitivity");
@@ -134,6 +169,9 @@ void CameraAttributes::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "auto_exposure_enabled", PROPERTY_HINT_GROUP_ENABLE), "set_auto_exposure_enabled", "is_auto_exposure_enabled");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_scale", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_scale", "get_auto_exposure_scale");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed", PROPERTY_HINT_RANGE, "0.01,64,0.01"), "set_auto_exposure_speed", "get_auto_exposure_speed");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_speed_dark", PROPERTY_HINT_RANGE, "0.0,64,0.01"), "set_auto_exposure_speed_dark", "get_auto_exposure_speed_dark");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_window_low", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_auto_exposure_window_low", "get_auto_exposure_window_low");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_window_high", PROPERTY_HINT_RANGE, "0,1,0.001"), "set_auto_exposure_window_high", "get_auto_exposure_window_high");
 }
 
 CameraAttributes::CameraAttributes() {
@@ -247,87 +285,6 @@ float CameraAttributesPractical::get_auto_exposure_max_sensitivity() const {
 	return auto_exposure_max;
 }
 
-// THE KEY FOLLOWS THE ADAPTATION (patch 13): the key a scene metered at the scotopic sensitivity and under is shown at (the
-// day's being auto_exposure_scale, at the photopic sensitivity and over; log-linear between); a night scale of 0 is no law
-void CameraAttributesPractical::set_auto_exposure_night_scale(float p_scale) {
-	auto_exposure_night_scale = p_scale;
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_night_scale() const {
-	return auto_exposure_night_scale;
-}
-
-void CameraAttributesPractical::set_auto_exposure_scotopic_sensitivity(float p_sensitivity) {
-	auto_exposure_scotopic = p_sensitivity;
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_scotopic_sensitivity() const {
-	return auto_exposure_scotopic;
-}
-
-void CameraAttributesPractical::set_auto_exposure_photopic_sensitivity(float p_sensitivity) {
-	auto_exposure_photopic = p_sensitivity;
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_photopic_sensitivity() const {
-	return auto_exposure_photopic;
-}
-
-// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the metered luminance is at least this share of the frame's brightest lit block (the
-// mean over 64 x 64 pixels, each capped at twice a white ground), so the gain is at most the key's scale over that share times
-// the block - a sunlit cloud, a snowfield, a white hull never pass the display's white however dark the rest of the frame; 0: no law
-void CameraAttributesPractical::set_auto_exposure_highlight_hold(float p_hold) {
-	auto_exposure_highlight_hold = MAX(p_hold, 0.0f);
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_highlight_hold() const {
-	return auto_exposure_highlight_hold;
-}
-
-// THE FILLED LIGHT (patch 22): the metered luminance is at least this share of the frame's brightest FILLED block (the least of
-// a 32 x 32 block's 8 x 8 sub-blocks' means, uncapped), so a light that fills the eye - a near entry fire, an engine's flame -
-// is shown at the key's scale over this share however dark the rest of the frame; a glint, a star or a disc at a normal lens
-// never fills a block. The game sets it while such a light burns in view; 0: no law
-void CameraAttributesPractical::set_auto_exposure_light_hold(float p_hold) {
-	auto_exposure_light_hold = MAX(p_hold, 0.0f);
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_light_hold() const {
-	return auto_exposure_light_hold;
-}
-
-// THE SUBJECT STANDS OVER THE BACKDROP (patch 43, Longshot): the luminance under which a pixel is no subject of the meter, in the
-// buffer's pre-exposed units - the night sky's picture is shown at its own level over the eye's most open gain, so the game sets the
-// floor at twice that level over that gain and the picture, the stars and the black about a world never drag the log mean down;
-// 0: the buffer's own black (a ten-millionth of a white ground)
-void CameraAttributesPractical::set_auto_exposure_subject_floor(float p_floor) {
-	auto_exposure_subject_floor = MAX(p_floor, 0.0f);
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_subject_floor() const {
-	return auto_exposure_subject_floor;
-}
-
-// THE SUBJECT IS A SURFACE (patch 47, Longshot, 10-22): the least share of the frame's lit weight (the meter's centre mask) that is a
-// subject; under it the frame meters at the window's floor as a frame with no lit pixel does. The night sky's star points stand over
-// the picture's band and over the subject floor, a few pixels each, and in deep space with no lit surface they were the only pixels
-// counted: the eye closed on them until the stars stood at grey. Half a percent: a sunlit face, a crescent, a near hull count; the
-// stars never do (0: no law)
-void CameraAttributesPractical::set_auto_exposure_subject_min_share(float p_share) {
-	auto_exposure_subject_min_share = CLAMP(p_share, 0.0f, 1.0f);
-	_update_auto_exposure();
-}
-
-float CameraAttributesPractical::get_auto_exposure_subject_min_share() const {
-	return auto_exposure_subject_min_share;
-}
-
 void CameraAttributesPractical::_update_auto_exposure() {
 	RS::get_singleton()->camera_attributes_set_auto_exposure(
 			get_rid(),
@@ -336,14 +293,7 @@ void CameraAttributesPractical::_update_auto_exposure() {
 			auto_exposure_max * ((12.5 / 100.0) / exposure_sensitivity), // Convert from Sensitivity to Luminance
 			auto_exposure_speed,
 			auto_exposure_scale);
-	RS::get_singleton()->camera_attributes_set_auto_exposure_night(
-			get_rid(),
-			auto_exposure_night_scale,
-			auto_exposure_scotopic * ((12.5 / 100.0) / exposure_sensitivity), // Convert from Sensitivity to Luminance
-			auto_exposure_photopic * ((12.5 / 100.0) / exposure_sensitivity)); // Convert from Sensitivity to Luminance
-	RS::get_singleton()->camera_attributes_set_auto_exposure_highlight(get_rid(), auto_exposure_highlight_hold, auto_exposure_light_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21), THE FILLED LIGHT (patch 22)
-	RS::get_singleton()->camera_attributes_set_auto_exposure_subject_floor(get_rid(), auto_exposure_subject_floor); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43)
-	RS::get_singleton()->camera_attributes_set_auto_exposure_subject_min_share(get_rid(), auto_exposure_subject_min_share); // THE SUBJECT IS A SURFACE (patch 47)
+	RS::get_singleton()->camera_attributes_set_auto_exposure_meter(get_rid(), auto_exposure_speed_dark, auto_exposure_window_low, auto_exposure_window_high); // THE EYE IS A CAMERA (patch 57)
 	emit_changed();
 }
 
@@ -380,20 +330,6 @@ void CameraAttributesPractical::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_max_sensitivity"), &CameraAttributesPractical::get_auto_exposure_max_sensitivity);
 	ClassDB::bind_method(D_METHOD("set_auto_exposure_min_sensitivity", "min_sensitivity"), &CameraAttributesPractical::set_auto_exposure_min_sensitivity);
 	ClassDB::bind_method(D_METHOD("get_auto_exposure_min_sensitivity"), &CameraAttributesPractical::get_auto_exposure_min_sensitivity);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_night_scale", "scale"), &CameraAttributesPractical::set_auto_exposure_night_scale);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_night_scale"), &CameraAttributesPractical::get_auto_exposure_night_scale);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_scotopic_sensitivity", "sensitivity"), &CameraAttributesPractical::set_auto_exposure_scotopic_sensitivity);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_scotopic_sensitivity"), &CameraAttributesPractical::get_auto_exposure_scotopic_sensitivity);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_photopic_sensitivity", "sensitivity"), &CameraAttributesPractical::set_auto_exposure_photopic_sensitivity);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_photopic_sensitivity"), &CameraAttributesPractical::get_auto_exposure_photopic_sensitivity);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_highlight_hold", "hold"), &CameraAttributesPractical::set_auto_exposure_highlight_hold);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_highlight_hold"), &CameraAttributesPractical::get_auto_exposure_highlight_hold);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_light_hold", "hold"), &CameraAttributesPractical::set_auto_exposure_light_hold);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_light_hold"), &CameraAttributesPractical::get_auto_exposure_light_hold);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_subject_floor", "floor"), &CameraAttributesPractical::set_auto_exposure_subject_floor);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_subject_floor"), &CameraAttributesPractical::get_auto_exposure_subject_floor);
-	ClassDB::bind_method(D_METHOD("set_auto_exposure_subject_min_share", "share"), &CameraAttributesPractical::set_auto_exposure_subject_min_share);
-	ClassDB::bind_method(D_METHOD("get_auto_exposure_subject_min_share"), &CameraAttributesPractical::get_auto_exposure_subject_min_share);
 
 	ADD_GROUP("DOF Blur", "dof_blur_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "dof_blur_far_enabled"), "set_dof_blur_far_enabled", "is_dof_blur_far_enabled");
@@ -407,13 +343,6 @@ void CameraAttributesPractical::_bind_methods() {
 	ADD_GROUP("Auto Exposure", "auto_exposure_");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_min_sensitivity", PROPERTY_HINT_RANGE, "0,1600,0.01,or_greater,suffic:ISO"), "set_auto_exposure_min_sensitivity", "get_auto_exposure_min_sensitivity");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_max_sensitivity", PROPERTY_HINT_RANGE, "0,64000,0.1,or_greater,suffic:ISO"), "set_auto_exposure_max_sensitivity", "get_auto_exposure_max_sensitivity");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_night_scale", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_night_scale", "get_auto_exposure_night_scale");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_scotopic_sensitivity", PROPERTY_HINT_RANGE, "0,1600,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_scotopic_sensitivity", "get_auto_exposure_scotopic_sensitivity");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_photopic_sensitivity", PROPERTY_HINT_RANGE, "0,64000,0.0001,or_greater,suffix:ISO"), "set_auto_exposure_photopic_sensitivity", "get_auto_exposure_photopic_sensitivity");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_highlight_hold", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_highlight_hold", "get_auto_exposure_highlight_hold");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_light_hold", PROPERTY_HINT_RANGE, "0,16,0.001"), "set_auto_exposure_light_hold", "get_auto_exposure_light_hold");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_subject_floor", PROPERTY_HINT_RANGE, "0,1,0.000001,or_greater"), "set_auto_exposure_subject_floor", "get_auto_exposure_subject_floor");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "auto_exposure_subject_min_share", PROPERTY_HINT_RANGE, "0,1,0.0001"), "set_auto_exposure_subject_min_share", "get_auto_exposure_subject_min_share");
 }
 
 CameraAttributesPractical::CameraAttributesPractical() {
@@ -562,6 +491,7 @@ void CameraAttributesPhysical::_update_auto_exposure() {
 			std::pow(2.0, auto_exposure_max) * (12.5 / exposure_sensitivity), // Convert from EV100 to Luminance
 			auto_exposure_speed,
 			auto_exposure_scale);
+	RS::get_singleton()->camera_attributes_set_auto_exposure_meter(get_rid(), auto_exposure_speed_dark, auto_exposure_window_low, auto_exposure_window_high); // THE EYE IS A CAMERA (patch 57)
 	emit_changed();
 }
 

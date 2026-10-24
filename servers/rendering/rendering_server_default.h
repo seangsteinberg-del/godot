@@ -802,6 +802,10 @@ public:
 	FUNC2(viewport_set_measure_render_time, RID, bool)
 	FUNC1RC(double, viewport_get_measured_render_time_cpu, RID)
 	FUNC1RC(double, viewport_get_measured_render_time_gpu, RID)
+	// THE EYE IS A CAMERA (Longshot patch 57): the eye's readback is read WITHOUT the command queue - a queued sync read each frame
+	// would stall the main thread on the render thread in the multi-threaded model; the value is one float the render thread writes
+	// when the download returns, a frame late by law, and an aligned float is never torn
+	virtual float viewport_get_eye_luminance(RID p_viewport) const override { return RSG::viewport->viewport_get_eye_luminance(p_viewport); }
 	FUNC1RC(RID, viewport_find_from_screen_attachment, DisplayServerEnums::WindowID)
 
 	FUNC2(call_set_vsync_mode, DisplayServerEnums::VSyncMode, DisplayServerEnums::WindowID)
@@ -917,10 +921,7 @@ public:
 	FUNC8(camera_attributes_set_dof_blur, RID, bool, float, float, bool, float, float, float)
 	FUNC3(camera_attributes_set_exposure, RID, float, float)
 	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
-	FUNC4(camera_attributes_set_auto_exposure_night, RID, float, float, float)
-	FUNC3(camera_attributes_set_auto_exposure_highlight, RID, float, float)
-	FUNC2(camera_attributes_set_auto_exposure_subject_floor, RID, float)
-	FUNC2(camera_attributes_set_auto_exposure_subject_min_share, RID, float)
+	FUNC4(camera_attributes_set_auto_exposure_meter, RID, float, float, float)
 
 	/* SCENARIO API */
 

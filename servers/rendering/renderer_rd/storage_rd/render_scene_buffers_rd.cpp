@@ -32,6 +32,7 @@
 #include "render_scene_buffers_rd.compat.inc"
 
 #include "core/object/class_db.h"
+#include "servers/rendering/renderer_rd/effects/luminance.h" // LONGSHOT patch #57: the eye's readback
 #include "servers/rendering/renderer_rd/storage_rd/texture_storage.h"
 #include "servers/rendering/rendering_device_binds.h"
 #include "servers/rendering/rendering_server.h" // IWYU pragma: keep // Needed to bind RSE enums.
@@ -70,6 +71,7 @@ void RenderSceneBuffersRD::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_longshot_settled", "settled"), &RenderSceneBuffersRD::set_longshot_settled);
 	ClassDB::bind_method(D_METHOD("has_longshot_settled"), &RenderSceneBuffersRD::has_longshot_settled);
 	ClassDB::bind_method(D_METHOD("get_longshot_settled"), &RenderSceneBuffersRD::get_longshot_settled);
+	ClassDB::bind_method(D_METHOD("get_eye_luminance"), &RenderSceneBuffersRD::get_eye_luminance); // LONGSHOT patch #57
 	// LONGSHOT patch #32 THE BEND AFTER THE RESOLVE: the colour the post-process takes, and its size
 	ClassDB::bind_method(D_METHOD("get_post_process_color_layer", "layer"), &RenderSceneBuffersRD::get_post_process_color_layer);
 	ClassDB::bind_method(D_METHOD("get_post_process_size"), &RenderSceneBuffersRD::get_post_process_size);
@@ -123,6 +125,15 @@ bool RenderSceneBuffersRD::has_longshot_clouds() const {
 void RenderSceneBuffersRD::set_longshot_settled(RID p_settled) {
 	longshot_settled = p_settled;
 	longshot_settled_frame = RSG::rasterizer->get_frame_number();
+}
+
+// THE EYE IS A CAMERA (patch 57): the luminance buffers' last reading fetched from the device
+float RenderSceneBuffersRD::get_eye_luminance() const {
+	if (!data_buffers.has(RB_LUMINANCE_BUFFERS)) { // (has_custom_data is not const; the map is mutable)
+		return 0.0f;
+	}
+	Ref<RendererRD::Luminance::LuminanceBuffers> buffers = get_custom_data(RB_LUMINANCE_BUFFERS);
+	return buffers.is_valid() ? buffers->measured : 0.0f;
 }
 
 bool RenderSceneBuffersRD::has_longshot_settled() const {
@@ -856,9 +867,9 @@ uint32_t RenderSceneBuffersRD::get_color_usage_bits(bool p_resolve, bool p_msaa,
 	if (p_msaa) {
 		usage_bits |= RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT;
 	} else if (p_resolve) {
-		usage_bits |= RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | (p_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : 0);
+		usage_bits |= RD::TEXTURE_USAGE_CAN_COPY_TO_BIT | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | (p_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : 0); // LONGSHOT patch 57: the frame is copied for the eye's meter before the lens's spread
 	} else {
-		usage_bits |= (p_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : 0);
+		usage_bits |= RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | (p_storage ? RD::TEXTURE_USAGE_STORAGE_BIT : 0); // LONGSHOT patch 57: the same
 	}
 
 	return usage_bits;

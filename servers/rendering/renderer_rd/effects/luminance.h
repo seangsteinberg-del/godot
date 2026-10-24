@@ -39,33 +39,32 @@
 
 namespace RendererRD {
 
+// THE EYE IS A CAMERA (PROJECT LONGSHOT, the fork's patch 57, 10-24; docs/manual/sky.md THE EYE IS A CAMERA): the auto exposure's meter
+// is a histogram of the lit pixels' log luminance read between two percentiles (luminance_reduce.glsl), adapted in log space at two
+// speeds, and its reading is READ BACK to the CPU every frame so the game reads the eye's actual state (RenderSceneBuffersRD::
+// get_eye_luminance, RenderingServer::viewport_get_eye_luminance). The mobile renderer's raster chain keeps the stock log-mean.
 class Luminance {
 private:
 	bool prefer_raster_effects;
 
 	enum LuminanceReduceMode {
-		LUMINANCE_REDUCE_READ,
-		LUMINANCE_REDUCE,
-		LUMINANCE_REDUCE_WRITE,
+		LUMINANCE_HISTOGRAM,
+		LUMINANCE_RESOLVE,
 		LUMINANCE_REDUCE_MAX
 	};
 
 	struct LuminanceReducePushConstant {
 		int32_t source_size[2];
+		int32_t tiles[2];
 		float max_luminance;
 		float min_luminance;
-		float exposure_adjust;
-		float key_ratio; // THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the night's (1: no law)
-		float ln_scotopic;
-		float ln_photopic;
-		float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): this frame's exposure multiplier over the last's
-		float highlight_hold; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the share of the brightest lit block the meter reads at least (0: no law)
-		float highlight_cap; // a pixel's most for the highlight (twice a white ground in the buffer's units)
-		int32_t level; // the pass: 0 the pixels, 1 the blocks' means, 2 and on the blocks' max
-		float light_hold; // THE FILLED LIGHT (patch 22): the share of the brightest FILLED block the meter reads at least (0: no law)
-		float subject_floor; // THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject (0: the buffer's black)
-		float subject_min_weight; // THE SUBJECT IS A SURFACE (patch 47): the least lit weight (the centre mask's sum) that is a subject (0: no law)
-		float pad[2];
+		float adapt_up;
+		float adapt_down;
+		float history_scale;
+		float window_low;
+		float window_high;
+		float min_weight;
+		float has_excluded;
 	};
 
 	struct LuminanceReduce {
@@ -96,6 +95,8 @@ private:
 		PipelineCacheRD pipelines[LUMINANCE_REDUCE_FRAGMENT_MAX];
 	} luminance_reduce_raster;
 
+	static void _eye_readback_done(const PackedByteArray &p_data, ObjectID p_buffers, float p_exposure_normalization);
+
 public:
 	class LuminanceBuffers : public RenderBufferCustomDataRD {
 		GDCLASS(LuminanceBuffers, RenderBufferCustomDataRD);
@@ -104,9 +105,13 @@ public:
 		bool prefer_raster_effects;
 
 	public:
-		Vector<RID> reduce;
+		Vector<RID> reduce; // the raster chain's intermediates (the mobile renderer); the compute path's one result texel
 		RID current;
+		RID tiles; // the compute path's tile histograms: tiles_x * tiles_y * 64 bins * (weight, weighted log)
+		int tiles_x = 0;
+		int tiles_y = 0;
 		float last_exposure_normalization = -1.0f; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): the multiplier the history was metered under
+		float measured = 0.0f; // THE READBACK: the last reading fetched to the CPU, in the SCENE's units - the frame's exposure normalization (the pre-exposure) divided out at the fetch, so a reading a frame or two late is still true (nought until the first lands)
 
 		virtual void configure(RenderSceneBuffersRD *p_render_buffers) override;
 		virtual void free_data() override;
@@ -116,7 +121,7 @@ public:
 
 	Ref<LuminanceBuffers> get_luminance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers);
 	RID get_current_luminance_buffer(Ref<RenderSceneBuffersRD> p_render_buffers);
-	void luminance_reduction(RID p_source_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adjust, bool p_set = false, float p_key_ratio = 1.0, float p_scotopic_luminance = 0.0, float p_photopic_luminance = 0.0, float p_history_scale = 1.0, float p_highlight_hold = 0.0, float p_highlight_cap = 0.0, float p_light_hold = 0.0, float p_subject_floor = 0.0, float p_subject_min_share = 0.0);
+	void luminance_reduction(RID p_source_texture, RID p_excluded_texture, const Size2i p_source_size, Ref<LuminanceBuffers> p_luminance_buffers, float p_min_luminance, float p_max_luminance, float p_adapt_up, float p_adapt_down, bool p_set = false, float p_history_scale = 1.0, float p_window_low = 0.8, float p_window_high = 0.983);
 
 	Luminance(bool p_prefer_raster_effects);
 	~Luminance();

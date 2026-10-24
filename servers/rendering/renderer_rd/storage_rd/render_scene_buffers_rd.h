@@ -275,6 +275,7 @@ public:
 	_FORCE_INLINE_ bool get_use_debanding() const { return use_debanding; }
 
 	uint64_t get_auto_exposure_version() const { return auto_exposure_version; }
+	virtual float get_eye_luminance() const override; // THE EYE IS A CAMERA (patch 57): the luminance buffers' last readback
 	void set_auto_exposure_version(const uint64_t p_auto_exposure_version) { auto_exposure_version = p_auto_exposure_version; }
 
 	// For our internal textures we provide some easy access methods.

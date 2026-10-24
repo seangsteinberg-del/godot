@@ -48,14 +48,10 @@ private:
 		float auto_exposure_adjust_speed = 1.0;
 		float auto_exposure_scale = 1.0;
 		uint64_t auto_exposure_version = 0;
-		// THE KEY FOLLOWS THE ADAPTATION (patch 13): the night's key and the eye's mesopic range (luminances), or no law (0)
-		float auto_exposure_night_scale = 0.0;
-		float auto_exposure_scotopic_luminance = 0.0;
-		float auto_exposure_photopic_luminance = 0.0;
-		float auto_exposure_highlight_hold = 0.0; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): 0 no law
-		float auto_exposure_light_hold = 0.0; // THE FILLED LIGHT (patch 22): 0 no law
-		float auto_exposure_subject_floor = 0.0; // THE SUBJECT STANDS OVER THE BACKDROP (patch 43): 0 the buffer's black
-		float auto_exposure_subject_min_share = 0.0; // THE SUBJECT IS A SURFACE (patch 47): the least share of the frame's lit weight that is a subject (0: no law)
+		// THE EYE IS A CAMERA (patch 57): the adaptation's speed toward a darker scene, the meter's window as shares of the lit weight
+		float auto_exposure_speed_dark = 0.5;
+		float auto_exposure_window_low = 0.8;
+		float auto_exposure_window_high = 0.983;
 
 		bool dof_blur_far_enabled = false;
 		float dof_blur_far_distance = 10;
@@ -113,17 +109,10 @@ public:
 	float camera_attributes_get_auto_exposure_adjust_speed(RID p_camera_attributes);
 	float camera_attributes_get_auto_exposure_scale(RID p_camera_attributes);
 	uint64_t camera_attributes_get_auto_exposure_version(RID p_camera_attributes);
-	void camera_attributes_set_auto_exposure_night(RID p_camera_attributes, float p_night_scale, float p_scotopic_luminance, float p_photopic_luminance);
-	float camera_attributes_get_auto_exposure_night_scale(RID p_camera_attributes);
-	float camera_attributes_get_auto_exposure_scotopic_luminance(RID p_camera_attributes);
-	float camera_attributes_get_auto_exposure_photopic_luminance(RID p_camera_attributes);
-	void camera_attributes_set_auto_exposure_highlight(RID p_camera_attributes, float p_hold, float p_light_hold); // THE HIGHLIGHT HOLDS THE WINDOW (patch 21), THE FILLED LIGHT (patch 22)
-	float camera_attributes_get_auto_exposure_highlight_hold(RID p_camera_attributes);
-	float camera_attributes_get_auto_exposure_light_hold(RID p_camera_attributes);
-	void camera_attributes_set_auto_exposure_subject_floor(RID p_camera_attributes, float p_floor); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43)
-	float camera_attributes_get_auto_exposure_subject_floor(RID p_camera_attributes);
-	void camera_attributes_set_auto_exposure_subject_min_share(RID p_camera_attributes, float p_share); // THE SUBJECT IS A SURFACE (patch 47)
-	float camera_attributes_get_auto_exposure_subject_min_share(RID p_camera_attributes);
+	void camera_attributes_set_auto_exposure_meter(RID p_camera_attributes, float p_speed_dark, float p_window_low, float p_window_high); // THE EYE IS A CAMERA (patch 57)
+	float camera_attributes_get_auto_exposure_speed_dark(RID p_camera_attributes);
+	float camera_attributes_get_auto_exposure_window_low(RID p_camera_attributes);
+	float camera_attributes_get_auto_exposure_window_high(RID p_camera_attributes);
 
 	_FORCE_INLINE_ bool camera_attributes_uses_auto_exposure(RID p_camera_attributes) {
 		CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);

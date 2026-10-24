@@ -1708,6 +1708,17 @@ float RendererViewport::viewport_get_measured_render_time_gpu(RID p_viewport) co
 	return double((viewport->time_gpu_end - viewport->time_gpu_begin) / 1000) / 1000.0;
 }
 
+// THE EYE IS A CAMERA (patch 57): the auto exposure's adapted reading as the render buffers last read it back - the scene's own
+// luminance, the frame's exposure normalization divided out (nought before the first frame lands or without auto exposure)
+float RendererViewport::viewport_get_eye_luminance(RID p_viewport) const {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL_V(viewport, 0.0f);
+	if (viewport->render_buffers.is_null()) {
+		return 0.0f;
+	}
+	return viewport->render_buffers->get_eye_luminance();
+}
+
 void RendererViewport::viewport_set_snap_2d_transforms_to_pixel(RID p_viewport, bool p_enabled) {
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL(viewport);

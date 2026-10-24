@@ -159,78 +159,31 @@ void RendererCameraAttributes::camera_attributes_set_auto_exposure(RID p_camera_
 	cam_attributes->auto_exposure_scale = p_scale;
 }
 
-// THE KEY FOLLOWS THE ADAPTATION (patch 13): the night's key and the eye's mesopic range, luminances in the meter's units
-void RendererCameraAttributes::camera_attributes_set_auto_exposure_night(RID p_camera_attributes, float p_night_scale, float p_scotopic_luminance, float p_photopic_luminance) {
+// THE EYE IS A CAMERA (patch 57): the adaptation's speed toward a darker scene and the meter's window (two shares of the lit weight)
+void RendererCameraAttributes::camera_attributes_set_auto_exposure_meter(RID p_camera_attributes, float p_speed_dark, float p_window_low, float p_window_high) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL(cam_attributes);
-	cam_attributes->auto_exposure_night_scale = p_night_scale;
-	cam_attributes->auto_exposure_scotopic_luminance = p_scotopic_luminance;
-	cam_attributes->auto_exposure_photopic_luminance = p_photopic_luminance;
+	cam_attributes->auto_exposure_speed_dark = MAX(p_speed_dark, 0.0f);
+	cam_attributes->auto_exposure_window_low = CLAMP(p_window_low, 0.0f, 1.0f);
+	cam_attributes->auto_exposure_window_high = CLAMP(p_window_high, cam_attributes->auto_exposure_window_low, 1.0f);
 }
 
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_night_scale(RID p_camera_attributes) {
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_speed_dark(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_night_scale;
+	return cam_attributes->auto_exposure_speed_dark;
 }
 
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_scotopic_luminance(RID p_camera_attributes) {
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_window_low(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
 	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_scotopic_luminance;
+	return cam_attributes->auto_exposure_window_low;
 }
 
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_photopic_luminance(RID p_camera_attributes) {
+float RendererCameraAttributes::camera_attributes_get_auto_exposure_window_high(RID p_camera_attributes) {
 	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_photopic_luminance;
-}
-
-// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the share of the frame's brightest lit block the meter reads at least
-void RendererCameraAttributes::camera_attributes_set_auto_exposure_highlight(RID p_camera_attributes, float p_hold, float p_light_hold) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL(cam_attributes);
-	cam_attributes->auto_exposure_highlight_hold = MAX(p_hold, 0.0f);
-	cam_attributes->auto_exposure_light_hold = MAX(p_light_hold, 0.0f); // THE FILLED LIGHT (patch 22)
-}
-
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_highlight_hold(RID p_camera_attributes) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_highlight_hold;
-}
-
-// THE FILLED LIGHT (patch 22): the share of the frame's brightest filled block the meter reads at least
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_light_hold(RID p_camera_attributes) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_light_hold;
-}
-
-// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject of the meter
-void RendererCameraAttributes::camera_attributes_set_auto_exposure_subject_floor(RID p_camera_attributes, float p_floor) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL(cam_attributes);
-	cam_attributes->auto_exposure_subject_floor = MAX(p_floor, 0.0f);
-}
-
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_subject_floor(RID p_camera_attributes) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_subject_floor;
-}
-
-// THE SUBJECT IS A SURFACE (patch 47): the least share of the frame's lit weight that is a subject of the meter
-void RendererCameraAttributes::camera_attributes_set_auto_exposure_subject_min_share(RID p_camera_attributes, float p_share) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL(cam_attributes);
-	cam_attributes->auto_exposure_subject_min_share = CLAMP(p_share, 0.0f, 1.0f);
-}
-
-float RendererCameraAttributes::camera_attributes_get_auto_exposure_subject_min_share(RID p_camera_attributes) {
-	CameraAttributes *cam_attributes = camera_attributes_owner.get_or_null(p_camera_attributes);
-	ERR_FAIL_NULL_V(cam_attributes, 0.0);
-	return cam_attributes->auto_exposure_subject_min_share;
+	ERR_FAIL_NULL_V(cam_attributes, 1.0);
+	return cam_attributes->auto_exposure_window_high;
 }
 
 float RendererCameraAttributes::camera_attributes_get_auto_exposure_min_sensitivity(RID p_camera_attributes) {

@@ -2931,6 +2931,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("viewport_get_measured_render_time_cpu", "viewport"), &RenderingServer::viewport_get_measured_render_time_cpu);
 
 	ClassDB::bind_method(D_METHOD("viewport_get_measured_render_time_gpu", "viewport"), &RenderingServer::viewport_get_measured_render_time_gpu);
+	ClassDB::bind_method(D_METHOD("viewport_get_eye_luminance", "viewport"), &RenderingServer::viewport_get_eye_luminance);
 
 	ClassDB::bind_method(D_METHOD("viewport_set_vrs_mode", "viewport", "mode"), &RenderingServer::viewport_set_vrs_mode);
 	ClassDB::bind_method(D_METHOD("viewport_set_vrs_update_mode", "viewport", "mode"), &RenderingServer::viewport_set_vrs_update_mode);
@@ -3214,10 +3215,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_dof_blur", "camera_attributes", "far_enable", "far_distance", "far_transition", "near_enable", "near_distance", "near_transition", "amount"), &RenderingServer::camera_attributes_set_dof_blur);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_exposure", "camera_attributes", "multiplier", "normalization"), &RenderingServer::camera_attributes_set_exposure);
 	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure", "camera_attributes", "enable", "min_sensitivity", "max_sensitivity", "speed", "scale"), &RenderingServer::camera_attributes_set_auto_exposure);
-	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_night", "camera_attributes", "night_scale", "scotopic_luminance", "photopic_luminance"), &RenderingServer::camera_attributes_set_auto_exposure_night);
-	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_highlight", "camera_attributes", "hold", "light_hold"), &RenderingServer::camera_attributes_set_auto_exposure_highlight);
-	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_subject_floor", "camera_attributes", "floor"), &RenderingServer::camera_attributes_set_auto_exposure_subject_floor);
-	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_subject_min_share", "camera_attributes", "share"), &RenderingServer::camera_attributes_set_auto_exposure_subject_min_share);
+	ClassDB::bind_method(D_METHOD("camera_attributes_set_auto_exposure_meter", "camera_attributes", "speed_dark", "window_low", "window_high"), &RenderingServer::camera_attributes_set_auto_exposure_meter);
 
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_BOX);
 	BIND_ENUM_CONSTANT(RSE::DOF_BOKEH_HEXAGON);

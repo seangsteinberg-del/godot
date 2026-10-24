@@ -22,6 +22,15 @@
 		<member name="auto_exposure_speed" type="float" setter="set_auto_exposure_speed" getter="get_auto_exposure_speed" default="0.5">
 			The speed of the auto exposure effect. Affects the time needed for the camera to perform auto exposure.
 		</member>
+		<member name="auto_exposure_speed_dark" type="float" setter="set_auto_exposure_speed_dark" getter="get_auto_exposure_speed_dark" default="0.5">
+			The speed of the auto exposure effect toward a darker scene (the eye opening); [member auto_exposure_speed] is the speed toward a brighter one. The adaptation runs in log space.
+		</member>
+		<member name="auto_exposure_window_high" type="float" setter="set_auto_exposure_window_high" getter="get_auto_exposure_window_high" default="0.983">
+			The share of the frame's lit weight under the meter's window top: the brightest pixels over it (a sun's disc, a glint, the stars alone) are ignored by the meter.
+		</member>
+		<member name="auto_exposure_window_low" type="float" setter="set_auto_exposure_window_low" getter="get_auto_exposure_window_low" default="0.8">
+			The share of the frame's lit weight under the meter's window: the darkest pixels under it are ignored by the meter. The meter reads the geometric mean of the lit pixels between this share and [member auto_exposure_window_high], weighted toward the frame's centre.
+		</member>
 		<member name="exposure_multiplier" type="float" setter="set_exposure_multiplier" getter="get_exposure_multiplier" default="1.0">
 			Multiplier for the exposure amount. A higher value results in a brighter image.
 		</member>

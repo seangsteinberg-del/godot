@@ -564,37 +564,37 @@ void RendererSceneRenderRD::_render_buffers_post_process_and_tonemap(const Rende
 		bool set_immediate = auto_exposure_version != rb->get_auto_exposure_version();
 		rb->set_auto_exposure_version(auto_exposure_version);
 
-		double step = RSG::camera_attributes->camera_attributes_get_auto_exposure_adjust_speed(p_render_data->camera_attributes) * time_step;
+		// THE EYE IS A CAMERA (patch 57): the adaptation's two blends this frame (the meter adapts in log space), the meter's window
+		const double speed = RSG::camera_attributes->camera_attributes_get_auto_exposure_adjust_speed(p_render_data->camera_attributes);
+		const double speed_dark = RSG::camera_attributes->camera_attributes_get_auto_exposure_speed_dark(p_render_data->camera_attributes);
+		const float adapt_up = float(1.0 - Math::exp(-MAX(speed, 0.0) * time_step));
+		const float adapt_down = float(1.0 - Math::exp(-MAX(speed_dark, 0.0) * time_step));
 		float auto_exposure_min_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_min_sensitivity(p_render_data->camera_attributes);
 		float auto_exposure_max_sensitivity = RSG::camera_attributes->camera_attributes_get_auto_exposure_max_sensitivity(p_render_data->camera_attributes);
-		// THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the night's, and the eye's mesopic range, into the meter
-		const float night_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_night_scale(p_render_data->camera_attributes);
-		const float day_scale = RSG::camera_attributes->camera_attributes_get_auto_exposure_scale(p_render_data->camera_attributes);
-		const float key_ratio = night_scale > 0.0f && day_scale > night_scale ? day_scale / night_scale : 1.0f;
 		// THE METER'S HISTORY ACROSS THE LIFT (patch 17): the adapted luminance is metered in the pre-exposed buffer's units, so
 		// when the camera's exposure multiplier changes between frames the history is rescaled by the ratio and the eye's
-		// adaptation stands still in the scene's own light (a lift's jump at warp, a re-seat or a flame flashed or blacked the
-		// frame for the adaptation's second)
+		// adaptation stands still in the scene's own light
 		const float exposure_now = RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes);
 		float history_scale = 1.0f;
 		if (luminance_buffers->last_exposure_normalization > 0.0f && exposure_now > 0.0f) {
 			history_scale = exposure_now / luminance_buffers->last_exposure_normalization;
 		}
 		luminance_buffers->last_exposure_normalization = exposure_now;
-		// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the meter reads at least the hold's share of the frame's brightest lit block; a
-		// pixel counts at most twice a white ground in the buffer's pre-exposed units (the exposure factor is the pre-exposure)
-		const float highlight_hold = RSG::camera_attributes->camera_attributes_get_auto_exposure_highlight_hold(p_render_data->camera_attributes);
-		const float highlight_cap = 2.0f * MAX(exposure_now, 1.0e-6f);
-		// THE FILLED LIGHT (patch 22): and at least the light hold's share of the frame's brightest filled block (uncapped)
-		const float light_hold = RSG::camera_attributes->camera_attributes_get_auto_exposure_light_hold(p_render_data->camera_attributes);
-		// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject (the night sky's picture's top
-		// over the gain it is shown at, in the buffer's pre-exposed units as the game sets it)
-		const float subject_floor = RSG::camera_attributes->camera_attributes_get_auto_exposure_subject_floor(p_render_data->camera_attributes);
-		// THE SUBJECT IS A SURFACE (patch 47): the least share of the frame's lit weight that is a subject (the star points alone never are)
-		const float subject_min_share = RSG::camera_attributes->camera_attributes_get_auto_exposure_subject_min_share(p_render_data->camera_attributes);
-		luminance->luminance_reduction(rb->get_internal_texture(), rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, step, set_immediate,
-				key_ratio, RSG::camera_attributes->camera_attributes_get_auto_exposure_scotopic_luminance(p_render_data->camera_attributes),
-				RSG::camera_attributes->camera_attributes_get_auto_exposure_photopic_luminance(p_render_data->camera_attributes), history_scale, highlight_hold, highlight_cap, light_hold, subject_floor, subject_min_share);
+		const float window_low = RSG::camera_attributes->camera_attributes_get_auto_exposure_window_low(p_render_data->camera_attributes);
+		const float window_high = RSG::camera_attributes->camera_attributes_get_auto_exposure_window_high(p_render_data->camera_attributes);
+		// THE PICTURE DECLARES ITSELF TO THE METER (patch 57): a pass that draws display-referred light into the buffer (the sky module's
+		// star plate) declares its luminance per pixel in the render buffers' texture ("eye", "excluded"); the meter subtracts it from
+		// its reading and the texture is zeroed after, so a frame the pass skips declares nothing
+		const bool has_excluded = rb->has_texture(SNAME("eye"), SNAME("excluded"));
+		const RID excluded = has_excluded ? rb->get_texture_slice(SNAME("eye"), SNAME("excluded"), 0, 0) : RID();
+		// THE FRAME BEFORE THE SPREAD (patch 57): a pass that spreads light across the frame (the sky module's lens kernel, the last
+		// effect) copies the frame as it stood before its spread into the render buffers' texture ("eye", "metered"); the meter reads
+		// that where it stands - the spread is the display's, never the subject's - and the internal texture otherwise
+		const RID metered = rb->has_texture(SNAME("eye"), SNAME("metered")) ? rb->get_texture_slice(SNAME("eye"), SNAME("metered"), 0, 0) : rb->get_internal_texture();
+		luminance->luminance_reduction(metered, excluded, rb->get_internal_size(), luminance_buffers, auto_exposure_min_sensitivity, auto_exposure_max_sensitivity, adapt_up, adapt_down, set_immediate, history_scale, window_low, window_high);
+		if (has_excluded) {
+			RD::get_singleton()->texture_clear(rb->get_texture(SNAME("eye"), SNAME("excluded")), Color(0, 0, 0, 0), 0, 1, 0, rb->get_view_count());
+		}
 
 		// Swap final reduce with prev luminance.
 

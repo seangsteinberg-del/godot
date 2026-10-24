@@ -52,6 +52,11 @@ protected:
 	float auto_exposure_max = 64.0;
 	float auto_exposure_speed = 0.5;
 	float auto_exposure_scale = 0.4;
+	// THE EYE IS A CAMERA (patch 57, Longshot): the adaptation's second speed (toward a darker scene) and the meter's window - the
+	// shares of the frame's lit weight under the window and under its top (the darkest and the brightest pixels ignored)
+	float auto_exposure_speed_dark = 0.5;
+	float auto_exposure_window_low = 0.8;
+	float auto_exposure_window_high = 0.983;
 	virtual void _update_auto_exposure() {}
 
 public:
@@ -69,6 +74,12 @@ public:
 	float get_auto_exposure_speed() const;
 	void set_auto_exposure_scale(float p_auto_exposure_scale);
 	float get_auto_exposure_scale() const;
+	void set_auto_exposure_speed_dark(float p_speed);
+	float get_auto_exposure_speed_dark() const;
+	void set_auto_exposure_window_low(float p_share);
+	float get_auto_exposure_window_low() const;
+	void set_auto_exposure_window_high(float p_share);
+	float get_auto_exposure_window_high() const;
 
 	CameraAttributes();
 	~CameraAttributes();
@@ -89,21 +100,6 @@ private:
 
 	float dof_blur_amount = 0.1;
 	void _update_dof_blur();
-
-	// THE KEY FOLLOWS THE ADAPTATION (patch 13): the night's key and the eye's mesopic range (sensitivities), 0: no law
-	float auto_exposure_night_scale = 0.0;
-	float auto_exposure_scotopic = 0.0;
-	float auto_exposure_photopic = 0.0;
-	// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the share of the frame's brightest lit block the meter reads at least (0: no law)
-	float auto_exposure_highlight_hold = 0.0;
-	// THE FILLED LIGHT (patch 22): the share of the frame's brightest FILLED block the meter reads at least (0: no law)
-	float auto_exposure_light_hold = 0.0;
-	// THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the luminance under which a pixel is no subject of the meter, in the buffer's
-	// pre-exposed units (0: the buffer's own black)
-	float auto_exposure_subject_floor = 0.0;
-	// THE SUBJECT IS A SURFACE (patch 47): the least share of the frame's lit weight that is a subject of the meter; under it the frame
-	// meters at the window's floor as a frame with no lit pixel does (the star points alone never close the eye) (0: no law)
-	float auto_exposure_subject_min_share = 0.0;
 
 	virtual void _update_auto_exposure() override;
 
@@ -133,20 +129,6 @@ public:
 	float get_auto_exposure_min_sensitivity() const;
 	void set_auto_exposure_max_sensitivity(float p_max);
 	float get_auto_exposure_max_sensitivity() const;
-	void set_auto_exposure_night_scale(float p_scale);
-	float get_auto_exposure_night_scale() const;
-	void set_auto_exposure_scotopic_sensitivity(float p_sensitivity);
-	float get_auto_exposure_scotopic_sensitivity() const;
-	void set_auto_exposure_photopic_sensitivity(float p_sensitivity);
-	float get_auto_exposure_photopic_sensitivity() const;
-	void set_auto_exposure_highlight_hold(float p_hold);
-	float get_auto_exposure_highlight_hold() const;
-	void set_auto_exposure_light_hold(float p_hold);
-	float get_auto_exposure_light_hold() const;
-	void set_auto_exposure_subject_floor(float p_floor);
-	float get_auto_exposure_subject_floor() const;
-	void set_auto_exposure_subject_min_share(float p_share);
-	float get_auto_exposure_subject_min_share() const;
 
 	virtual float calculate_exposure_normalization() const override;
 

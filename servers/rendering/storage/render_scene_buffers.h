@@ -114,4 +114,7 @@ public:
 	virtual void set_texture_mipmap_bias(float p_texture_mipmap_bias) = 0;
 	virtual void set_anisotropic_filtering_level(RSE::ViewportAnisotropicFiltering p_anisotropic_filtering_level) = 0;
 	virtual void set_use_debanding(bool p_use_debanding) = 0;
+
+	// THE EYE IS A CAMERA (Longshot patch 57): the auto exposure's adapted reading read back from the device, in the scene's units (the RD buffers; nought elsewhere)
+	virtual float get_eye_luminance() const { return 0.0f; }
 };

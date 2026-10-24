@@ -4,236 +4,181 @@
 
 #VERSION_DEFINES
 
+// THE EYE IS A CAMERA (PROJECT LONGSHOT, the fork's patch 57, 10-24; docs/manual/sky.md THE EYE IS A CAMERA): the frame is metered as
+// a photographic matrix meter meters it - a histogram of the lit pixels' log luminance, weighted toward the frame's centre, read
+// between two percentiles (the darkest and the brightest shares of the frame ignored: space about a disc, a sun's disc, a glint, the
+// stars alone), the adaptation in log space at two speeds. Two passes: HISTOGRAM - one workgroup of 8 x 8 threads per 64 x 64 tile,
+// each thread 8 x 8 pixels, the tile's 64 bins summed in shared memory and written to the tiles buffer; RESOLVE - one workgroup sums
+// the tiles, cuts the window, takes the window's log mean, clamps it to the camera's window, adapts from the last frame's reading and
+// writes the one texel the tonemapper reads. The log-mean reading (Reinhard, Stark, Shirley & Ferwerda 2002; patch 13), the centre mask
+// (SpaceEngine's AutoExpMask; patch 38), a pixel that is no number weighing nothing and an overflow counting as the buffer's top (patch
+// 13), the history rescaled across a pre-exposure change (patch 17) and a frame of no lit area metering at the window's floor (patches
+// 20 and 47) stand inside it; the holds, the floors and the key law of patches 21, 22, 42, 43 and 47 are gone with the reduce chain.
+
 #define BLOCK_SIZE 8
+#define TILE 64
+#define BINS 64
+#define LOG_LO -24.0 // the first bin's log2: the half float's floor region (a lit pixel under it lands in the first bin)
+#define LOG_HI 16.0 // the last bin's log2: the half float's top (65504)
+#define BIN_SCALE (float(BINS) / (LOG_HI - LOG_LO))
+#define BLACK 1.0e-7 // a pixel at or under this is no light and no subject (the buffer's own black, a ten-millionth of a white ground)
+#define W_FIX 1024.0 // the weight's fixed point
+#define L_FIX 4096.0 // the weighted log's fixed point (|log2| <= 24, a tile of 4096 pixels: within an int)
 
 layout(local_size_x = BLOCK_SIZE, local_size_y = BLOCK_SIZE, local_size_z = 1) in;
 
-shared float tmp_data[BLOCK_SIZE * BLOCK_SIZE];
-shared float tmp_w[BLOCK_SIZE * BLOCK_SIZE]; // THE METER READS THE SUBJECT (patch 20): the pixels' weights beside their logs
-shared float tmp_h[BLOCK_SIZE * BLOCK_SIZE]; // THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the capped light, summed to the blocks' means, then their max
-shared float tmp_f[BLOCK_SIZE * BLOCK_SIZE]; // THE FILLED LIGHT (patch 22): the light uncapped, summed to the 8 x 8 means, their min over each 32 x 32 block, then the blocks' max
-shared float tmp_q[4]; // THE FILLED LIGHT (patch 22): the blocks' rung's four 32 x 32 quarters, each its least 8 x 8 mean
-
-// THE LOG-MEAN METER (the fork's patch 13, Longshot): the frame's adapting luminance is the geometric mean of its pixels'
-// luminance - Reinhard, Stark, Shirley & Ferwerda 2002, the log-average as the scene's key - so a small bright source (a Moon's
-// disc, a lamp, a flame) moves the meter by its share times its log ratio, never by its light: the arithmetic mean of
-// max(r, g, b) stopped a night frame down tens of times for a Moon in it. Each pixel counts at least the window's floor (the
-// eye's darkest adaptation); the chain averages the logs, the last pass takes the exponential.
-
-#ifdef READ_TEXTURE
-
-//use for main texture
-layout(set = 0, binding = 0) uniform sampler2D source_texture;
-
-#else
-
-//use for intermediate textures
-layout(rgba32f, set = 0, binding = 0) uniform restrict readonly image2D source_luminance; // THE METER READS THE SUBJECT (patch 20): r the weighted log's mean, g the weight's mean; THE HIGHLIGHT (patch 21): b the blocks' highlight; THE FILLED LIGHT (patch 22): a
-
-#endif
-
-#ifdef WRITE_LUMINANCE
-layout(r32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance; // the final: the effective luminance alone
-#else
-layout(rgba32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance;
-#endif
-
-#ifdef WRITE_LUMINANCE
-layout(set = 2, binding = 0) uniform sampler2D prev_luminance;
-#endif
-
 layout(push_constant, std430) uniform Params {
 	ivec2 source_size;
-	float max_luminance;
+	ivec2 tiles; // the tile grid: ceil(size / 64)
+	float max_luminance; // the camera's window (the buffer's units)
 	float min_luminance;
-	float exposure_adjust;
-	float key_ratio; // THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the night's (1: no law)
-	float ln_scotopic; // the log of the luminance under which the eye is wholly night-adapted (the buffer's units)
-	float ln_photopic; // the log of the luminance over which the day's key stands
+	float adapt_up; // this frame's blend toward a brighter reading, 1 - exp(-speed dt); 1 (or more) sets the reading at once
+	float adapt_down; // ... and toward a darker one
 	float history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17): this frame's exposure multiplier over the last's
-	// THE HIGHLIGHT HOLDS THE WINDOW (patch 21, Longshot): the share of the frame's brightest lit block the meter reads at least (0: no
-	// law) - the day's window opens downward only as far as a sunlit cloud, a snowfield or a white hull stays at the display's
-	// white; a pixel counts at most the cap (twice a white ground in the buffer's units: a glint or a sun's disc is a light, not a
-	// surface); the block is 8 x 8 pixels (the pixels' means at the first rung, their max from the second rung on: patch 42, 10-20 -
-	// a thin lit crescent fills an 8 x 8 block and holds the window, where a 64 x 64 mean let it clip)
-	float highlight_hold;
-	float highlight_cap;
-	int level;
-	// THE FILLED LIGHT (patch 22, Longshot): the share of the frame's brightest FILLED block the meter reads at least (0: no law) -
-	// a block's light is the least of its 8 x 8 sub-blocks' uncapped means, so a light counts whole only where it fills 32 x 32
-	// pixels (about a degree and a half of a 1080p frame at 50 degrees): a near entry fire's layer - face on, edge on or round a
-	// backshell seen from behind - or an engine's flame does, a glint, a star, the Sun's or the Moon's disc at a normal lens or a
-	// far fire's head never does. The game sets it where the scene has no key light of its own (the night, the shadow): there a light
-	// that fills the eye is the scene's light, and the eye exposes for it as a camera does - the sheet at the surface near white,
-	// its colour around it - where the log mean of a frame mostly black left a near fire many stops past white
-	float light_hold;
-	// THE SUBJECT STANDS OVER THE BACKDROP (patch 43, Longshot, 10-21): the luminance under which a pixel is no subject, in the buffer's
-	// units (0: the buffer's own black, a ten-millionth of a white ground). The night sky's PICTURE is shown at its own level over the
-	// eye's most open gain, so its buffer value is that level over the gain - at a moon's noon under a sun a ten-thousandth of ours
-	// it stood two decades under the giant's face, above the buffer's black, and dragged the log mean down until the highlight's hold
-	// pinned the face at white (the tenth wonders court: Ross 154's and Barnard's giants, flat white). The game sets the floor at
-	// twice the picture's top over that gain, so the picture, the stars and the black about a world are never the subject; a frame
-	// with no lit surface meters at the window's floor, the night's eye as before
-	float subject_floor;
-	// THE SUBJECT IS A SURFACE (patch 47, Longshot, 10-22): the least weight of lit pixels (the centre mask's sum) a frame must hold
-	// for them to be its subject; under it the frame meters at the window's floor as a frame with no lit pixel does. The night sky's
-	// star points stand over the picture's band and over the floor, a few pixels each; in deep space with no lit surface they were
-	// the only pixels counted and the eye closed on them until the stars stood at grey. The game sets it at half a percent of the
-	// frame's weight: a sunlit face, a crescent, a near hull are surfaces and count; the stars never do (0: no law)
-	float subject_min_weight;
-	float pad1;
-	float pad2;
+	float window_low; // the share of the lit weight under the window
+	float window_high; // the share of the lit weight under the window's top
+	float min_weight; // the least lit weight (the centre mask's sum) that is a subject; under it the frame meters at the floor
+	float has_excluded; // one when a pass declared its luminance in the excluded texture (set 2)
 }
 params;
 
-// THE KEY FOLLOWS THE ADAPTATION (patch 13): the day's key over the key at this adaptation - one at the photopic edge and
-// over, the whole ratio at the scotopic edge and under, its power log-linear between (CIE 191:2010's mesopic range)
-float key_ratio_at(float l) {
-	if (params.key_ratio <= 1.0 || params.ln_photopic <= params.ln_scotopic) {
-		return 1.0;
-	}
-	float t = clamp((log(max(l, 1e-30)) - params.ln_scotopic) / (params.ln_photopic - params.ln_scotopic), 0.0, 1.0);
-	return pow(params.key_ratio, 1.0 - t);
+#ifdef MODE_HISTOGRAM
+
+layout(set = 0, binding = 0) uniform sampler2D source_texture;
+layout(set = 1, binding = 0, std430) restrict writeonly buffer Tiles {
+	vec2 bins[]; // [tile * BINS + bin]: x the bin's weight, y the bin's sum of weight times log2 luminance
 }
+tiles;
+layout(set = 2, binding = 0) uniform sampler2D excluded_texture; // THE PICTURE DECLARES ITSELF TO THE METER: the luminance a display-referred pass drew into the buffer at this pixel (the night sky's picture, drawn relative to the frame's own gain), left out of the reading
+
+shared uint s_w[BINS];
+shared int s_l[BINS];
 
 void main() {
 	uint t = gl_LocalInvocationID.y * BLOCK_SIZE + gl_LocalInvocationID.x;
-	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-
-	if (all(lessThan(pos, params.source_size))) { // a texel past the edge on either axis is no pixel (a log is no zero)
-#ifdef READ_TEXTURE
-		vec3 v = texelFetch(source_texture, pos, 0).rgb;
-		// A PIXEL IS READ AS A NUMBER (patch 13): past the half float (an overflow's infinity) it counts as the buffer's top,
-		// no number at all as no light - one pixel never makes the eye's adaptation a NaN
-		float l = dot(v, vec3(0.2126, 0.7152, 0.0722));
-		l = isnan(l) ? 0.0 : min(l, 65504.0);
-		// THE METER READS THE SUBJECT (patch 20, Longshot): a pixel under the window's floor is no subject - space about a
-		// planet's disc, a night ground under the eye's darkest adaptation - and carries no weight (the log-mean over every
-		// pixel at the floor metered a disc in black space dark and opened the eye to its ceiling whatever the disc's light);
-		// the pixels with light weigh toward the frame's centre, the template's centre-weighted histogram (0.3 at the corners)
-		// THE SUBJECT IS EVERY LIT PIXEL (patch 20 amended): the line under which a pixel is no subject is the buffer's own
-		// black - a ten-millionth of a white ground - never the window's floor (by day the key over its headroom: a dim
-		// disc's twilight half fell out with the space about it and the meter clamped at the ceiling on the bright half)
-		float floor_l = max(1e-7, params.subject_floor); // THE SUBJECT STANDS OVER THE BACKDROP (patch 43): the picture's top over the gain, or the black
-		vec2 rc = (vec2(pos) + 0.5) / vec2(params.source_size) * 2.0 - 1.0;
-		// THE TEMPLATE'S MASK (patch 38, Longshot; SpaceEngine's AutoExpMaskSize 0.5 and AutoExpMaskValue 1: a centre-weighted mask of
-		// half the screen's half-size at full weight, falling to nought at the corners by the square): a planet's disc fills the centre
-		// of a frame from space and the black about it weighs nothing, so the eye keys on the disc; the softer bell before it (0.3 at
-		// the corners) let the space about a disc, lit by the galaxy's picture, drag the log mean down and open the eye to its ceiling
-		float rr = length(rc);
-		float wc = rr < 0.5 ? 1.0 : max(0.0, 1.0 - (rr - 0.5) * (rr - 0.5) / 0.8464);
-		float w = l > floor_l ? wc : 0.0;
-		tmp_data[t] = w * log(max(l, floor_l));
-		tmp_w[t] = w;
-		tmp_h[t] = min(l, params.highlight_cap); // THE HIGHLIGHT (patch 21): every pixel, space at nought, the light capped
-		tmp_f[t] = l; // THE FILLED LIGHT (patch 22): every pixel's whole light
-#else
-		vec4 sl = imageLoad(source_luminance, pos);
-		tmp_data[t] = sl.r;
-		tmp_w[t] = sl.g;
-		tmp_h[t] = sl.b;
-		tmp_f[t] = sl.a;
-#endif
-	} else {
-		tmp_data[t] = 0.0;
-		tmp_w[t] = 0.0;
-		tmp_h[t] = 0.0;
-		tmp_f[t] = params.level == 1 ? 3.0e38 : 0.0; // THE FILLED LIGHT (patch 22): no texel is no part of a block's least, nor of a sum or a max
-	}
-
+	s_w[t] = 0u;
+	s_l[t] = 0;
 	groupMemoryBarrier();
 	barrier();
 
-	// THE FILLED LIGHT (patch 22): at the blocks' rung each of the 64 x 64 region's four 32 x 32 quarters takes the least of its
-	// 4 x 4 eight-pixel means (a quarter past the frame's edge has no light: nought), before the tree below sums or maxes the rest
-	if (params.level == 1) {
-		if (t < 4u) {
-			uint qx = (t & 1u) * 4u;
-			uint qy = (t >> 1u) * 4u;
-			float m = 3.0e38;
-			for (uint yy = 0u; yy < 4u; yy++) {
-				for (uint xx = 0u; xx < 4u; xx++) {
-					m = min(m, tmp_f[(qy + yy) * BLOCK_SIZE + qx + xx]);
-				}
+	ivec2 tile_origin = ivec2(gl_WorkGroupID.xy) * TILE;
+	ivec2 cell = tile_origin + ivec2(gl_LocalInvocationID.xy) * BLOCK_SIZE;
+	for (int j = 0; j < BLOCK_SIZE; j++) {
+		for (int i = 0; i < BLOCK_SIZE; i++) {
+			ivec2 pos = cell + ivec2(i, j);
+			if (any(greaterThanEqual(pos, params.source_size))) {
+				continue; // a texel past the frame's edge is no pixel
 			}
-			tmp_q[t] = m >= 3.0e38 ? 0.0 : m;
+			vec3 v = texelFetch(source_texture, pos, 0).rgb;
+			float l = dot(v, vec3(0.2126, 0.7152, 0.0722));
+			if (isnan(l)) {
+				continue; // no number is no light (patch 13)
+			}
+			l = min(l, 65504.0); // an overflow counts as the buffer's top (patch 13)
+			if (params.has_excluded > 0.5) {
+				l -= texelFetch(excluded_texture, pos, 0).r; // THE PICTURE DECLARES ITSELF TO THE METER: a picture drawn over the frame's own gain would meter itself (the exposure hunted); its light leaves the reading, the sky's beside it stays
+			}
+			if (l <= BLACK) {
+				continue; // no light is no subject (patch 20)
+			}
+			// THE CENTRE MASK (patch 38, the template's): one over the middle half of the frame, falling to nought at the corners by the square
+			vec2 rc = (vec2(pos) + 0.5) / vec2(params.source_size) * 2.0 - 1.0;
+			float rr = length(rc);
+			float w = rr < 0.5 ? 1.0 : max(0.0, 1.0 - (rr - 0.5) * (rr - 0.5) / 0.8464);
+			if (w <= 0.0) {
+				continue;
+			}
+			float lg = log2(l);
+			int bin = clamp(int((lg - LOG_LO) * BIN_SCALE), 0, BINS - 1);
+			atomicAdd(s_w[bin], uint(w * W_FIX + 0.5));
+			atomicAdd(s_l[bin], int(round(w * lg * L_FIX)));
 		}
-		groupMemoryBarrier();
-		barrier();
 	}
+	groupMemoryBarrier();
+	barrier();
 
-	uint size = (BLOCK_SIZE * BLOCK_SIZE) >> 1;
-	// THE HIGHLIGHT (patch 21; patch 42, 10-20): the pixels are summed to the 8 x 8 means at the first rung and their MAX is kept from
-	// the second rung on - the brightest 8 x 8 lit block, not the brightest 64 x 64 mean: a thin lit crescent (a giant's limb at a
-	// moon's noon, ten pixels wide) filled a twentieth of the 64 x 64 block, so the block's mean let the crescent clip twentyfold and
-	// its glare fill half the frame (the wonders court 10-20); an 8 x 8 block a lit surface fills lands that surface at the display's
-	// white, the cap still keeping a glint or a sun's disc from counting past twice a white ground
-	bool h_max = params.level >= 1;
+	uint tile = gl_WorkGroupID.y * uint(params.tiles.x) + gl_WorkGroupID.x;
+	tiles.bins[tile * BINS + t] = vec2(float(s_w[t]) / W_FIX, float(s_l[t]) / L_FIX);
+}
 
-	do {
-		if (t < size) {
-			tmp_data[t] += tmp_data[t + size];
-			tmp_w[t] += tmp_w[t + size];
-			tmp_h[t] = h_max ? max(tmp_h[t], tmp_h[t + size]) : tmp_h[t] + tmp_h[t + size];
-			// THE FILLED LIGHT (patch 22): the pixels summed to the 8 x 8 means, the blocks' max past the blocks' rung (the blocks'
-			// rung takes its quarters below)
-			if (params.level != 1) {
-				tmp_f[t] = params.level == 0 ? tmp_f[t] + tmp_f[t + size] : max(tmp_f[t], tmp_f[t + size]);
-			}
-		}
-		groupMemoryBarrier();
-		barrier();
-
-		size >>= 1;
-	} while (size >= 1);
-
-	if (t == 0) {
-		//compute rect size
-		ivec2 rect_size = min(params.source_size - pos, ivec2(BLOCK_SIZE));
-		float avg = tmp_data[0] / float(rect_size.x * rect_size.y);
-		float wavg = tmp_w[0] / float(rect_size.x * rect_size.y);
-		float hblk = h_max ? tmp_h[0] : tmp_h[0] / float(rect_size.x * rect_size.y); // THE HIGHLIGHT (patch 21): the block's mean, or the blocks' max
-		// THE FILLED LIGHT (patch 22): the 8 x 8 mean, the region's best 32 x 32 quarter's least, or the blocks' max
-		float fblk = params.level == 0 ? tmp_f[0] / float(rect_size.x * rect_size.y) : (params.level == 1 ? max(max(tmp_q[0], tmp_q[1]), max(tmp_q[2], tmp_q[3])) : tmp_f[0]);
-		pos /= ivec2(BLOCK_SIZE);
-#ifdef WRITE_LUMINANCE
-		// THE METER READS THE SUBJECT (patch 20): the weighted logs over the weight - a frame with no lit pixel meters at the
-		// floor, as every pixel did before
-		// THE SUBJECT IS A SURFACE (patch 47): too little lit weight (the stars alone) is no subject either
-		avg = wavg > max(1e-9, params.subject_min_weight) ? avg / wavg : log(max(params.min_luminance, 1e-20));   // no lit pixel: the window's floor, as before
-		// the mean of the logs back to a luminance (the frame's geometric mean), written as the EFFECTIVE luminance: the
-		// adaptation times the day's key over the key it earns (the readers divide by it and multiply by the day's key),
-		// the window mapped through the same law; the history is effective too
-		avg = exp(avg);
-		float lo = params.min_luminance * key_ratio_at(params.min_luminance);
-		float hi = max(params.max_luminance * key_ratio_at(params.max_luminance), lo);
-		avg *= key_ratio_at(clamp(avg, params.min_luminance, params.max_luminance));
-		// THE HIGHLIGHT HOLDS THE WINDOW (patch 21): the meter reads at least the hold's share of the frame's brightest lit block, so
-		// the gain (the scale over the reading) is at most one over the block's light times the scale over the hold - the day's
-		// opening stops where its brightest surface reaches white; nought by night (the night's eye keeps patch 13's own law)
-		if (params.highlight_hold > 0.0) {
-			avg = max(avg, params.highlight_hold * hblk);
-		}
-		// THE FILLED LIGHT (patch 22): and at least the light hold's share of the frame's brightest filled block - a light that fills
-		// the eye lands there at the key's scale over the hold, however dark the rest of the frame reads
-		if (params.light_hold > 0.0) {
-			avg = max(avg, params.light_hold * fblk);
-		}
-		if (params.exposure_adjust < 1.0) { // the immediate frame (the blend at one) never reads the history: it may be unwritten
-			float prev_lum = texelFetch(prev_luminance, ivec2(0, 0), 0).r; //1 pixel previous exposure
-			if (isnan(prev_lum) || isinf(prev_lum)) {
-				prev_lum = avg; // a history that is no number restarts at this frame's own
-			}
-			// THE METER'S HISTORY ACROSS THE LIFT (patch 17): the history is in the buffer's pre-exposed units; a changed
-			// multiplier (a night's lift at warp, a re-seat, a flame) moves it by the ratio, so the adaptation stands still in
-			// the scene's own light instead of chasing the lift for a second
-			prev_lum *= params.history_scale;
-			avg = prev_lum + (avg - prev_lum) * params.exposure_adjust;
-		}
-		avg = clamp(avg, lo, hi);
-		imageStore(dest_luminance, pos, vec4(avg));
-#else
-		imageStore(dest_luminance, pos, vec4(avg, wavg, hblk, fblk)); // THE METER READS THE SUBJECT: the two means down the chain, THE HIGHLIGHT and THE FILLED LIGHT beside them
 #endif
+
+#ifdef MODE_RESOLVE
+
+layout(set = 0, binding = 0, std430) restrict readonly buffer Tiles {
+	vec2 bins[];
+}
+tiles;
+layout(r32f, set = 1, binding = 0) uniform restrict writeonly image2D dest_luminance; // the one texel the tonemapper reads
+layout(set = 2, binding = 0) uniform sampler2D prev_luminance; // the last frame's reading (the history)
+
+shared float r_w[BINS];
+shared float r_l[BINS];
+shared float r_cum[BINS];
+
+void main() {
+	uint t = gl_LocalInvocationID.y * BLOCK_SIZE + gl_LocalInvocationID.x; // thread t owns bin t
+	float w = 0.0;
+	float l = 0.0;
+	int n = params.tiles.x * params.tiles.y;
+	for (int k = 0; k < n; k++) {
+		vec2 b = tiles.bins[uint(k) * BINS + t];
+		w += b.x;
+		l += b.y;
+	}
+	r_w[t] = w;
+	r_l[t] = l;
+	groupMemoryBarrier();
+	barrier();
+
+	if (t == 0u) {
+		// the cumulative weight by bin, the window cut on it, the window's log mean
+		float cum = 0.0;
+		for (int b = 0; b < BINS; b++) {
+			cum += r_w[b];
+			r_cum[b] = cum;
+		}
+		float total = cum;
+		float reading;
+		if (total <= max(params.min_weight, 1.0e-9)) {
+			reading = params.min_luminance; // THE SUBJECT IS A SURFACE (patch 47's law, kept): too little lit area is no subject - the window's floor
+		} else {
+			float lo = params.window_low * total;
+			float hi = max(params.window_high * total, lo + 1.0e-6);
+			float sum_w = 0.0;
+			float sum_l = 0.0;
+			float c0 = 0.0;
+			for (int b = 0; b < BINS; b++) {
+				float c1 = r_cum[b];
+				float span = c1 - c0;
+				if (span > 0.0) {
+					float f = clamp((min(c1, hi) - max(c0, lo)) / span, 0.0, 1.0); // the bin's share inside the window
+					sum_w += f * r_w[b];
+					sum_l += f * r_l[b];
+				}
+				c0 = c1;
+			}
+			reading = sum_w > 0.0 ? exp2(sum_l / sum_w) : params.min_luminance;
+		}
+		float lo_l = params.min_luminance;
+		float hi_l = max(params.max_luminance, lo_l);
+		reading = clamp(reading, lo_l, hi_l);
+		if (params.adapt_up < 1.0 || params.adapt_down < 1.0) {
+			float prev = texelFetch(prev_luminance, ivec2(0, 0), 0).r;
+			if (isnan(prev) || isinf(prev) || prev <= 0.0) {
+				prev = reading; // a history that is no number restarts at this frame's own
+			}
+			prev *= params.history_scale; // THE METER'S HISTORY ACROSS THE LIFT (patch 17)
+			// THE ADAPTATION IN LOG SPACE at two speeds: toward a brighter scene by adapt_up (the eye closes fast), toward a darker one by
+			// adapt_down (it opens slowly) - never a linear blend of luminances across decades
+			float lp = log2(max(prev, 1.0e-30));
+			float lr = log2(max(reading, 1.0e-30));
+			float k = lr > lp ? params.adapt_up : params.adapt_down;
+			reading = exp2(lp + (lr - lp) * clamp(k, 0.0, 1.0));
+			reading = clamp(reading, lo_l, hi_l);
+		}
+		imageStore(dest_luminance, ivec2(0, 0), vec4(reading));
 	}
 }
+
+#endif
