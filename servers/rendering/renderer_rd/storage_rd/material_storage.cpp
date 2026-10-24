@@ -2555,17 +2555,22 @@ void MaterialStorage::material_set_param(RID p_material, const StringName &p_par
 	ERR_FAIL_NULL(material);
 
 	if (p_value.get_type() == Variant::NIL) {
-		if (material->params.has(p_param)) {
-			material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
+		if (!material->params.has(p_param)) {
+			return; // THE SAME VALUE IS NOT SENT (Longshot patch #50, 10-22): nothing to erase, nothing to rebuild
 		}
+		material->version++; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED)
 		material->params.erase(p_param);
 	} else {
 		ERR_FAIL_COND(p_value.get_type() == Variant::OBJECT); //object not allowed
-		// THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: the same value again moves nothing of the picture
+		// THE SAME VALUE IS NOT SENT (Longshot patch #50, 10-22, the performance push): the value the material holds already changes nothing - not the
+		// picture (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED kept the version still for it) and not the uniforms - so the material
+		// is not queued for it: before, every writer that set its parameters each frame (the sky's pushes to a dozen materials, the far
+		// globes', the star field's, the displays') had the material's uniform buffer rebuilt and re-sent every frame for the same bytes
 		const Variant *was = material->params.getptr(p_param);
-		if (!was || !(*was == p_value)) {
-			material->version++;
+		if (was && *was == p_value) {
+			return;
 		}
+		material->version++;
 		material->params[p_param] = p_value;
 	}
 

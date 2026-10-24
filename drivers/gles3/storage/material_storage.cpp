@@ -2521,9 +2521,16 @@ void MaterialStorage::material_set_param(RID p_material, const StringName &p_par
 	ERR_FAIL_NULL(material);
 
 	if (p_value.get_type() == Variant::NIL) {
+		if (!material->params.has(p_param)) {
+			return; // THE SAME VALUE IS NOT SENT (Longshot patch #50, 10-22)
+		}
 		material->params.erase(p_param);
 	} else {
 		ERR_FAIL_COND(p_value.get_type() == Variant::OBJECT); //object not allowed
+		const Variant *was = material->params.getptr(p_param);
+		if (was && *was == p_value) {
+			return; // THE SAME VALUE IS NOT SENT (Longshot patch #50, 10-22): the material is not queued for the value it holds
+		}
 		material->params[p_param] = p_value;
 	}
 
