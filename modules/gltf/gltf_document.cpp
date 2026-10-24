@@ -2218,7 +2218,13 @@ void GLTFDocument::_parse_image_save_image(Ref<GLTFState> p_state, const Vector<
 				must_write = !FileAccess::exists(file_path);
 			} else {
 				// Texture data has to be written to the res:// folder and imported.
-				file_path = p_state->get_extract_path().path_join(p_state->get_extract_prefix() + "_" + p_image->get_name());
+				// THE SAME PICTURE EXTRACTS ONCE (Longshot patch #52, 10-22): the file is named by the picture's own bytes, so every model that embeds the
+				// same picture - a part's levels of detail, a family's shared skin - resolves to one file and one texture on the device (the
+				// fleet's 164 models extracted 809 pictures of which 294 were distinct, and the card held every copy, one of them 43 times);
+				// the import record's md5 below then finds the file written and skips the write and the import
+				unsigned char content_hash[16];
+				CryptoCore::md5(img_data.ptr(), img_data.size(), content_hash);
+				file_path = p_state->get_extract_path().path_join("sharedpicture_" + String::hex_encode_buffer(content_hash, 16));
 				file_path += p_file_extension.is_empty() ? ".png" : p_file_extension;
 				if (FileAccess::exists(file_path + ".import")) {
 					Ref<ConfigFile> config;
