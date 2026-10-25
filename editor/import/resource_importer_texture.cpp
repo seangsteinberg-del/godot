@@ -180,7 +180,7 @@ String ResourceImporterTexture::get_resource_type() const {
 }
 
 bool ResourceImporterTexture::get_option_visibility(const String &p_path, const String &p_option, const HashMap<StringName, Variant> &p_options) const {
-	if (p_option == "compress/high_quality" || p_option == "compress/hdr_compression") {
+	if (p_option == "compress/high_quality" || p_option == "compress/hdr_compression" || p_option == "compress/fidelity_floor_db") {
 		int compress_mode = int(p_options["compress/mode"]);
 		if (compress_mode != COMPRESS_VRAM_COMPRESSED) {
 			return false;
@@ -231,6 +231,9 @@ String ResourceImporterTexture::get_preset_name(int p_idx) const {
 void ResourceImporterTexture::get_import_options(const String &p_path, List<ImportOption> *r_options, int p_preset) const {
 	r_options->push_back(ImportOption(PropertyInfo(Variant::INT, "compress/mode", PROPERTY_HINT_ENUM, "Lossless,Lossy,VRAM Compressed,VRAM Uncompressed,Basis Universal", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_UPDATE_ALL_IF_MODIFIED), p_preset == PRESET_3D ? 2 : 0));
 	r_options->push_back(ImportOption(PropertyInfo(Variant::BOOL, "compress/high_quality"), false));
+	// THE PICTURE SHIPS COMPRESSED ONLY WITHIN THE EYE'S STEP (longshot patch #56): under this floor, measured as the device sees the picture, the high-quality codec's
+	// result is stored lossless instead; 0 never measures
+	r_options->push_back(ImportOption(PropertyInfo(Variant::FLOAT, "compress/fidelity_floor_db", PROPERTY_HINT_RANGE, "0,60,0.5"), 40.0));
 	r_options->push_back(ImportOption(PropertyInfo(Variant::FLOAT, "compress/lossy_quality", PROPERTY_HINT_RANGE, "0,1,0.01"), 0.7));
 
 	Image::BasisUniversalPackerParams basisu_params;
@@ -269,7 +272,41 @@ void ResourceImporterTexture::get_import_options(const String &p_path, List<Impo
 	}
 }
 
-void ResourceImporterTexture::save_to_ctex_format(Ref<FileAccess> f, const Ref<Image> &p_image, CompressMode p_compress_mode, Image::UsedChannels p_channels, Image::CompressMode p_compress_format, float p_lossy_quality, const Image::BasisUniversalPackerParams &p_basisu_params, Image::BPTCFormat p_bptc_format) {
+// THE PICTURE SHIPS COMPRESSED ONLY WITHIN THE EYE'S STEP (longshot patch #56, 10-23): the compressed picture decoded as the device decodes it and measured against its
+// source as the device blends it - both premultiplied by their alpha, the source brought to the channels the codec kept (a normal
+// map's two, a grey's one), the first level alone - the peak signal-to-noise ratio in decibels. A picture that cannot be decoded reads
+// nought; a floating-point picture is not measured (the metrics refuse it) and reads a hundred. The eye's measure of 10-23 over 2,240
+// BC7 pictures: a median of 53 dB, 52 under 40 - the cockpit's tiny glyphs and tapes, a normal map, two large noisy maps.
+float ResourceImporterTexture::fidelity_db(const Ref<Image> &p_source, const Ref<Image> &p_compressed) {
+	Ref<Image> seen = p_compressed->duplicate();
+	if (seen->is_compressed() && seen->decompress() != OK) {
+		return 0.0f;
+	}
+	seen->clear_mipmaps();
+	if (seen->get_format() >= Image::FORMAT_RF) {
+		return 100.0f;
+	}
+	Ref<Image> src = p_source->duplicate();
+	src->clear_mipmaps();
+	// the block codecs pad a picture to whole blocks: the common region is measured
+	const int w = MIN(src->get_width(), seen->get_width());
+	const int hgt = MIN(src->get_height(), seen->get_height());
+	if (seen->get_width() != w || seen->get_height() != hgt) {
+		seen = seen->get_region(Rect2i(0, 0, w, hgt));
+	}
+	if (src->get_width() != w || src->get_height() != hgt) {
+		src = src->get_region(Rect2i(0, 0, w, hgt));
+	}
+	src->convert(seen->get_format());
+	if (seen->get_format() == Image::FORMAT_RGBA8) {
+		src->premultiply_alpha();
+		seen->premultiply_alpha();
+	}
+	Dictionary m = src->compute_image_metrics(seen, false);
+	return float(m["peak_snr"]);
+}
+
+void ResourceImporterTexture::save_to_ctex_format(Ref<FileAccess> f, const Ref<Image> &p_image, CompressMode p_compress_mode, Image::UsedChannels p_channels, Image::CompressMode p_compress_format, float p_lossy_quality, const Image::BasisUniversalPackerParams &p_basisu_params, Image::BPTCFormat p_bptc_format, float p_fidelity_floor_db, const String &p_name) {
 	switch (p_compress_mode) {
 		case COMPRESS_LOSSLESS: {
 			bool lossless_force_png = GLOBAL_GET("rendering/textures/lossless_compression/force_png") || !Image::_webp_mem_loader_func; // WebP module disabled or png is forced.
@@ -316,6 +353,17 @@ void ResourceImporterTexture::save_to_ctex_format(Ref<FileAccess> f, const Ref<I
 			Ref<Image> image = p_image->duplicate();
 			image->_compress_from_channels(p_compress_format, p_channels, Image::ASTC_FORMAT_4x4, p_bptc_format);
 
+			// THE PICTURE SHIPS COMPRESSED ONLY WITHIN THE EYE'S STEP (longshot patch #56): under the floor the picture is stored lossless in this
+			// same file (the loader reads the data's own format), and the import says so
+			if (p_fidelity_floor_db > 0.0f && p_image->get_format() < Image::FORMAT_RF) {
+				const float db = fidelity_db(p_image, image);
+				if (db < p_fidelity_floor_db) {
+					print_line(vformat("[import] %s kept lossless: compressed it reads %.1f dB, under the %.0f dB floor (%dx%d)", p_name, db, p_fidelity_floor_db, p_image->get_width(), p_image->get_height()));
+					save_to_ctex_format(f, p_image, COMPRESS_LOSSLESS, p_channels, p_compress_format, p_lossy_quality, p_basisu_params, p_bptc_format);
+					break;
+				}
+			}
+
 			f->store_32(CompressedTexture2D::DATA_FORMAT_IMAGE);
 			f->store_16(image->get_width());
 			f->store_16(image->get_height());
@@ -349,7 +397,7 @@ void ResourceImporterTexture::save_to_ctex_format(Ref<FileAccess> f, const Ref<I
 	}
 }
 
-void ResourceImporterTexture::_save_ctex(const Ref<Image> &p_image, const String &p_to_path, CompressMode p_compress_mode, float p_lossy_quality, const Image::BasisUniversalPackerParams &p_basisu_params, Image::CompressMode p_vram_compression, bool p_mipmaps, bool p_streamable, bool p_detect_3d, bool p_detect_roughness, bool p_detect_normal, bool p_force_normal, bool p_srgb_friendly, bool p_force_po2_for_compressed, uint32_t p_limit_mipmap, const Ref<Image> &p_normal, Image::RoughnessChannel p_roughness_channel) {
+void ResourceImporterTexture::_save_ctex(const Ref<Image> &p_image, const String &p_to_path, CompressMode p_compress_mode, float p_lossy_quality, const Image::BasisUniversalPackerParams &p_basisu_params, Image::CompressMode p_vram_compression, bool p_mipmaps, bool p_streamable, bool p_detect_3d, bool p_detect_roughness, bool p_detect_normal, bool p_force_normal, bool p_srgb_friendly, bool p_force_po2_for_compressed, uint32_t p_limit_mipmap, const Ref<Image> &p_normal, Image::RoughnessChannel p_roughness_channel, float p_fidelity_floor_db) {
 	Ref<FileAccess> f = FileAccess::open(p_to_path, FileAccess::WRITE);
 	ERR_FAIL_COND(f.is_null());
 
@@ -429,7 +477,7 @@ void ResourceImporterTexture::_save_ctex(const Ref<Image> &p_image, const String
 		used_channels = image->detect_used_channels(comp_source);
 	}
 
-	save_to_ctex_format(f, image, p_compress_mode, used_channels, p_vram_compression, p_lossy_quality, p_basisu_params, Image::BPTC_DETECT);
+	save_to_ctex_format(f, image, p_compress_mode, used_channels, p_vram_compression, p_lossy_quality, p_basisu_params, Image::BPTC_DETECT, p_fidelity_floor_db, p_to_path.get_file());
 }
 
 void ResourceImporterTexture::_save_editor_meta(const Dictionary &p_metadata, const String &p_to_path) {
@@ -707,6 +755,8 @@ Error ResourceImporterTexture::import(ResourceUID::ID p_source_id, const String 
 	const int normal = p_options["compress/normal_map"];
 	const int hdr_compression = p_options["compress/hdr_compression"];
 	const int high_quality = p_options["compress/high_quality"];
+	// THE PICTURE SHIPS COMPRESSED ONLY WITHIN THE EYE'S STEP (longshot patch #56): the floor governs the high-quality codec; a lower codec is a lane's own lossy choice
+	const float fidelity_floor = (high_quality && p_options.has("compress/fidelity_floor_db")) ? float(p_options["compress/fidelity_floor_db"]) : 0.0f;
 
 	// Mipmaps.
 	const bool mipmaps = p_options["mipmaps/generate"];
@@ -941,7 +991,7 @@ Error ResourceImporterTexture::import(ResourceUID::ID p_source_id, const String 
 				}
 
 				_save_ctex(image, p_save_path + "." + image_compress_format + ".ctex", compress_mode, lossy, basisu_params, image_compress_mode, mipmaps,
-						stream, detect_3d, detect_roughness, detect_normal, force_normal, srgb_friendly_pack, false, mipmap_limit, normal_image, roughness_channel);
+						stream, detect_3d, detect_roughness, detect_normal, force_normal, srgb_friendly_pack, false, mipmap_limit, normal_image, roughness_channel, fidelity_floor);
 				r_platform_variants->push_back(image_compress_format);
 			}
 
@@ -957,7 +1007,7 @@ Error ResourceImporterTexture::import(ResourceUID::ID p_source_id, const String 
 				}
 
 				_save_ctex(image, p_save_path + "." + image_compress_format + ".ctex", compress_mode, lossy, basisu_params, image_compress_mode, mipmaps, stream, detect_3d,
-						detect_roughness, detect_normal, force_normal, srgb_friendly_pack, false, mipmap_limit, normal_image, roughness_channel);
+						detect_roughness, detect_normal, force_normal, srgb_friendly_pack, false, mipmap_limit, normal_image, roughness_channel, fidelity_floor);
 				r_platform_variants->push_back(image_compress_format);
 			}
 		}
