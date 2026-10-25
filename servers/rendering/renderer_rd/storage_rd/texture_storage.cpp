@@ -2058,10 +2058,16 @@ void TextureStorage::texture_replace(RID p_texture, RID p_by_texture) {
 		return;
 	}
 
-	if (tex->rd_texture_srgb.is_valid()) {
+	// THE REPLACED TEXTURE'S VIEW MAY BE DEAD ALREADY (longshot patch #58, 10-25): the server's texture of a device texture a module made
+	// (texture_rd_initialize) is a SHARED VIEW, and the device frees a view with its owner - a module that freed its texture before
+	// moving its wrapper here left the view dead, and this free printed "Attempted to free invalid ID" for nothing to do. texture_free's
+	// cleanup() checks texture_is_valid before it frees; this does the same now, so a maker's free order can never fault the server.
+	if (tex->rd_texture_srgb.is_valid() && RD::get_singleton()->texture_is_valid(tex->rd_texture_srgb)) {
 		RD::get_singleton()->free_rid(tex->rd_texture_srgb);
 	}
-	RD::get_singleton()->free_rid(tex->rd_texture);
+	if (tex->rd_texture.is_valid() && RD::get_singleton()->texture_is_valid(tex->rd_texture)) {
+		RD::get_singleton()->free_rid(tex->rd_texture);
+	}
 
 	if (tex->canvas_texture) {
 		memdelete(tex->canvas_texture);
