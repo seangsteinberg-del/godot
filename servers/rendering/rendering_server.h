@@ -779,6 +779,10 @@ public:
 	virtual void instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) = 0;
 	// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - x its far split (metres of view depth), y its texel (metres)
 	virtual Vector2 instance_light_get_shadow_cascade(RID p_instance, int p_cascade) = 0;
+	// LONGSHOT patch #67: the cascade's window as it last rendered - its transform (the light's basis, the origin at the near plane) and its
+	// orthographic projection (the half extents, the depth range): the frame a GPU-driven maker culls its casters in
+	virtual Transform3D instance_light_get_shadow_cascade_transform(RID p_instance, int p_cascade) = 0;
+	virtual Projection instance_light_get_shadow_cascade_projection(RID p_instance, int p_cascade) = 0;
 	virtual void instance_geometry_set_material_override(RID p_instance, RID p_material) = 0;
 	virtual void instance_geometry_set_material_overlay(RID p_instance, RID p_material) = 0;
 	virtual void instance_geometry_set_visibility_range(RID p_instance, float p_min, float p_max, float p_min_margin, float p_max_margin, RSE::VisibilityRangeFadeMode p_fade_mode) = 0;

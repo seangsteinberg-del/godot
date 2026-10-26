@@ -108,6 +108,10 @@ public:
 	// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - its far split and its texel (nought where a renderer keeps none)
 	virtual float light_instance_directional_shadow_split(RID p_light_instance, int p_cascade) { return 0.0f; }
 	virtual float light_instance_directional_shadow_texel(RID p_light_instance, int p_cascade) { return 0.0f; }
+	// LONGSHOT patch #67: the cascade's window as it last rendered - its transform (the light's basis, the origin at the near plane) and
+	// its orthographic projection (the half extents, the depth range), the frame a GPU-driven maker culls its casters in; false where a
+	// renderer keeps none
+	virtual bool light_instance_directional_shadow_window(RID p_light_instance, int p_cascade, Transform3D &r_transform, Projection &r_projection) { return false; }
 	// LONGSHOT patch #65 (THE SHADOWS CACHED) and #66 (THE SCROLL): a directional cascade's static map kept across frames, in three
 	// calls a frame. (1) Before the cascade's window is made, the kept map's FRAME: true when a map is kept for this render and the
 	// light's axes stand within half a texel's angle of the kept ones over the depth range - the window is then made in the kept basis,

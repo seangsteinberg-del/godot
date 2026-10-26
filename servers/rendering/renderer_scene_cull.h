@@ -1102,6 +1102,8 @@ public:
 	virtual void instance_geometry_set_flag(RID p_instance, RSE::InstanceFlags p_flags, bool p_enabled);
 	virtual void instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting);
 	virtual Vector2 instance_light_get_shadow_cascade(RID p_instance, int p_cascade); // LONGSHOT patch #61
+	virtual Transform3D instance_light_get_shadow_cascade_transform(RID p_instance, int p_cascade); // LONGSHOT patch #67
+	virtual Projection instance_light_get_shadow_cascade_projection(RID p_instance, int p_cascade); // LONGSHOT patch #67
 	virtual void instance_geometry_set_material_override(RID p_instance, RID p_material);
 	virtual void instance_geometry_set_material_overlay(RID p_instance, RID p_material);
 

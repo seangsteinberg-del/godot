@@ -1390,6 +1390,34 @@ Vector2 RendererSceneCull::instance_light_get_shadow_cascade(RID p_instance, int
 	return Vector2(RSG::light_storage->light_instance_directional_shadow_split(light->instance, p_cascade), RSG::light_storage->light_instance_directional_shadow_texel(light->instance, p_cascade));
 }
 
+// LONGSHOT patch #67: a directional light's cascade window as it last rendered - the frame a GPU-driven maker (the arena) culls its
+// casters in, so its shadow slices change exactly when the renderer's window does, and a kept map (patches #65/#66) keeps them still
+Transform3D RendererSceneCull::instance_light_get_shadow_cascade_transform(RID p_instance, int p_cascade) {
+	Instance *instance = instance_owner.get_or_null(p_instance);
+	ERR_FAIL_NULL_V(instance, Transform3D());
+	ERR_FAIL_COND_V_MSG(instance->base_type != RSE::INSTANCE_LIGHT, Transform3D(), "LONGSHOT patch #67: not a light's instance.");
+	ERR_FAIL_INDEX_V(p_cascade, 4, Transform3D());
+	const InstanceLightData *light = static_cast<InstanceLightData *>(instance->base_data);
+	ERR_FAIL_NULL_V(light, Transform3D());
+	Transform3D xf;
+	Projection proj;
+	ERR_FAIL_COND_V_MSG(!RSG::light_storage->light_instance_directional_shadow_window(light->instance, p_cascade, xf, proj), Transform3D(), "LONGSHOT patch #67: this renderer keeps no cascade window.");
+	return xf;
+}
+
+Projection RendererSceneCull::instance_light_get_shadow_cascade_projection(RID p_instance, int p_cascade) {
+	Instance *instance = instance_owner.get_or_null(p_instance);
+	ERR_FAIL_NULL_V(instance, Projection());
+	ERR_FAIL_COND_V_MSG(instance->base_type != RSE::INSTANCE_LIGHT, Projection(), "LONGSHOT patch #67: not a light's instance.");
+	ERR_FAIL_INDEX_V(p_cascade, 4, Projection());
+	const InstanceLightData *light = static_cast<InstanceLightData *>(instance->base_data);
+	ERR_FAIL_NULL_V(light, Projection());
+	Transform3D xf;
+	Projection proj;
+	ERR_FAIL_COND_V_MSG(!RSG::light_storage->light_instance_directional_shadow_window(light->instance, p_cascade, xf, proj), Projection(), "LONGSHOT patch #67: this renderer keeps no cascade window.");
+	return proj;
+}
+
 void RendererSceneCull::instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) {
 	Instance *instance = instance_owner.get_or_null(p_instance);
 	ERR_FAIL_NULL(instance);

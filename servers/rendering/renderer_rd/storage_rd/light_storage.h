@@ -828,6 +828,16 @@ public:
 		return li->shadow_transform[p_cascade].shadow_texel_size;
 	}
 
+	// LONGSHOT patch #67: the cascade's window as it last rendered (a kept map's window while the cache stands, patches #65/#66)
+	virtual bool light_instance_directional_shadow_window(RID p_light_instance, int p_cascade, Transform3D &r_transform, Projection &r_projection) override {
+		LightInstance *li = light_instance_owner.get_or_null(p_light_instance);
+		ERR_FAIL_NULL_V(li, false);
+		ERR_FAIL_INDEX_V(p_cascade, 6, false);
+		r_transform = li->shadow_transform[p_cascade].transform;
+		r_projection = li->shadow_transform[p_cascade].camera;
+		return true;
+	}
+
 	_FORCE_INLINE_ void light_instance_set_render_pass(RID p_light_instance, uint64_t p_pass) {
 		LightInstance *li = light_instance_owner.get_or_null(p_light_instance);
 		li->last_pass = p_pass;
