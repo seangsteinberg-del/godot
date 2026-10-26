@@ -182,9 +182,13 @@ uint cluster_get_range_clip_mask(uint i, uint z_min, uint z_max) {
 layout(location = 14) out vec2 point_coord_interp;
 #endif
 
-// LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): an indirect multimesh's instance carries its own dither share in its custom
-// data's w (the base side's share in 0..1, the next side's 1 + share); the fragment reads it where the draw's lod_fade bit 9 says so
-layout(location = 15) out flat float lod_fade_inst_interp;
+// LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): an external multimesh's instance carries its own dither share in its custom
+// data's w (the base side's share in 0..1, the next side's 1 + share); the fragment reads it where the draw's lod_fade bit 9 says so.
+// It takes location 9, dp_clip's, which only the dual-paraboloid shadow pass declares - a shadow pass draws no fade, so no material
+// varying is displaced (the device's 32 were all spoken for at the biggest material)
+#ifndef MODE_DUAL_PARABOLOID
+layout(location = 9) out flat float lod_fade_inst_interp;
+#endif
 
 invariant gl_Position;
 
@@ -339,7 +343,9 @@ void vertex_shader(vec3 vertex_input,
 #endif
 		//transpose
 		matrix = transpose(matrix);
+#ifndef MODE_DUAL_PARABOLOID
 		lod_fade_inst_interp = instance_custom.w; // LONGSHOT patch #60: the instance's own dither share (read under bit 9 alone)
+#endif
 #if !defined(USE_DOUBLE_PRECISION) || defined(SKIP_TRANSFORM_USED) || defined(VERTEX_WORLD_COORDS_USED) || defined(MODEL_MATRIX_USED)
 		// Normally we can bake the multimesh transform into the model matrix, but when using double precision
 		// we avoid baking it in so we can emulate high precision.
@@ -1012,7 +1018,9 @@ layout(location = 13) in vec4 specular_light_interp;
 layout(location = 14) in vec2 point_coord_interp;
 #endif
 
-layout(location = 15) in flat float lod_fade_inst_interp; // LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE)
+#ifndef MODE_DUAL_PARABOLOID
+layout(location = 9) in flat float lod_fade_inst_interp; // LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): dp_clip's slot, free but for the dual-paraboloid pass
+#endif
 
 //defines to keep compatibility with vertex
 
@@ -3211,8 +3219,13 @@ void main() {
 			// pass of the maker's writes each instance's share into its custom data's w - the base side's share in 0..1 (the rung
 			// leaving), the next side's 1 + share (the rung arriving, in its own multimesh); the two keep complementary pixels as the
 			// two draws of a level do below. A w of 0 draws the instance whole
+#ifdef MODE_DUAL_PARABOLOID
+			lod_next = false; // a shadow pass draws the instance whole (the maker writes no share for its shadow slices)
+			lod_share = 0.0;
+#else
 			lod_next = lod_fade_inst_interp >= 1.0;
 			lod_share = lod_next ? lod_fade_inst_interp - 1.0 : lod_fade_inst_interp;
+#endif
 		} else {
 			lod_share = float(draw_call.lod_fade & 255U) / 255.0;
 			lod_next = (draw_call.lod_fade & 256U) != 0U;

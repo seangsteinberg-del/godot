@@ -3422,6 +3422,45 @@ void TextureStorage::_texture_format_from_rd(RD::DataFormat p_rd_format, Texture
 			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
 			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
 		} break;
+		// LONGSHOT patch #62 (THE INTEGER WRAPPER): a 32-bit integer texture a maker made on the device (a record a texel: the ground's vertex
+		// records) wrapped for a material's usampler. Image has no 32-bit integer format, so the wrapper carries the float format of the same
+		// texel size: it is sampled, never converted, and a read-back hands the same bytes in that dress
+		case RD::DATA_FORMAT_R32_UINT:
+		case RD::DATA_FORMAT_R32_SINT: {
+			r_format.image_format = Image::FORMAT_RF;
+			r_format.rd_format = p_rd_format;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_ZERO;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_ZERO;
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
+		} break;
+		case RD::DATA_FORMAT_R32G32_UINT:
+		case RD::DATA_FORMAT_R32G32_SINT: {
+			r_format.image_format = Image::FORMAT_RGF;
+			r_format.rd_format = p_rd_format;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_ZERO;
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
+		} break;
+		case RD::DATA_FORMAT_R32G32B32_UINT:
+		case RD::DATA_FORMAT_R32G32B32_SINT: {
+			r_format.image_format = Image::FORMAT_RGBF;
+			r_format.rd_format = p_rd_format;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_ONE;
+		} break;
+		case RD::DATA_FORMAT_R32G32B32A32_UINT:
+		case RD::DATA_FORMAT_R32G32B32A32_SINT: {
+			r_format.image_format = Image::FORMAT_RGBAF;
+			r_format.rd_format = p_rd_format;
+			r_format.swizzle_r = RD::TEXTURE_SWIZZLE_R;
+			r_format.swizzle_g = RD::TEXTURE_SWIZZLE_G;
+			r_format.swizzle_b = RD::TEXTURE_SWIZZLE_B;
+			r_format.swizzle_a = RD::TEXTURE_SWIZZLE_A;
+		} break;
 
 		default: {
 			ERR_FAIL_MSG("Unsupported image format");
