@@ -570,6 +570,10 @@ void MeshStorage::_mesh_surface_clear(Mesh *p_mesh, int p_surface) {
 		memdelete_arr(s.lods);
 	}
 
+	if (s.index_buffer_all.is_valid()) { // LONGSHOT patch #60 (its array goes with it, a dependent)
+		RD::get_singleton()->free_rid(s.index_buffer_all);
+	}
+
 	if (s.blend_shape_buffer.is_valid()) {
 		RD::get_singleton()->free_rid(s.blend_shape_buffer);
 	}
@@ -1594,11 +1598,25 @@ void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE
 	}
 
 	if (multimesh->buffer.is_valid()) {
-		RD::get_singleton()->free_rid(multimesh->buffer);
+		if (multimesh->external) {
+			// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the buffers are the maker's and stay; the sets this multimesh made over them go
+			if (multimesh->uniform_set_3d.is_valid() && RD::get_singleton()->uniform_set_is_valid(multimesh->uniform_set_3d)) {
+				RD::get_singleton()->free_rid(multimesh->uniform_set_3d);
+			}
+			if (multimesh->uniform_set_2d.is_valid() && RD::get_singleton()->uniform_set_is_valid(multimesh->uniform_set_2d)) {
+				RD::get_singleton()->free_rid(multimesh->uniform_set_2d);
+			}
+		} else {
+			RD::get_singleton()->free_rid(multimesh->buffer);
+		}
 		multimesh->buffer = RID();
 		multimesh->uniform_set_2d = RID(); //cleared by dependency
 		multimesh->uniform_set_3d = RID(); //cleared by dependency
 	}
+	multimesh->external = false; // LONGSHOT patch #60: allocated again, a multimesh is its own again
+	multimesh->external_command_offset = 0;
+	multimesh->external_passes = 0;
+	multimesh->external_rungs = 0;
 
 	if (multimesh->data_cache_dirty_regions) {
 		memdelete_arr(multimesh->data_cache_dirty_regions);
@@ -1710,6 +1728,7 @@ void MeshStorage::_multimesh_set_mesh(RID p_multimesh, RID p_mesh) {
 	if (multimesh->mesh == p_mesh) {
 		return;
 	}
+	ERR_FAIL_COND_MSG(multimesh->external, "LONGSHOT patch #60: an external multimesh's mesh is fixed (its commands were written for it); free it and make another.");
 	multimesh->mesh = p_mesh;
 
 	if (multimesh->indirect) {
@@ -1762,6 +1781,7 @@ void MeshStorage::_multimesh_make_local(MultiMesh *multimesh) const {
 	if (multimesh->data_cache.size() > 0) {
 		return; //already local
 	}
+	ERR_FAIL_COND_MSG(multimesh->external, "LONGSHOT patch #60: an external multimesh's instances live in its maker's buffer; they are never read back one by one.");
 
 	// this means that the user wants to load/save individual elements,
 	// for this, the data must reside on CPU, so just copy it there.
@@ -2147,6 +2167,7 @@ Color MeshStorage::_multimesh_instance_get_custom_data(RID p_multimesh, int p_in
 void MeshStorage::_multimesh_set_buffer(RID p_multimesh, const Vector<float> &p_buffer) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
+	ERR_FAIL_COND_MSG(multimesh->external, "LONGSHOT patch #60: an external multimesh's instances are written by its maker on the device.");
 	ERR_FAIL_COND(p_buffer.size() != (multimesh->instances * (int)multimesh->stride_cache));
 
 	bool used_motion_vectors = multimesh->motion_vectors_enabled;
@@ -2197,6 +2218,133 @@ RID MeshStorage::_multimesh_get_command_buffer_rd_rid(RID p_multimesh) const {
 	return multimesh->command_buffer;
 }
 
+// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): every level of the surface in one index buffer, the base first and then each level in its
+// order, with each level's first index kept - one multi-draw indirect over the rungs' commands then draws any level of the chain. Made
+// once, on the surface's first external multimesh: the indices come back from the device for it (a maker asks at its group's making, never
+// in a frame's run).
+void MeshStorage::_mesh_surface_ensure_index_all(Mesh::Surface *p_surface) {
+	if (p_surface->index_array_all.is_valid() || p_surface->index_count == 0) {
+		return;
+	}
+	const bool is_index_16 = p_surface->vertex_count <= 65536 && p_surface->vertex_count > 0; // as mesh_add_surface decided the width
+	Vector<uint8_t> all = RD::get_singleton()->buffer_get_data(p_surface->index_buffer);
+	ERR_FAIL_COND_MSG(all.size() != int(p_surface->index_buffer_size), "LONGSHOT patch #60: a surface's index buffer did not come back whole from the device.");
+	p_surface->level_first_index.clear();
+	p_surface->level_first_index.push_back(0);
+	uint32_t total = p_surface->index_count;
+	for (uint32_t l = 0; l < p_surface->lod_count; l++) {
+		Vector<uint8_t> level = RD::get_singleton()->buffer_get_data(p_surface->lods[l].index_buffer);
+		ERR_FAIL_COND_MSG(level.size() != int(p_surface->lods[l].index_buffer_size), "LONGSHOT patch #60: a level's index buffer did not come back whole from the device.");
+		all.append_array(level);
+		p_surface->level_first_index.push_back(total);
+		total += p_surface->lods[l].index_count;
+	}
+	p_surface->index_buffer_all = RD::get_singleton()->index_buffer_create(total, is_index_16 ? RD::INDEX_BUFFER_FORMAT_UINT16 : RD::INDEX_BUFFER_FORMAT_UINT32, all, false);
+	ERR_FAIL_COND(!p_surface->index_buffer_all.is_valid());
+	p_surface->index_array_all = RD::get_singleton()->index_array_create(p_surface->index_buffer_all, 0, total);
+}
+
+// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): an indirect multimesh that draws from its maker's buffers - one instance buffer and one
+// command buffer shared with the maker's other multimeshes (a GPU-driven maker culls and levels every instance in one dispatch, writing
+// them into slices of the instance buffer and their counts into the commands). The commands stand at p_command_offset as
+// [surface][pass][rung], five words each: the index count and first index of the level the rung admits on that surface (the coarsest
+// level of the surface whose edge is within the rung's key; the base at key 0), nought instances (the maker counts them), nought vertex
+// offset, and the slice's first instance (the draw's gl_InstanceIndex begins there - Vulkan; D3D12's SV_InstanceID does not, and this
+// fork builds without D3D12). The renderer draws a surface in pass p as one multi-draw over the pass's rung commands; the passes are the
+// renderer's: 0 the camera and anything else, 1..4 a directional light's cascade, 5 a local light's shadow, 6 the SDFGI's regions - a
+// maker with fewer passes draws its last for the rest. p_instances is the slices' room in all (the renderer's instance count: never
+// nought, so the draw is considered). The multimesh must be allocated indirect and carry its mesh already; its own buffers go.
+void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) {
+	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+	ERR_FAIL_NULL(multimesh);
+	ERR_FAIL_COND_MSG(!multimesh->indirect, "LONGSHOT patch #60: an external multimesh is allocated indirect first (multimesh_allocate_data with use_indirect).");
+	Mesh *mesh = mesh_owner.get_or_null(multimesh->mesh);
+	ERR_FAIL_NULL_MSG(mesh, "LONGSHOT patch #60: an external multimesh takes its buffers after its mesh.");
+	ERR_FAIL_COND_MSG(mesh->surface_count == 0, "LONGSHOT patch #60: the mesh has no surface.");
+	ERR_FAIL_COND_MSG(!p_instance_buffer.is_valid() || !p_command_buffer.is_valid(), "LONGSHOT patch #60: the maker's buffers are not valid.");
+	ERR_FAIL_COND_MSG(p_passes < 1 || p_rung_keys.is_empty() || p_rung_keys[0] != 0.0f, "LONGSHOT patch #60: a pass at least, and the rungs begin with the base's key 0.");
+	const uint32_t rungs = uint32_t(p_rung_keys.size());
+	const uint32_t passes = uint32_t(p_passes);
+	ERR_FAIL_COND_MSG(uint32_t(p_slice_first.size()) != passes * rungs, "LONGSHOT patch #60: a slice a (pass, rung).");
+	for (uint32_t r = 1; r < rungs; r++) {
+		ERR_FAIL_COND_MSG(p_rung_keys[r] <= p_rung_keys[r - 1], "LONGSHOT patch #60: the rungs' keys ascend.");
+	}
+	ERR_FAIL_COND_MSG(p_command_offset < 0 || (p_command_offset % 4) != 0, "LONGSHOT patch #60: the command offset is in whole words.");
+	for (uint32_t s = 0; s < mesh->surface_count; s++) {
+		ERR_FAIL_COND_MSG(mesh->surfaces[s]->index_count == 0, "LONGSHOT patch #60: an external multimesh's mesh is indexed on every surface.");
+		_mesh_surface_ensure_index_all(mesh->surfaces[s]);
+		ERR_FAIL_COND(!mesh->surfaces[s]->index_array_all.is_valid());
+	}
+	// its own buffers go (the maker's take their place); the sets over the old buffers go with them
+	if (multimesh->buffer.is_valid() && !multimesh->external) {
+		RD::get_singleton()->free_rid(multimesh->buffer);
+	}
+	if (multimesh->command_buffer.is_valid() && !multimesh->external) {
+		RD::get_singleton()->free_rid(multimesh->command_buffer);
+	}
+	if (multimesh->uniform_set_3d.is_valid() && RD::get_singleton()->uniform_set_is_valid(multimesh->uniform_set_3d)) {
+		RD::get_singleton()->free_rid(multimesh->uniform_set_3d);
+	}
+	if (multimesh->uniform_set_2d.is_valid() && RD::get_singleton()->uniform_set_is_valid(multimesh->uniform_set_2d)) {
+		RD::get_singleton()->free_rid(multimesh->uniform_set_2d);
+	}
+	multimesh->uniform_set_3d = RID();
+	multimesh->uniform_set_2d = RID();
+	if (multimesh->data_cache_dirty_regions) {
+		memdelete_arr(multimesh->data_cache_dirty_regions);
+		multimesh->data_cache_dirty_regions = nullptr;
+		multimesh->data_cache_dirty_region_count = 0;
+	}
+	if (multimesh->previous_data_cache_dirty_regions) {
+		memdelete_arr(multimesh->previous_data_cache_dirty_regions);
+		multimesh->previous_data_cache_dirty_regions = nullptr;
+		multimesh->previous_data_cache_dirty_region_count = 0;
+	}
+	multimesh->data_cache = Vector<float>();
+	multimesh->external = true;
+	multimesh->buffer = p_instance_buffer;
+	multimesh->command_buffer = p_command_buffer;
+	multimesh->external_command_offset = uint32_t(p_command_offset);
+	multimesh->external_passes = passes;
+	multimesh->external_rungs = rungs;
+	multimesh->instances = MAX(1, p_instances);
+	multimesh->visible_instances = -1;
+	multimesh->buffer_set = true;
+	multimesh->motion_vectors_enabled = false;
+	multimesh->motion_vectors_current_offset = 0;
+	multimesh->motion_vectors_previous_offset = 0;
+	multimesh->motion_vectors_last_change = -1;
+	// THE COMMANDS [surface][pass][rung]
+	Vector<uint32_t> cmds;
+	cmds.resize(mesh->surface_count * passes * rungs * INDIRECT_MULTIMESH_COMMAND_STRIDE);
+	uint32_t *w = cmds.ptrw();
+	for (uint32_t s = 0; s < mesh->surface_count; s++) {
+		const Mesh::Surface *sf = mesh->surfaces[s];
+		for (uint32_t r = 0; r < rungs; r++) {
+			uint32_t level = 0; // the base
+			for (uint32_t l = 0; l < sf->lod_count; l++) { // the levels ascend by edge (mesh_create_surface_data_from_arrays sorts them)
+				if (sf->lods[l].edge_length <= p_rung_keys[r]) {
+					level = l + 1;
+				} else {
+					break;
+				}
+			}
+			const uint32_t index_count = level == 0 ? sf->index_count : sf->lods[level - 1].index_count;
+			const uint32_t first_index = sf->level_first_index[level];
+			for (uint32_t p = 0; p < passes; p++) {
+				const uint32_t c = ((s * passes + p) * rungs + r) * INDIRECT_MULTIMESH_COMMAND_STRIDE;
+				w[c + 0] = index_count;
+				w[c + 1] = 0;
+				w[c + 2] = first_index;
+				w[c + 3] = 0;
+				w[c + 4] = uint32_t(p_slice_first[p * rungs + r]);
+			}
+		}
+	}
+	RD::get_singleton()->buffer_update(p_command_buffer, uint32_t(p_command_offset), cmds.size() * sizeof(uint32_t), cmds.ptr());
+	multimesh->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_MULTIMESH);
+}
+
 RID MeshStorage::_multimesh_get_buffer_rd_rid(RID p_multimesh) const {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL_V(multimesh, RID());
@@ -2206,6 +2354,7 @@ RID MeshStorage::_multimesh_get_buffer_rd_rid(RID p_multimesh) const {
 Vector<float> MeshStorage::_multimesh_get_buffer(RID p_multimesh) const {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL_V(multimesh, Vector<float>());
+	ERR_FAIL_COND_V_MSG(multimesh->external, Vector<float>(), "LONGSHOT patch #60: an external multimesh's instances are its maker's buffer.");
 	if (multimesh->buffer.is_null()) {
 		return Vector<float>();
 	} else {
@@ -2232,6 +2381,7 @@ void MeshStorage::_multimesh_set_visible_instances(RID p_multimesh, int p_visibl
 	if (multimesh->visible_instances == p_visible) {
 		return;
 	}
+	ERR_FAIL_COND_MSG(multimesh->external, "LONGSHOT patch #60: an external multimesh's instance counts are its maker's commands.");
 
 	if (multimesh->data_cache.size()) {
 		// There is a data cache, but we may need to update some sections.

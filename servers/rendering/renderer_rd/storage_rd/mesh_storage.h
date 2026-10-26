@@ -126,6 +126,12 @@ private:
 			LOD *lods = nullptr;
 			uint32_t lod_count = 0;
 
+			// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): every level's indices in one buffer - the base first, then each level in its
+			// order - so one multi-draw indirect draws a rung a command; made on the surface's first external multimesh, never before
+			RID index_buffer_all;
+			RID index_array_all;
+			LocalVector<uint32_t> level_first_index; // each level's first index in index_buffer_all (the base at 0)
+
 			AABB aabb;
 
 			Vector<AABB> bone_aabbs;
@@ -256,6 +262,14 @@ private:
 		RID uniform_set_3d;
 		RID uniform_set_2d;
 		RID command_buffer; //used if indirect setting is used
+
+		// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the instance and command buffers are a maker's, shared with its other multimeshes
+		// (multimesh_set_external_buffers); the commands stand [surface][pass][rung] from external_command_offset, a draw of the surface
+		// in pass p one multi-draw over its rungs' commands
+		bool external = false;
+		uint32_t external_command_offset = 0;
+		uint32_t external_passes = 0;
+		uint32_t external_rungs = 0;
 
 		bool dirty = false;
 		MultiMesh *dirty_list = nullptr;
@@ -533,6 +547,11 @@ public:
 		}
 	}
 
+	// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): every level's indices in one array (made by the surface's first external multimesh)
+	_FORCE_INLINE_ RID mesh_surface_get_index_array_all(void *p_surface) const {
+		return reinterpret_cast<Mesh::Surface *>(p_surface)->index_array_all;
+	}
+
 	_FORCE_INLINE_ void mesh_surface_get_vertex_arrays_and_format(void *p_surface, uint64_t p_input_mask, bool p_input_motion_vectors, bool p_point_size_emulated, RID &r_vertex_array_rd, RD::VertexFormatID &r_vertex_format) {
 		Mesh::Surface *s = reinterpret_cast<Mesh::Surface *>(p_surface);
 
@@ -702,6 +721,8 @@ public:
 
 	virtual void _multimesh_set_buffer(RID p_multimesh, const Vector<float> &p_buffer) override;
 	virtual RID _multimesh_get_command_buffer_rd_rid(RID p_multimesh) const override;
+	virtual void _multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) override; // LONGSHOT patch #60
+	void _mesh_surface_ensure_index_all(Mesh::Surface *p_surface); // LONGSHOT patch #60
 	virtual RID _multimesh_get_buffer_rd_rid(RID p_multimesh) const override;
 	virtual Vector<float> _multimesh_get_buffer(RID p_multimesh) const override;
 
@@ -751,6 +772,26 @@ public:
 			return multimesh->visible_instances;
 		}
 		return multimesh->instances;
+	}
+
+	// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): a multimesh drawing from its maker's buffers - its surface's draw in a pass is one
+	// multi-draw over the rungs' commands at this byte offset (a pass past the maker's count draws the last: a maker of one pass draws it everywhere)
+	_FORCE_INLINE_ bool multimesh_is_external(RID p_multimesh) const {
+		MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+		return multimesh != nullptr && multimesh->external;
+	}
+
+	_FORCE_INLINE_ uint32_t multimesh_external_command_offset(RID p_multimesh, uint32_t p_surface, uint32_t p_pass) const {
+		MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+		ERR_FAIL_NULL_V(multimesh, 0);
+		const uint32_t pass = MIN(p_pass, multimesh->external_passes - 1);
+		return multimesh->external_command_offset + ((p_surface * multimesh->external_passes + pass) * multimesh->external_rungs) * sizeof(uint32_t) * INDIRECT_MULTIMESH_COMMAND_STRIDE;
+	}
+
+	_FORCE_INLINE_ uint32_t multimesh_external_rungs(RID p_multimesh) const {
+		MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+		ERR_FAIL_NULL_V(multimesh, 0);
+		return multimesh->external_rungs;
 	}
 
 	_FORCE_INLINE_ RID multimesh_get_3d_uniform_set(RID p_multimesh, RID p_shader, uint32_t p_set) const {

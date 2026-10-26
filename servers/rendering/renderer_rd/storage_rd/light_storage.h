@@ -785,6 +785,21 @@ public:
 		return li->shadow_transform[p_index].shadow_texel_size;
 	}
 
+	// LONGSHOT patch #61: the cascade's split and texel for the scene cull's getter (instance_light_get_shadow_cascade)
+	virtual float light_instance_directional_shadow_split(RID p_light_instance, int p_cascade) override {
+		LightInstance *li = light_instance_owner.get_or_null(p_light_instance);
+		ERR_FAIL_NULL_V(li, 0.0f);
+		ERR_FAIL_INDEX_V(p_cascade, 6, 0.0f);
+		return li->shadow_transform[p_cascade].split;
+	}
+
+	virtual float light_instance_directional_shadow_texel(RID p_light_instance, int p_cascade) override {
+		LightInstance *li = light_instance_owner.get_or_null(p_light_instance);
+		ERR_FAIL_NULL_V(li, 0.0f);
+		ERR_FAIL_INDEX_V(p_cascade, 6, 0.0f);
+		return li->shadow_transform[p_cascade].shadow_texel_size;
+	}
+
 	_FORCE_INLINE_ void light_instance_set_render_pass(RID p_light_instance, uint64_t p_pass) {
 		LightInstance *li = light_instance_owner.get_or_null(p_light_instance);
 		li->last_pass = p_pass;

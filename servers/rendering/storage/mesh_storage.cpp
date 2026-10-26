@@ -255,6 +255,11 @@ RID RendererMeshStorage::multimesh_get_command_buffer_rd_rid(RID p_multimesh) co
 	return _multimesh_get_command_buffer_rd_rid(p_multimesh);
 }
 
+// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH)
+void RendererMeshStorage::multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) {
+	_multimesh_set_external_buffers(p_multimesh, p_instance_buffer, p_command_buffer, p_command_offset, p_rung_keys, p_slice_first, p_passes, p_instances);
+}
+
 RID RendererMeshStorage::multimesh_get_buffer_rd_rid(RID p_multimesh) const {
 	return _multimesh_get_buffer_rd_rid(p_multimesh);
 }

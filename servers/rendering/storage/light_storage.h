@@ -105,6 +105,9 @@ public:
 	virtual void light_instance_set_transform(RID p_light_instance, const Transform3D &p_transform) = 0;
 	virtual void light_instance_set_aabb(RID p_light_instance, const AABB &p_aabb) = 0;
 	virtual void light_instance_set_shadow_transform(RID p_light_instance, const Projection &p_projection, const Transform3D &p_transform, float p_far, float p_split, int p_pass, float p_shadow_texel_size, float p_bias_scale = 1.0, float p_range_begin = 0, const Vector2 &p_uv_scale = Vector2()) = 0;
+	// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - its far split and its texel (nought where a renderer keeps none)
+	virtual float light_instance_directional_shadow_split(RID p_light_instance, int p_cascade) { return 0.0f; }
+	virtual float light_instance_directional_shadow_texel(RID p_light_instance, int p_cascade) { return 0.0f; }
 	virtual void light_instance_mark_visible(RID p_light_instance) = 0;
 	virtual bool light_instances_can_render_shadow_cube() const {
 		return true;

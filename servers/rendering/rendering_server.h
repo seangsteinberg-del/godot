@@ -278,6 +278,10 @@ public:
 	virtual Color multimesh_instance_get_custom_data(RID p_multimesh, int p_index) const = 0;
 
 	virtual void multimesh_set_buffer(RID p_multimesh, const Vector<float> &p_buffer) = 0;
+	// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): an indirect multimesh drawing from its maker's instance and command buffers - the commands
+	// [surface][pass][rung] at the offset, a slice of the instance buffer a (pass, rung); the renderer's passes: 0 the camera and anything
+	// else, 1..4 a directional light's cascade, 5 a local light's shadow, 6 the SDFGI's regions
+	virtual void multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) = 0;
 	virtual RID multimesh_get_command_buffer_rd_rid(RID p_multimesh) const = 0;
 	virtual RID multimesh_get_buffer_rd_rid(RID p_multimesh) const = 0;
 	virtual Vector<float> multimesh_get_buffer(RID p_multimesh) const = 0;
@@ -726,6 +730,8 @@ public:
 	virtual void scenario_set_fallback_environment(RID p_scenario, RID p_environment) = 0;
 	virtual void scenario_set_camera_attributes(RID p_scenario, RID p_camera_attributes) = 0;
 	virtual void scenario_set_compositor(RID p_scenario, RID p_compositor) = 0;
+	// LONGSHOT patch #61: the visible local lights with shadows in the scenario - four floats each, the position and the range
+	virtual PackedFloat32Array scenario_get_shadowed_local_lights(RID p_scenario) = 0;
 
 	/* INSTANCING API */
 
@@ -765,6 +771,8 @@ public:
 
 	virtual void instance_geometry_set_flag(RID p_instance, RSE::InstanceFlags p_flags, bool p_enabled) = 0;
 	virtual void instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) = 0;
+	// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - x its far split (metres of view depth), y its texel (metres)
+	virtual Vector2 instance_light_get_shadow_cascade(RID p_instance, int p_cascade) = 0;
 	virtual void instance_geometry_set_material_override(RID p_instance, RID p_material) = 0;
 	virtual void instance_geometry_set_material_overlay(RID p_instance, RID p_material) = 0;
 	virtual void instance_geometry_set_visibility_range(RID p_instance, float p_min, float p_max, float p_min_margin, float p_max_margin, RSE::VisibilityRangeFadeMode p_fade_mode) = 0;

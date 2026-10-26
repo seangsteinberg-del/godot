@@ -2619,10 +2619,16 @@ void RenderForwardMobile::_render_list_template(RenderingDevice::DrawListID p_dr
 		}
 
 		if (pipeline_valid) {
-			if (!emulate_point_size) {
-				index_array_rd = mesh_storage->mesh_surface_get_index_array(mesh_surface, element_info.lod_index);
-			} else {
+			// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): an external multimesh draws every rung at once from the combined index array (the
+			// mobile renderer draws the maker's camera pass everywhere: the game runs Forward+)
+			const bool indirect = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT);
+			const bool external = indirect && mesh_storage->multimesh_is_external(surf->owner->data->base);
+			if (emulate_point_size) {
 				index_array_rd = RID();
+			} else if (external) {
+				index_array_rd = mesh_storage->mesh_surface_get_index_array_all(mesh_surface);
+			} else {
+				index_array_rd = mesh_storage->mesh_surface_get_index_array(mesh_surface, element_info.lod_index);
 			}
 
 			if (prev_vertex_array_rd != vertex_array_rd) {
@@ -2681,13 +2687,14 @@ void RenderForwardMobile::_render_list_template(RenderingDevice::DrawListID p_dr
 				instance_count /= surf->owner->trail_steps;
 			}
 
-			bool indirect = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT);
-
 			if (emulate_point_size) {
 				if (indirect) {
 					WARN_PRINT("Indirect draws are not supported when emulating point size.");
 				}
 				RD::get_singleton()->draw_list_draw(draw_list, false, mesh_storage->mesh_surface_get_vertex_count(mesh_surface), instance_count * 6);
+			} else if (external) {
+				// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the camera pass's commands of this surface, a rung each, in one multi-draw
+				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), mesh_storage->multimesh_external_command_offset(surf->owner->data->base, surf->surface_index, 0), mesh_storage->multimesh_external_rungs(surf->owner->data->base), sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE);
 			} else if (indirect) {
 				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), surf->surface_index * sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE, 1, 0);
 			} else {

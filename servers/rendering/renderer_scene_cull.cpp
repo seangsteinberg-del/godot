@@ -452,6 +452,34 @@ void RendererSceneCull::scenario_initialize(RID p_rid) {
 	RendererSceneOcclusionCull::get_singleton()->add_scenario(p_rid);
 }
 
+// LONGSHOT patch #61: the visible local lights with shadows in the scenario, four floats each - the position and the range - read by a
+// GPU-driven maker each frame to sort its casters into the local lights' shadow pass (a walk over the scenario's instance records: a
+// flag test an instance, the lights' few parameters looked up)
+PackedFloat32Array RendererSceneCull::scenario_get_shadowed_local_lights(RID p_scenario) {
+	PackedFloat32Array out;
+	Scenario *scenario = scenario_owner.get_or_null(p_scenario);
+	ERR_FAIL_NULL_V(scenario, out);
+	for (uint32_t i = 0; i < scenario->instance_data.size(); i++) {
+		const InstanceData &idata = scenario->instance_data[i];
+		if ((idata.flags & InstanceData::FLAG_BASE_TYPE_MASK) != uint32_t(RSE::INSTANCE_LIGHT)) {
+			continue;
+		}
+		const Instance *instance = idata.instance;
+		if (instance == nullptr || !instance->visible || !instance->base.is_valid()) {
+			continue;
+		}
+		if (RSG::light_storage->light_get_type(instance->base) == RSE::LIGHT_DIRECTIONAL || !RSG::light_storage->light_has_shadow(instance->base)) {
+			continue;
+		}
+		const Vector3 o = instance->transform.origin;
+		out.push_back(float(o.x));
+		out.push_back(float(o.y));
+		out.push_back(float(o.z));
+		out.push_back(float(RSG::light_storage->light_get_param(instance->base, RSE::LIGHT_PARAM_RANGE)));
+	}
+	return out;
+}
+
 void RendererSceneCull::scenario_set_environment(RID p_scenario, RID p_environment) {
 	Scenario *scenario = scenario_owner.get_or_null(p_scenario);
 	ERR_FAIL_NULL(scenario);
@@ -1328,6 +1356,18 @@ void RendererSceneCull::instance_geometry_set_flag(RID p_instance, RSE::Instance
 		default: {
 		}
 	}
+}
+
+// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - x its far split (view depth, metres), y its texel
+// (metres a shadow-map pixel) - for a GPU-driven maker that levels its casters by the cascade's own law and sorts them by its range
+Vector2 RendererSceneCull::instance_light_get_shadow_cascade(RID p_instance, int p_cascade) {
+	Instance *instance = instance_owner.get_or_null(p_instance);
+	ERR_FAIL_NULL_V(instance, Vector2());
+	ERR_FAIL_COND_V_MSG(instance->base_type != RSE::INSTANCE_LIGHT, Vector2(), "LONGSHOT patch #61: not a light's instance.");
+	ERR_FAIL_INDEX_V(p_cascade, 4, Vector2());
+	const InstanceLightData *light = static_cast<InstanceLightData *>(instance->base_data);
+	ERR_FAIL_NULL_V(light, Vector2());
+	return Vector2(RSG::light_storage->light_instance_directional_shadow_split(light->instance, p_cascade), RSG::light_storage->light_instance_directional_shadow_texel(light->instance, p_cascade));
 }
 
 void RendererSceneCull::instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) {

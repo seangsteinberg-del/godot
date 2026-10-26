@@ -539,10 +539,16 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		}
 
 		if (pipeline_valid) {
-			if (!emulate_point_size) {
-				index_array_rd = mesh_storage->mesh_surface_get_index_array(mesh_surface, element_info.lod_index);
-			} else {
+			// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): an external multimesh draws every rung of the chain at once, from the surface's
+			// combined index array, one multi-draw over the pass's commands
+			const bool indirect = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT);
+			const bool external = indirect && mesh_storage->multimesh_is_external(surf->owner->data->base);
+			if (emulate_point_size) {
 				index_array_rd = RID();
+			} else if (external) {
+				index_array_rd = mesh_storage->mesh_surface_get_index_array_all(mesh_surface);
+			} else {
+				index_array_rd = mesh_storage->mesh_surface_get_index_array(mesh_surface, element_info.lod_index);
 			}
 
 			if (prev_vertex_array_rd != vertex_array_rd) {
@@ -584,8 +590,8 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				push_constant.multimesh_motion_vectors_previous_offset = 0;
 			}
 
-			// LONGSHOT patch #8: the level in hand's side; patch #60: an indirect multimesh's draw reads each instance's own share (bit 9)
-			push_constant.lod_fade = (surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT) ? 512u : element_info.lod_fade;
+			// LONGSHOT patch #8: the level in hand's side; patch #60: an external multimesh's draw reads each instance's own share (bit 9)
+			push_constant.lod_fade = external ? 512u : element_info.lod_fade;
 
 			size_t push_constant_size = 0;
 			if (pipeline_key.ubershader) {
@@ -604,13 +610,14 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				instance_count /= surf->owner->trail_steps;
 			}
 
-			bool indirect = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT);
-
 			if (emulate_point_size) {
 				if (indirect) {
 					WARN_PRINT("Indirect draws are not supported when emulating point size.");
 				}
 				RD::get_singleton()->draw_list_draw(draw_list, false, mesh_storage->mesh_surface_get_vertex_count(mesh_surface), instance_count * 6);
+			} else if (external) {
+				// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the pass's commands of this surface, a rung each, in one multi-draw
+				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), mesh_storage->multimesh_external_command_offset(surf->owner->data->base, surf->surface_index, p_params->external_pass), mesh_storage->multimesh_external_rungs(surf->owner->data->base), sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE);
 			} else if (indirect) {
 				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), surf->surface_index * sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE, 1, 0);
 			} else {
@@ -1127,11 +1134,11 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 			// LOD
 			if (inst->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT) {
-				// LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): an indirect multimesh's command buffer holds its base rung's index count,
-				// so its draw is the base rung always (a level chain is the maker's: one multimesh a rung), and its dither share is each
-				// instance's own - the fade's pipeline is on (the key's fade a constant, so equal draws still repeat as one)
+				// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): an indirect multimesh's draw is its command buffer's - the base rung for
+				// Godot's own (the command holds the base's count), every rung at once for an external one (a command a pass a rung, the
+				// maker's pass having levelled each instance and written its dither share into its custom data's w, which the draw reads)
 				surf->sort.lod_index = 0;
-				surf->sort.lod_fade = 255;
+				surf->sort.lod_fade = mesh_storage->multimesh_is_external(inst->data->base) ? 255 : 0;
 			} else if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface)) {
 				uint32_t indices = 0;
 				surf->sort.lod_index = mesh_storage->mesh_surface_get_lod(surf->surface, inst->lod_model_scale * inst->lod_bias, lod_distance * p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, indices);
@@ -2667,6 +2674,8 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 	ERR_FAIL_COND(!light_storage->owns_light_instance(p_light));
 
 	RID base = light_storage->light_instance_get_base_light(p_light);
+	// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the pass an external multimesh draws its commands for - a directional cascade 1..4, a local light's shadow 5
+	const uint32_t external_pass = light_storage->light_get_type(base) == RSE::LIGHT_DIRECTIONAL ? 1u + uint32_t(MAX(0, p_pass)) : 5u;
 
 	Rect2i atlas_rect;
 	uint32_t atlas_size = 1;
@@ -2847,7 +2856,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 
 	if (render_cubemap) {
 		//rendering to cubemap
-		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform);
+		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform, external_pass);
 		if (finalize_cubemap) {
 			_render_shadow_process();
 			_render_shadow_end();
@@ -2865,7 +2874,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 
 	} else {
 		//render shadow
-		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform);
+		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass);
 	}
 }
 
@@ -2879,8 +2888,9 @@ void RenderForwardClustered::_render_shadow_begin() {
 	// because _fill_instance_data will do that if it detects p_offset == 0u.
 }
 
-void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, const Rect2i &p_rect, bool p_flip_y, bool p_clear_region, bool p_begin, bool p_end, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform) {
+void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, const Rect2i &p_rect, bool p_flip_y, bool p_clear_region, bool p_begin, bool p_end, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform, uint32_t p_external_pass) {
 	SceneState::ShadowPass shadow_pass;
+	shadow_pass.external_pass = p_external_pass; // LONGSHOT patch #60
 
 	RenderSceneDataRD scene_data;
 	scene_data.flip_y = !p_flip_y; // Q: Why is this inverted? Do we assume flip in shadow logic?
@@ -2977,6 +2987,7 @@ void RenderForwardClustered::_render_shadow_end() {
 
 	for (SceneState::ShadowPass &shadow_pass : scene_state.shadow_passes) {
 		RenderListParameters render_list_parameters(render_list[RENDER_LIST_SECONDARY].elements.ptr() + shadow_pass.element_from, render_list[RENDER_LIST_SECONDARY].element_info.ptr() + shadow_pass.element_from, shadow_pass.element_count, shadow_pass.flip_cull, shadow_pass.pass_mode, 0, true, false, shadow_pass.rp_uniform_set, false, Vector2(), shadow_pass.lod_distance_multiplier, shadow_pass.screen_mesh_lod_threshold, 1, shadow_pass.element_from);
+		render_list_parameters.external_pass = shadow_pass.external_pass; // LONGSHOT patch #60
 		_render_list_with_draw_list(&render_list_parameters, shadow_pass.framebuffer, shadow_pass.clear_depth ? RD::DRAW_CLEAR_DEPTH : RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0, shadow_pass.rect);
 	}
 
@@ -3249,6 +3260,7 @@ void RenderForwardClustered::_render_sdfgi(Ref<RenderSceneBuffersRD> p_render_bu
 		}
 
 		RenderListParameters render_list_params(render_list[RENDER_LIST_SECONDARY].elements.ptr(), render_list[RENDER_LIST_SECONDARY].element_info.ptr(), render_list[RENDER_LIST_SECONDARY].elements.size(), true, pass_mode, 0, true, false, rp_uniform_set, false);
+		render_list_params.external_pass = 6; // LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the SDFGI's regions take the maker's SDF slice
 		_render_list_with_draw_list(&render_list_params, E->value);
 	}
 
