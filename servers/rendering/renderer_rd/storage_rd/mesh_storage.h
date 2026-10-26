@@ -127,7 +127,7 @@ private:
 			uint32_t lod_count = 0;
 
 			// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): every level's indices in one buffer - the base first, then each level in its
-			// order - so one multi-draw indirect draws a rung a command; made on the surface's first external multimesh, never before
+			// order - so one multi-draw indirect draws a rung a command; made from the indices a maker gives (mesh_surface_set_level_index_data)
 			RID index_buffer_all;
 			RID index_array_all;
 			LocalVector<uint32_t> level_first_index; // each level's first index in index_buffer_all (the base at 0)
@@ -722,7 +722,7 @@ public:
 	virtual void _multimesh_set_buffer(RID p_multimesh, const Vector<float> &p_buffer) override;
 	virtual RID _multimesh_get_command_buffer_rd_rid(RID p_multimesh) const override;
 	virtual void _multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) override; // LONGSHOT patch #60
-	void _mesh_surface_ensure_index_all(Mesh::Surface *p_surface); // LONGSHOT patch #60
+	virtual void _mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) override; // LONGSHOT patch #60
 	virtual RID _multimesh_get_buffer_rd_rid(RID p_multimesh) const override;
 	virtual Vector<float> _multimesh_get_buffer(RID p_multimesh) const override;
 

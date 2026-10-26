@@ -2219,29 +2219,34 @@ RID MeshStorage::_multimesh_get_command_buffer_rd_rid(RID p_multimesh) const {
 }
 
 // LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): every level of the surface in one index buffer, the base first and then each level in its
-// order, with each level's first index kept - one multi-draw indirect over the rungs' commands then draws any level of the chain. Made
-// once, on the surface's first external multimesh: the indices come back from the device for it (a maker asks at its group's making, never
-// in a frame's run).
-void MeshStorage::_mesh_surface_ensure_index_all(Mesh::Surface *p_surface) {
-	if (p_surface->index_array_all.is_valid() || p_surface->index_count == 0) {
+// order (the storage's: ascending by edge), with each level's first index kept - one multi-draw indirect over the rungs' commands then
+// draws any level of the chain. The maker gives the indices (it holds them: a mesh it built, or one it recorded) in the surface's own
+// width - 16 bits up to 65,536 vertices, as mesh_add_surface decided - so the device is never read for them; made once a surface.
+void MeshStorage::_mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) {
+	Mesh *mesh = mesh_owner.get_or_null(p_mesh);
+	ERR_FAIL_NULL(mesh);
+	ERR_FAIL_UNSIGNED_INDEX((uint32_t)p_surface, mesh->surface_count);
+	Mesh::Surface *s = mesh->surfaces[p_surface];
+	if (s->index_array_all.is_valid()) {
 		return;
 	}
-	const bool is_index_16 = p_surface->vertex_count <= 65536 && p_surface->vertex_count > 0; // as mesh_add_surface decided the width
-	Vector<uint8_t> all = RD::get_singleton()->buffer_get_data(p_surface->index_buffer);
-	ERR_FAIL_COND_MSG(all.size() != int(p_surface->index_buffer_size), "LONGSHOT patch #60: a surface's index buffer did not come back whole from the device.");
-	p_surface->level_first_index.clear();
-	p_surface->level_first_index.push_back(0);
-	uint32_t total = p_surface->index_count;
-	for (uint32_t l = 0; l < p_surface->lod_count; l++) {
-		Vector<uint8_t> level = RD::get_singleton()->buffer_get_data(p_surface->lods[l].index_buffer);
-		ERR_FAIL_COND_MSG(level.size() != int(p_surface->lods[l].index_buffer_size), "LONGSHOT patch #60: a level's index buffer did not come back whole from the device.");
-		all.append_array(level);
-		p_surface->level_first_index.push_back(total);
-		total += p_surface->lods[l].index_count;
+	ERR_FAIL_COND_MSG(s->index_count == 0, "LONGSHOT patch #60: the surface has no indices.");
+	const bool is_index_16 = s->vertex_count <= 65536 && s->vertex_count > 0;
+	uint32_t total = s->index_count;
+	for (uint32_t l = 0; l < s->lod_count; l++) {
+		total += s->lods[l].index_count;
 	}
-	p_surface->index_buffer_all = RD::get_singleton()->index_buffer_create(total, is_index_16 ? RD::INDEX_BUFFER_FORMAT_UINT16 : RD::INDEX_BUFFER_FORMAT_UINT32, all, false);
-	ERR_FAIL_COND(!p_surface->index_buffer_all.is_valid());
-	p_surface->index_array_all = RD::get_singleton()->index_array_create(p_surface->index_buffer_all, 0, total);
+	ERR_FAIL_COND_MSG(uint32_t(p_data.size()) != total * (is_index_16 ? 2u : 4u), vformat("LONGSHOT patch #60: the levels' indices given (%d bytes) are not the surface's %d indices at %d bytes each.", p_data.size(), total, is_index_16 ? 2 : 4));
+	s->level_first_index.clear();
+	s->level_first_index.push_back(0);
+	uint32_t at = s->index_count;
+	for (uint32_t l = 0; l < s->lod_count; l++) {
+		s->level_first_index.push_back(at);
+		at += s->lods[l].index_count;
+	}
+	s->index_buffer_all = RD::get_singleton()->index_buffer_create(total, is_index_16 ? RD::INDEX_BUFFER_FORMAT_UINT16 : RD::INDEX_BUFFER_FORMAT_UINT32, p_data, false);
+	ERR_FAIL_COND(!s->index_buffer_all.is_valid());
+	s->index_array_all = RD::get_singleton()->index_array_create(s->index_buffer_all, 0, total);
 }
 
 // LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): an indirect multimesh that draws from its maker's buffers - one instance buffer and one
@@ -2253,7 +2258,7 @@ void MeshStorage::_mesh_surface_ensure_index_all(Mesh::Surface *p_surface) {
 // fork builds without D3D12). The renderer draws a surface in pass p as one multi-draw over the pass's rung commands; the passes are the
 // renderer's: 0 the camera and anything else, 1..4 a directional light's cascade, 5 a local light's shadow, 6 the SDFGI's regions - a
 // maker with fewer passes draws its last for the rest. p_instances is the slices' room in all (the renderer's instance count: never
-// nought, so the draw is considered). The multimesh must be allocated indirect and carry its mesh already; its own buffers go.
+// nought, so the draw is considered). The multimesh must be allocated indirect and carry its mesh already, every surface of the mesh given its levels' indices first (mesh_surface_set_level_index_data); its own buffers go.
 void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
@@ -2272,8 +2277,7 @@ void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instanc
 	ERR_FAIL_COND_MSG(p_command_offset < 0 || (p_command_offset % 4) != 0, "LONGSHOT patch #60: the command offset is in whole words.");
 	for (uint32_t s = 0; s < mesh->surface_count; s++) {
 		ERR_FAIL_COND_MSG(mesh->surfaces[s]->index_count == 0, "LONGSHOT patch #60: an external multimesh's mesh is indexed on every surface.");
-		_mesh_surface_ensure_index_all(mesh->surfaces[s]);
-		ERR_FAIL_COND(!mesh->surfaces[s]->index_array_all.is_valid());
+		ERR_FAIL_COND_MSG(!mesh->surfaces[s]->index_array_all.is_valid(), "LONGSHOT patch #60: the maker gives every level's indices first (mesh_surface_set_level_index_data); the device is never read for them.");
 	}
 	// its own buffers go (the maker's take their place); the sets over the old buffers go with them
 	if (multimesh->buffer.is_valid() && !multimesh->external) {

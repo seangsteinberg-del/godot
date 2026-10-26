@@ -2124,6 +2124,10 @@ void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instanc
 	ERR_FAIL_MSG("GLES3 does not implement external multimeshes (LONGSHOT patch #60: they draw through the rendering device)."); // LONGSHOT patch #60
 }
 
+void MeshStorage::_mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) {
+	ERR_FAIL_MSG("GLES3 does not implement external multimeshes (LONGSHOT patch #60: the levels' combined indices serve them alone)."); // LONGSHOT patch #60
+}
+
 RID MeshStorage::_multimesh_get_buffer_rd_rid(RID p_multimesh) const {
 	ERR_FAIL_V_MSG(RID(), "GLES3 does not contain a Rid for the multimesh buffer.");
 }
