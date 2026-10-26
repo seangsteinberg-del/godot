@@ -931,6 +931,9 @@ def configure_mingw(env: "SConsEnvironment"):
 
     if env.debug_features:
         env.Append(LIBS=["psapi", "dbghelp"])
+        # LONGSHOT patch #69: the crash handler compiled in (crash_handler_windows_seh.cpp stands behind this define and nothing set it, so
+        # every MSVC build died without a word; with the symbols beside the exe it names the frames)
+        env.Append(CPPDEFINES=["CRASH_HANDLER_EXCEPTION"])
 
     if env["vulkan"]:
         env.Append(CPPDEFINES=["VULKAN_ENABLED", "RD_ENABLED"])
