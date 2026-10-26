@@ -497,12 +497,16 @@ void GI::SDFGI::create(RID p_env, const Vector3 &p_world_position, uint32_t p_re
 
 	history_size = p_requested_history_size;
 
+	// [patch] #64 THE PROBES' HISTORY IN HALF FLOATS: the entries were 16-bit integers in 1/1024 steps clamped at 32 units - a window set by the
+	// exposure the cascade was built at (baked_exposure_normalization), so a cascade built by day held the night in a few steps and a lamp's
+	// bright entry clipped (the night pad's light depended on where the eye looked when its cascades were built); half floats hold eleven
+	// stops more at the top and no floor, the same eight bytes, and the average is their float sum, re-summed exactly once a window
 	RD::TextureFormat tf_probe_history = tf_probes;
-	tf_probe_history.format = RD::DATA_FORMAT_R16G16B16A16_SINT; //signed integer because SH are signed
+	tf_probe_history.format = RD::DATA_FORMAT_R16G16B16A16_SFLOAT; // the SH entries, signed, as they are
 	tf_probe_history.array_layers = history_size;
 
 	RD::TextureFormat tf_probe_average = tf_probes;
-	tf_probe_average.format = RD::DATA_FORMAT_R32G32B32A32_SINT; //signed integer because SH are signed
+	tf_probe_average.format = RD::DATA_FORMAT_R32G32B32A32_SFLOAT; // the window's sum
 	tf_probe_average.texture_type = RD::TEXTURE_TYPE_2D;
 
 	lightprobe_history_scroll = create_clear_texture(tf_probe_history, "SDFGI LightProbe History Scroll");
