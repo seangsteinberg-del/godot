@@ -182,6 +182,10 @@ uint cluster_get_range_clip_mask(uint i, uint z_min, uint z_max) {
 layout(location = 14) out vec2 point_coord_interp;
 #endif
 
+// LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): an indirect multimesh's instance carries its own dither share in its custom
+// data's w (the base side's share in 0..1, the next side's 1 + share); the fragment reads it where the draw's lod_fade bit 9 says so
+layout(location = 15) out flat float lod_fade_inst_interp;
+
 invariant gl_Position;
 
 #GLOBALS
@@ -335,6 +339,7 @@ void vertex_shader(vec3 vertex_input,
 #endif
 		//transpose
 		matrix = transpose(matrix);
+		lod_fade_inst_interp = instance_custom.w; // LONGSHOT patch #60: the instance's own dither share (read under bit 9 alone)
 #if !defined(USE_DOUBLE_PRECISION) || defined(SKIP_TRANSFORM_USED) || defined(VERTEX_WORLD_COORDS_USED) || defined(MODEL_MATRIX_USED)
 		// Normally we can bake the multimesh transform into the model matrix, but when using double precision
 		// we avoid baking it in so we can emulate high precision.
@@ -1006,6 +1011,8 @@ layout(location = 13) in vec4 specular_light_interp;
 #if defined(POINT_SIZE_USED) && defined(POINT_COORD_USED)
 layout(location = 14) in vec2 point_coord_interp;
 #endif
+
+layout(location = 15) in flat float lod_fade_inst_interp; // LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE)
 
 //defines to keep compatibility with vertex
 
@@ -3197,10 +3204,21 @@ void main() {
 	// pixel; without TAA the count is 0 and the pattern stands. The shadow passes carry a count of 0 and keep the
 	// still pattern (a shadow map is not accumulated), and the depth pre-pass shares this pass's count.
 	if (sc_use_lod_fade()) {
-		float lod_share = float(draw_call.lod_fade & 255U) / 255.0;
+		float lod_share;
+		bool lod_next;
+		if ((draw_call.lod_fade & 512U) != 0U) {
+			// LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): an indirect multimesh draws its base rung for every instance, and a
+			// pass of the maker's writes each instance's share into its custom data's w - the base side's share in 0..1 (the rung
+			// leaving), the next side's 1 + share (the rung arriving, in its own multimesh); the two keep complementary pixels as the
+			// two draws of a level do below. A w of 0 draws the instance whole
+			lod_next = lod_fade_inst_interp >= 1.0;
+			lod_share = lod_next ? lod_fade_inst_interp - 1.0 : lod_fade_inst_interp;
+		} else {
+			lod_share = float(draw_call.lod_fade & 255U) / 255.0;
+			lod_next = (draw_call.lod_fade & 256U) != 0U;
+		}
 		vec2 lod_coord = gl_FragCoord.xy + vec2(scene_data_block.data.taa_frame_count * 5.588238);
 		float lod_noise = fract(52.9829189 * fract(dot(lod_coord, vec2(0.06711056, 0.00583715))));
-		bool lod_next = (draw_call.lod_fade & 256U) != 0U;
 		if (lod_next ? (lod_noise >= lod_share) : (lod_noise < lod_share)) {
 			discard;
 		}

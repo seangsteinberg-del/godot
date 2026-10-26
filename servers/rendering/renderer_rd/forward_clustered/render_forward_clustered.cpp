@@ -584,7 +584,8 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				push_constant.multimesh_motion_vectors_previous_offset = 0;
 			}
 
-			push_constant.lod_fade = element_info.lod_fade; // LONGSHOT patch #8: the level in hand's side
+			// LONGSHOT patch #8: the level in hand's side; patch #60: an indirect multimesh's draw reads each instance's own share (bit 9)
+			push_constant.lod_fade = (surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT) ? 512u : element_info.lod_fade;
 
 			size_t push_constant_size = 0;
 			if (pipeline_key.ubershader) {
@@ -1125,7 +1126,13 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			surf->sort.uses_lightmap = 0;
 
 			// LOD
-			if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface)) {
+			if (inst->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT) {
+				// LONGSHOT patch #60 (THE FADE RIDES THE INSTANCE): an indirect multimesh's command buffer holds its base rung's index count,
+				// so its draw is the base rung always (a level chain is the maker's: one multimesh a rung), and its dither share is each
+				// instance's own - the fade's pipeline is on (the key's fade a constant, so equal draws still repeat as one)
+				surf->sort.lod_index = 0;
+				surf->sort.lod_fade = 255;
+			} else if (p_render_data->scene_data->screen_mesh_lod_threshold > 0.0 && mesh_storage->mesh_surface_has_lod(surf->surface)) {
 				uint32_t indices = 0;
 				surf->sort.lod_index = mesh_storage->mesh_surface_get_lod(surf->surface, inst->lod_model_scale * inst->lod_bias, lod_distance * p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, indices);
 				// LONGSHOT patch #8 (THE DITHERED LOD FADE): the share of the next level dithered in across the band before its key
