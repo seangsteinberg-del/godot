@@ -90,6 +90,9 @@ private:
 
 	/* LIGHT INSTANCE */
 
+	static constexpr int DIRECTIONAL_CACHE_CASCADES = 4; // LONGSHOT patch #65: a kept static map a cascade (RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES)
+	static constexpr uint64_t DIRECTIONAL_CACHE_HOLD_FRAMES = 8; // LONGSHOT patch #65: a render's kept maps are its own while it rendered within this many frames
+
 	struct LightInstance {
 		struct ShadowTransform {
 			Projection camera;
@@ -124,6 +127,21 @@ private:
 		uint32_t light_directional_index = 0;
 
 		Rect2 directional_rect;
+
+		// LONGSHOT patch #65 (THE SHADOWS CACHED): a cascade's kept static map - the window it is drawn in, whose static casters (their
+		// version), for which render (its buffers' object id), and the render-side keys it was captured under
+		struct DirectionalCache {
+			bool valid = false; // a window is recorded
+			bool captured = false; // the atlas's static twin holds this window's static casters at rect
+			uint64_t owner = 0;
+			uint64_t frame = 0; // the frame it last served
+			uint64_t casters_version = 0;
+			uint32_t light_index = 0; // the light's index in the cull's shadows this frame
+			ShadowTransform window;
+			Rect2i rect;
+			RID atlas; // the atlas it was captured from
+			int viewport_width = 0; // the render's width (the level-of-detail threshold's base) at the capture
+		} directional_cache[DIRECTIONAL_CACHE_CASCADES];
 
 		HashSet<RID> shadow_atlases; //shadow atlases where this light is registered
 
@@ -443,6 +461,7 @@ private:
 	struct DirectionalShadow {
 		RID depth;
 		RID fb; //when renderign direct
+		RID static_depth; // LONGSHOT patch #65: the atlas's twin holding the cascades' kept static maps (copied to and from the atlas, never drawn to or sampled)
 
 		int light_count = 0;
 		int size = 0;
@@ -631,6 +650,10 @@ public:
 	virtual void light_instance_set_transform(RID p_light_instance, const Transform3D &p_transform) override;
 	virtual void light_instance_set_aabb(RID p_light_instance, const AABB &p_aabb) override;
 	virtual void light_instance_set_shadow_transform(RID p_light_instance, const Projection &p_projection, const Transform3D &p_transform, float p_far, float p_split, int p_pass, float p_shadow_texel_size, float p_bias_scale = 1.0, float p_range_begin = 0, const Vector2 &p_uv_scale = Vector2()) override;
+	// LONGSHOT patch #65 (THE SHADOWS CACHED)
+	virtual int light_instance_directional_cache(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, uint64_t p_casters_version, Projection &r_projection, Transform3D &r_transform, real_t &r_far, real_t &r_split, real_t &r_texel, real_t &r_bias_scale, real_t &r_range_begin, Vector2 &r_uv_scale) override;
+	bool light_instance_directional_cache_keys(RID p_light_instance, int p_cascade, const Rect2i &p_rect, int p_viewport_width); // the kept map's render-side keys (its rect, the atlas, the viewport's width): true when they stand; set to this frame's either way
+	void directional_shadow_static_copy(const Rect2i &p_rect, bool p_to_atlas); // the rect copied from the static twin into the atlas, or out of the atlas into the twin
 	virtual void light_instance_mark_visible(RID p_light_instance) override;
 
 	virtual bool light_instance_is_shadow_visible_at_position(RID p_light_instance, const Vector3 &p_position) const override {

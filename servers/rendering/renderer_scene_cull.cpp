@@ -553,6 +553,25 @@ void RendererSceneCull::scenario_add_viewport_visibility_mask(RID p_scenario, RI
 
 /* INSTANCING API */
 
+// LONGSHOT patch #65 (THE SHADOWS CACHED): a caster's shadow changed - stamped moving (dynamic for SHADOW_STATIC_AFTER_FRAMES), and the
+// cascades whose kept static maps hold it have their versions moved, so the maps are rebuilt without it
+void RendererSceneCull::_shadow_caster_changed(InstanceData &r_idata, Scenario *p_scenario) {
+	r_idata.shadow_moved_frame = RSG::rasterizer->get_frame_number();
+	if (r_idata.shadow_static_cascades != 0) {
+		p_scenario->shadow_static_changed(r_idata.shadow_static_cascades);
+		r_idata.shadow_static_cascades = 0;
+	}
+}
+
+// LONGSHOT patch #65: a caster hidden or shown by its visibility range leaves the kept maps that hold it (the cull's threads call this)
+void RendererSceneCull::_shadow_hidden_changed(InstanceData &r_idata, uint32_t p_hidden_before, Scenario *p_scenario) {
+	const uint32_t hidden_now = r_idata.flags & (InstanceData::FLAG_VISIBILITY_DEPENDENCY_HIDDEN | InstanceData::FLAG_VISIBILITY_DEPENDENCY_HIDDEN_CLOSE_RANGE);
+	if (hidden_now != p_hidden_before && r_idata.shadow_static_cascades != 0) {
+		p_scenario->shadow_static_changed(r_idata.shadow_static_cascades);
+		r_idata.shadow_static_cascades = 0;
+	}
+}
+
 void RendererSceneCull::_instance_queue_update(Instance *p_instance, bool p_update_aabb, bool p_update_dependencies) const {
 	if (p_update_aabb) {
 		p_instance->update_aabb = true;
@@ -968,6 +987,7 @@ void RendererSceneCull::instance_set_layer_mask(RID p_instance, uint32_t p_mask)
 	instance->layer_mask = p_mask;
 	if (instance->scenario && instance->array_index >= 0) {
 		instance->scenario->instance_data[instance->array_index].layer_mask = p_mask;
+		_shadow_caster_changed(instance->scenario->instance_data[instance->array_index], instance->scenario); // LONGSHOT patch #65: the cascades' caster mask reads it
 	}
 
 	if ((1 << instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK && instance->base_data) {
@@ -1390,6 +1410,7 @@ void RendererSceneCull::instance_geometry_set_cast_shadows_setting(RID p_instanc
 		} else {
 			idata.flags &= ~InstanceData::FLAG_CAST_SHADOWS_ONLY;
 		}
+		_shadow_caster_changed(idata, instance->scenario); // LONGSHOT patch #65: the cascades' casters read the setting
 	}
 
 	if ((1 << instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK && instance->base_data) {
@@ -1826,6 +1847,7 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		idata.parent_array_index = p_instance->visibility_parent ? p_instance->visibility_parent->array_index : -1;
 		idata.visibility_index = p_instance->visibility_index;
 		idata.occlusion_timeout = 0;
+		idata.shadow_moved_frame = RSG::rasterizer->get_frame_number(); // LONGSHOT patch #65: born moving; static after SHADOW_STATIC_AFTER_FRAMES
 
 		for (Instance *E : p_instance->visibility_dependencies) {
 			Instance *dep_instance = E;
@@ -1889,6 +1911,9 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		if (p_instance->mesh_instance.is_valid()) {
 			idata.flags |= InstanceData::FLAG_USES_MESH_INSTANCE;
 		}
+		if (((1 << p_instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) && static_cast<InstanceGeometryData *>(p_instance->base_data)->material_is_animated) {
+			idata.flags |= InstanceData::FLAG_SHADOW_ANIMATED; // LONGSHOT patch #65
+		}
 		if (p_instance->ignore_occlusion_culling) {
 			idata.flags |= InstanceData::FLAG_IGNORE_OCCLUSION_CULLING;
 		}
@@ -1906,6 +1931,22 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 			p_instance->scenario->indexers[Scenario::INDEXER_VOLUMES].update(p_instance->indexer_id, bvh_aabb);
 		}
 		p_instance->scenario->instance_aabbs[p_instance->array_index] = InstanceBounds(p_instance->transformed_aabb);
+
+		// LONGSHOT patch #65 (THE SHADOWS CACHED): its shadow changed when its transform, bounds or base did (update_aabb), or a materials-only
+		// update changed its casting or its material's animation - then it is stamped moving and the kept maps that held it are stale. A
+		// material's values alone (a parameter set each frame) move no shadow and stamp nothing.
+		InstanceData &idata = p_instance->scenario->instance_data[p_instance->array_index];
+		bool shadow_changed = p_instance->update_aabb || p_instance->shadow_changed;
+		if ((1 << p_instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) {
+			const bool animated = static_cast<InstanceGeometryData *>(p_instance->base_data)->material_is_animated;
+			if (animated != bool(idata.flags & InstanceData::FLAG_SHADOW_ANIMATED)) {
+				idata.flags ^= InstanceData::FLAG_SHADOW_ANIMATED;
+				shadow_changed = true;
+			}
+		}
+		if (shadow_changed) {
+			_shadow_caster_changed(idata, p_instance->scenario);
+		}
 	}
 
 	if (p_instance->visibility_index != -1) {
@@ -1985,6 +2026,11 @@ void RendererSceneCull::_unpair_instance(Instance *p_instance) {
 	}
 
 	p_instance->indexer_id = DynamicBVH::ID();
+
+	// LONGSHOT patch #65: a caster the kept static maps hold leaves the scenario's arrays - those maps are stale
+	if (p_instance->scenario->instance_data[p_instance->array_index].shadow_static_cascades != 0) {
+		p_instance->scenario->shadow_static_changed(p_instance->scenario->instance_data[p_instance->array_index].shadow_static_cascades);
+	}
 
 	//replace this by last
 	int32_t swap_with_index = p_instance->scenario->instance_data.size() - 1;
@@ -2868,6 +2914,7 @@ void RendererSceneCull::_visibility_cull(const VisibilityCullData &cull_data, ui
 	for (unsigned int i = p_from; i < p_to; i++) {
 		InstanceVisibilityData &vd = scenario->instance_visibility[i];
 		InstanceData &idata = scenario->instance_data[vd.array_index];
+		const uint32_t hidden_before = idata.flags & (InstanceData::FLAG_VISIBILITY_DEPENDENCY_HIDDEN | InstanceData::FLAG_VISIBILITY_DEPENDENCY_HIDDEN_CLOSE_RANGE); // LONGSHOT patch #65
 
 		if (idata.parent_array_index >= 0) {
 			uint32_t parent_flags = scenario->instance_data[idata.parent_array_index].flags;
@@ -2876,6 +2923,7 @@ void RendererSceneCull::_visibility_cull(const VisibilityCullData &cull_data, ui
 				idata.flags |= InstanceData::FLAG_VISIBILITY_DEPENDENCY_HIDDEN;
 				idata.flags &= ~InstanceData::FLAG_VISIBILITY_DEPENDENCY_HIDDEN_CLOSE_RANGE;
 				idata.flags &= ~InstanceData::FLAG_VISIBILITY_DEPENDENCY_FADE_CHILDREN;
+				_shadow_hidden_changed(idata, hidden_before, scenario); // LONGSHOT patch #65
 				continue;
 			}
 		}
@@ -2899,6 +2947,7 @@ void RendererSceneCull::_visibility_cull(const VisibilityCullData &cull_data, ui
 				idata.flags &= ~InstanceData::FLAG_VISIBILITY_DEPENDENCY_FADE_CHILDREN;
 			}
 		}
+		_shadow_hidden_changed(idata, hidden_before, scenario); // LONGSHOT patch #65
 	}
 }
 
@@ -3308,6 +3357,18 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 				}
 			}
 
+			// LONGSHOT patch #65 (THE SHADOWS CACHED): a caster is STATIC when nothing of it changed for SHADOW_STATIC_AFTER_FRAMES and
+			// nothing of it moves on its own (a skeleton or blend shapes, particles, a material animating with time). A directional cascade
+			// draws its static casters into a map kept across frames and the rest over it each frame; the cascades whose maps hold the
+			// caster are its bits in shadow_static_cascades, and a caster entering or leaving a map moves that cascade's version.
+			uint32_t static_cascades = 0;
+			bool caster_static = false;
+			if (cull_data.cull->shadow_count > 0) {
+				const uint32_t base_type = idata.flags & InstanceData::FLAG_BASE_TYPE_MASK;
+				caster_static = ((1 << base_type) & RSE::INSTANCE_GEOMETRY_MASK) && (idata.flags & InstanceData::FLAG_CAST_SHADOWS) && base_type != RSE::INSTANCE_PARTICLES &&
+						!(idata.flags & (InstanceData::FLAG_USES_MESH_INSTANCE | InstanceData::FLAG_SHADOW_ANIMATED)) && frame_number - idata.shadow_moved_frame > SHADOW_STATIC_AFTER_FRAMES;
+			}
+
 			for (uint32_t j = 0; j < cull_data.cull->shadow_count; j++) {
 				for (uint32_t k = 0; k < cull_data.cull->shadows[j].cascade_count; k++) {
 					if (!light_culler->cull_directional_light(cull_data.scenario->instance_aabbs[i], j, k)) { // pass the cascade index
@@ -3317,11 +3378,21 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 						uint32_t base_type = idata.flags & InstanceData::FLAG_BASE_TYPE_MASK;
 
 						if (((1 << base_type) & RSE::INSTANCE_GEOMETRY_MASK) && idata.flags & InstanceData::FLAG_CAST_SHADOWS && (LAYER_CHECK & cull_data.cull->shadows[j].caster_mask)) {
-							cull_result.directional_shadows[j].cascade_geometry_instances[k].push_back(idata.instance_geometry);
+							if (caster_static) {
+								cull_result.directional_shadows[j].cascade_geometry_instances[k].push_back(idata.instance_geometry);
+								static_cascades |= 1u << (j * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + k);
+							} else {
+								cull_result.directional_shadows[j].cascade_dynamic_instances[k].push_back(idata.instance_geometry);
+							}
 							mesh_visible = true;
 						}
 					}
 				}
+			}
+
+			if (static_cascades != idata.shadow_static_cascades) {
+				cull_data.scenario->shadow_static_changed(static_cascades ^ idata.shadow_static_cascades);
+				idata.shadow_static_cascades = static_cascades;
 			}
 		}
 
@@ -3548,10 +3619,20 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 		// Directional Shadows
 
+		// LONGSHOT patch #65 (THE SHADOWS CACHED): the render these cascades' maps are kept for (its buffers' object id; a render with
+		// none is served whole), and for each cascade the cache's word: a kept map stands while its window holds this frame's slice
+		// within the snapping's own slop, its light within half a texel's angle at the depth range, and its static casters' version -
+		// then the window the map was drawn in is this frame's, so the dynamic casters and the sampling agree with the map to the texel.
+		const uint64_t shadow_owner = p_render_buffers.is_valid() ? uint64_t(p_render_buffers->get_instance_id()) : 0;
+
 		for (uint32_t i = 0; i < cull.shadow_count; i++) {
 			for (uint32_t j = 0; j < cull.shadows[i].cascade_count; j++) {
-				const Cull::Shadow::Cascade &c = cull.shadows[i].cascades[j];
+				Cull::Shadow::Cascade c = cull.shadows[i].cascades[j]; // a copy: a kept map's window replaces this frame's
 				//			print_line("shadow " + itos(i) + " cascade " + itos(j) + " elements: " + itos(c.cull_result.size()));
+				int static_cache = RendererLightStorage::SHADOW_CACHE_WHOLE;
+				if (max_shadows_used < MAX_UPDATE_SHADOWS) {
+					static_cache = RSG::light_storage->light_instance_directional_cache(cull.shadows[i].light_instance, j, shadow_owner, i, scenario->static_casters_version[i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + j].get(), c.projection, c.transform, c.zfar, c.split, c.shadow_texel_size, c.bias_scale, c.range_begin, c.uv_scale);
+				}
 				RSG::light_storage->light_instance_set_shadow_transform(cull.shadows[i].light_instance, c.projection, c.transform, c.zfar, c.split, j, c.shadow_texel_size, c.bias_scale, c.range_begin, c.uv_scale);
 				if (max_shadows_used == MAX_UPDATE_SHADOWS) {
 					continue;
@@ -3559,6 +3640,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				render_shadow_data[max_shadows_used].light = cull.shadows[i].light_instance;
 				render_shadow_data[max_shadows_used].pass = j;
 				render_shadow_data[max_shadows_used].instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
+				render_shadow_data[max_shadows_used].dynamic_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
+				render_shadow_data[max_shadows_used].static_cache = static_cache;
 				max_shadows_used++;
 			}
 		}
@@ -3782,6 +3865,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 	for (uint32_t i = 0; i < max_shadows_used; i++) {
 		render_shadow_data[i].instances.clear();
+		render_shadow_data[i].dynamic_instances.clear(); // LONGSHOT patch #65
+		render_shadow_data[i].static_cache = RendererLightStorage::SHADOW_CACHE_WHOLE;
 	}
 	max_shadows_used = 0;
 
@@ -4394,6 +4479,7 @@ void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
 				}
 
 				geom->can_cast_shadows = can_cast_shadows;
+				p_instance->shadow_changed = true; // LONGSHOT patch #65: the kept static maps that hold it are stale
 			}
 
 			geom->material_is_animated = is_animated;
@@ -4421,6 +4507,7 @@ void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
 	_update_instance(p_instance);
 
 	p_instance->teleported = false;
+	p_instance->shadow_changed = false; // LONGSHOT patch #65
 	p_instance->update_aabb = false;
 	p_instance->update_dependencies = false;
 }
@@ -4572,6 +4659,7 @@ RendererSceneCull::RendererSceneCull() {
 
 	for (uint32_t i = 0; i < MAX_UPDATE_SHADOWS; i++) {
 		render_shadow_data[i].instances.set_page_pool(&geometry_instance_cull_page_pool);
+		render_shadow_data[i].dynamic_instances.set_page_pool(&geometry_instance_cull_page_pool); // LONGSHOT patch #65
 	}
 	for (uint32_t i = 0; i < SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE; i++) {
 		render_sdfgi_data[i].instances.set_page_pool(&geometry_instance_cull_page_pool);
@@ -4603,6 +4691,7 @@ RendererSceneCull::~RendererSceneCull() {
 
 	for (uint32_t i = 0; i < MAX_UPDATE_SHADOWS; i++) {
 		render_shadow_data[i].instances.reset();
+		render_shadow_data[i].dynamic_instances.reset(); // LONGSHOT patch #65
 	}
 	for (uint32_t i = 0; i < SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE; i++) {
 		render_sdfgi_data[i].instances.reset();

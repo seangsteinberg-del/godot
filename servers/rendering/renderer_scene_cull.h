@@ -38,6 +38,7 @@
 #include "core/templates/paged_array.h"
 #include "core/templates/pass_func.h"
 #include "core/templates/rid_owner.h"
+#include "core/templates/safe_refcount.h"
 #include "core/templates/self_list.h"
 #include "servers/rendering/instance_uniforms.h"
 #include "servers/rendering/renderer_scene_occlusion_cull.h"
@@ -276,6 +277,7 @@ public:
 			FLAG_VISIBILITY_DEPENDENCY_FADE_CHILDREN = (1 << 22),
 			FLAG_GEOM_PROJECTOR_SOFTSHADOW_DIRTY = (1 << 23),
 			FLAG_IGNORE_ALL_CULLING = (1 << 24),
+			FLAG_SHADOW_ANIMATED = (1 << 25), // LONGSHOT patch #65: its material moves its shadow with time (material_is_animated) - never a static caster
 		};
 
 		uint32_t flags = 0;
@@ -296,6 +298,13 @@ public:
 		// This creates a delay for occlusion culling, which prevents flickering
 		// when jittering the raster occlusion projection.
 		uint64_t occlusion_timeout = 0;
+
+		// LONGSHOT patch #65 (THE SHADOWS CACHED): the frame the caster's shadow last changed (its transform, bounds, base or materials; a
+		// maker's word on an external multimesh), and the directional cascades whose kept static maps hold it as of the last cull - a bit
+		// a (light, cascade) in the cull's order. A caster is static when nothing of it changed for SHADOW_STATIC_AFTER_FRAMES and nothing
+		// of it moves on its own (a skeleton or blend shapes, particles, an animated material).
+		uint64_t shadow_moved_frame = 0;
+		uint32_t shadow_static_cascades = 0;
 	};
 
 	struct InstanceVisibilityData {
@@ -353,12 +362,31 @@ public:
 		PagedArray<InstanceData> instance_data;
 		VisibilityArray instance_visibility;
 
+		// LONGSHOT patch #65 (THE SHADOWS CACHED): a directional cascade's static casters' version, one a (light, cascade) in the cull's
+		// order, moved when a caster enters or leaves the cascade's kept static map (it settles or moves, hides or shows, leaves the
+		// scenario, changes its layers or its casting); the renderer rebuilds a map whose version moved. The cull's threads move them.
+		SafeNumeric<uint64_t> static_casters_version[RendererSceneRender::MAX_DIRECTIONAL_LIGHTS * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES];
+		_FORCE_INLINE_ void shadow_static_changed(uint32_t p_cascades) {
+			for (uint32_t b = 0; p_cascades != 0; b++, p_cascades >>= 1) {
+				if (p_cascades & 1) {
+					static_casters_version[b].increment();
+				}
+			}
+		}
+
 		Scenario() {
 			indexers[INDEXER_GEOMETRY].set_index(INDEXER_GEOMETRY);
 			indexers[INDEXER_VOLUMES].set_index(INDEXER_VOLUMES);
 			used_viewport_visibility_bits = 0;
+			for (uint32_t i = 0; i < RendererSceneRender::MAX_DIRECTIONAL_LIGHTS * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; i++) {
+				static_casters_version[i].set(1);
+			}
 		}
 	};
+	static_assert(RendererSceneRender::MAX_DIRECTIONAL_LIGHTS * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES <= 32, "LONGSHOT patch #65: InstanceData::shadow_static_cascades holds a bit a (light, cascade)");
+	static constexpr uint64_t SHADOW_STATIC_AFTER_FRAMES = 2; // LONGSHOT patch #65: a caster still for longer than this many frames is static
+	static void _shadow_caster_changed(InstanceData &r_idata, Scenario *p_scenario); // LONGSHOT patch #65: stamped moving; the kept maps that held it are stale
+	static void _shadow_hidden_changed(InstanceData &r_idata, uint32_t p_hidden_before, Scenario *p_scenario); // LONGSHOT patch #65: hidden or shown by its range: the kept maps that held it are stale
 
 	int indexer_update_iterations = 0;
 
@@ -412,6 +440,7 @@ public:
 
 		Transform3D transform;
 		bool teleported = false;
+		bool shadow_changed = false; // LONGSHOT patch #65: a materials-only update that changed its casting (read and cleared by the dirty update)
 
 		float lod_bias;
 
@@ -499,7 +528,9 @@ public:
 					singleton->_instance_queue_update(instance, true, false);
 
 				} break;
-				case Dependency::DEPENDENCY_CHANGED_MULTIMESH_VISIBLE_INSTANCES:
+				case Dependency::DEPENDENCY_CHANGED_MULTIMESH_VISIBLE_INSTANCES: {
+					singleton->_instance_queue_update(instance, true, true); // LONGSHOT patch #65: the drawn instances changed - its shadow with them
+				} break;
 				case Dependency::DEPENDENCY_CHANGED_MATERIAL: {
 					singleton->_instance_queue_update(instance, false, true);
 				} break;
@@ -898,7 +929,8 @@ public:
 		PagedArray<RID> fog_volumes;
 
 		struct DirectionalShadow {
-			PagedArray<RenderGeometryInstance *> cascade_geometry_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES];
+			PagedArray<RenderGeometryInstance *> cascade_geometry_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #65: the static casters
+			PagedArray<RenderGeometryInstance *> cascade_dynamic_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #65: the casters drawn each frame
 		} directional_shadows[RendererSceneRender::MAX_DIRECTIONAL_LIGHTS];
 
 		PagedArray<RenderGeometryInstance *> sdfgi_region_geometry_instances[SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE];
@@ -917,6 +949,7 @@ public:
 			for (int i = 0; i < RendererSceneRender::MAX_DIRECTIONAL_LIGHTS; i++) {
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].clear();
+					directional_shadows[i].cascade_dynamic_instances[j].clear();
 				}
 			}
 
@@ -942,6 +975,7 @@ public:
 			for (int i = 0; i < RendererSceneRender::MAX_DIRECTIONAL_LIGHTS; i++) {
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].reset();
+					directional_shadows[i].cascade_dynamic_instances[j].reset();
 				}
 			}
 
@@ -968,6 +1002,7 @@ public:
 			for (int i = 0; i < RendererSceneRender::MAX_DIRECTIONAL_LIGHTS; i++) {
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
+					directional_shadows[i].cascade_dynamic_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
 				}
 			}
 
@@ -993,6 +1028,7 @@ public:
 			for (int i = 0; i < RendererSceneRender::MAX_DIRECTIONAL_LIGHTS; i++) {
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].set_page_pool(p_geometry_instance_pool);
+					directional_shadows[i].cascade_dynamic_instances[j].set_page_pool(p_geometry_instance_pool);
 				}
 			}
 

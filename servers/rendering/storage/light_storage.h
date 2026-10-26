@@ -108,6 +108,19 @@ public:
 	// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - its far split and its texel (nought where a renderer keeps none)
 	virtual float light_instance_directional_shadow_split(RID p_light_instance, int p_cascade) { return 0.0f; }
 	virtual float light_instance_directional_shadow_texel(RID p_light_instance, int p_cascade) { return 0.0f; }
+	// LONGSHOT patch #65 (THE SHADOWS CACHED): a directional cascade's static map kept across frames. Given this frame's window (the
+	// arguments, as the cull made them) the cache answers SHADOW_CACHE_WHOLE (no map stands: the cascade is drawn whole and the window
+	// recorded for the next frame), SHADOW_CACHE_CAPTURE (the window stands but no map is kept yet, or the static casters' version
+	// moved: the static casters are drawn and the map captured) or SHADOW_CACHE_STANDS (the kept map is blitted and the dynamic casters
+	// drawn over it); on CAPTURE and STANDS the arguments are replaced by the window the map is drawn in, so the sampling and the dynamic
+	// casters agree with it to the texel. A render with no buffers (p_owner 0) and a render other than the one the map is kept for are
+	// served WHOLE and leave the cache alone. A storage keeping no maps answers WHOLE.
+	enum ShadowCache {
+		SHADOW_CACHE_WHOLE,
+		SHADOW_CACHE_STANDS,
+		SHADOW_CACHE_CAPTURE,
+	};
+	virtual int light_instance_directional_cache(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, uint64_t p_casters_version, Projection &r_projection, Transform3D &r_transform, real_t &r_far, real_t &r_split, real_t &r_texel, real_t &r_bias_scale, real_t &r_range_begin, Vector2 &r_uv_scale) { return SHADOW_CACHE_WHOLE; }
 	virtual void light_instance_mark_visible(RID p_light_instance) = 0;
 	virtual bool light_instances_can_render_shadow_cube() const {
 		return true;

@@ -282,6 +282,9 @@ public:
 	// [surface][pass][rung] at the offset, a slice of the instance buffer a (pass, rung); the renderer's passes: 0 the camera and anything
 	// else, 1..4 a directional light's cascade, 5 a local light's shadow, 6 the SDFGI's regions
 	virtual void multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) = 0;
+	// LONGSHOT patch #65 (THE SHADOWS CACHED): an external multimesh's maker says its buffers' content moved (its own cull wrote them this
+	// frame); the instances drawing it take it as a change of their bounds, so the sun's cascades redraw their kept static maps without them
+	virtual void multimesh_external_changed(RID p_multimesh) = 0;
 	// LONGSHOT patch #60: a surface's every level's indices in one run (the base first, then each level ascending by edge, in the surface's own
 	// width: 16 bits up to 65,536 vertices) - the combined index array an external multimesh's multi-draw reads; given before the first one
 	virtual void mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) = 0;

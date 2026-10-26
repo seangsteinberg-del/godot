@@ -723,6 +723,7 @@ public:
 	virtual RID _multimesh_get_command_buffer_rd_rid(RID p_multimesh) const override;
 	virtual void _multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) override; // LONGSHOT patch #60
 	virtual void _mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) override; // LONGSHOT patch #60
+	virtual void _multimesh_external_changed(RID p_multimesh) override; // LONGSHOT patch #65
 	virtual RID _multimesh_get_buffer_rd_rid(RID p_multimesh) const override;
 	virtual Vector<float> _multimesh_get_buffer(RID p_multimesh) const override;
 

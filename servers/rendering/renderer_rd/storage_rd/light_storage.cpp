@@ -623,6 +623,95 @@ void LightStorage::light_instance_set_shadow_transform(RID p_light_instance, con
 	light_instance->shadow_transform[p_pass].uv_scale = p_uv_scale;
 }
 
+// LONGSHOT patch #65 (THE SHADOWS CACHED): a directional cascade's kept static map. The window stands while this frame's holds the same
+// slice (the texel - the window's width over the map - the depth range and the split within a texel), the light's axes within half a
+// texel's angle over the depth range, and the origin within half a snapping unit (two texels) of the kept one along the kept axes - the
+// slop the setup's own snapping carries, so the shadows stand on one texel grid until a rebuild, as they do today between two snaps.
+// At the pad under the sun's own motion a cascade's window stands for a few hundred frames; the static casters are drawn once in it.
+int LightStorage::light_instance_directional_cache(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, uint64_t p_casters_version, Projection &r_projection, Transform3D &r_transform, real_t &r_far, real_t &r_split, real_t &r_texel, real_t &r_bias_scale, real_t &r_range_begin, Vector2 &r_uv_scale) {
+	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
+	ERR_FAIL_NULL_V(light_instance, SHADOW_CACHE_WHOLE);
+	ERR_FAIL_INDEX_V(p_cascade, DIRECTIONAL_CACHE_CASCADES, SHADOW_CACHE_WHOLE);
+	if (p_owner == 0) {
+		return SHADOW_CACHE_WHOLE;
+	}
+	LightInstance::DirectionalCache &c = light_instance->directional_cache[p_cascade];
+	const uint64_t frame = RSG::rasterizer->get_frame_number();
+	if (c.valid && c.owner != p_owner) {
+		if (frame - c.frame <= DIRECTIONAL_CACHE_HOLD_FRAMES) {
+			return SHADOW_CACHE_WHOLE; // another render's map is kept and in use: this one draws whole and leaves it be
+		}
+		c.valid = false; // its keeper stopped rendering: the record is this render's
+	}
+	bool stands = c.valid && c.light_index == p_light_index;
+	if (stands) {
+		const LightInstance::ShadowTransform &k = c.window;
+		const real_t texel = k.shadow_texel_size;
+		stands = Math::abs(r_texel - texel) <= texel * 1e-4 && Math::abs(r_far - real_t(k.farplane)) <= texel && Math::abs(r_split - real_t(k.split)) <= texel;
+		if (stands) {
+			const real_t cos_tol = Math::cos(0.5 * texel / MAX(real_t(k.farplane), texel));
+			stands = k.transform.basis.get_column(2).dot(r_transform.basis.get_column(2)) >= cos_tol && k.transform.basis.get_column(0).dot(r_transform.basis.get_column(0)) >= cos_tol;
+		}
+		if (stands) {
+			const Vector3 d = k.transform.basis.xform_inv(r_transform.origin - k.transform.origin);
+			const real_t slop = 2.0 * texel;
+			stands = Math::abs(d.x) <= slop && Math::abs(d.y) <= slop && Math::abs(d.z) <= slop;
+		}
+	}
+	if (!stands) {
+		// this frame's window recorded; the cascade is drawn whole, and may stand from the next frame
+		c.valid = true;
+		c.captured = false;
+		c.owner = p_owner;
+		c.frame = frame;
+		c.light_index = p_light_index;
+		c.casters_version = p_casters_version;
+		c.window.camera = r_projection;
+		c.window.transform = r_transform;
+		c.window.farplane = r_far;
+		c.window.split = r_split;
+		c.window.shadow_texel_size = r_texel;
+		c.window.bias_scale = r_bias_scale;
+		c.window.range_begin = r_range_begin;
+		c.window.uv_scale = r_uv_scale;
+		return SHADOW_CACHE_WHOLE;
+	}
+	c.frame = frame;
+	r_projection = c.window.camera;
+	r_transform = c.window.transform;
+	r_far = c.window.farplane;
+	r_split = c.window.split;
+	r_texel = c.window.shadow_texel_size;
+	r_bias_scale = c.window.bias_scale;
+	r_range_begin = c.window.range_begin;
+	r_uv_scale = c.window.uv_scale;
+	if (c.captured && c.casters_version == p_casters_version) {
+		return SHADOW_CACHE_STANDS;
+	}
+	c.captured = true; // the renderer draws the static casters in this window and captures the map this frame
+	c.casters_version = p_casters_version;
+	return SHADOW_CACHE_CAPTURE;
+}
+
+bool LightStorage::light_instance_directional_cache_keys(RID p_light_instance, int p_cascade, const Rect2i &p_rect, int p_viewport_width) {
+	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
+	ERR_FAIL_NULL_V(light_instance, false);
+	ERR_FAIL_INDEX_V(p_cascade, DIRECTIONAL_CACHE_CASCADES, false);
+	LightInstance::DirectionalCache &c = light_instance->directional_cache[p_cascade];
+	const bool stand = c.rect == p_rect && c.atlas == directional_shadow.depth && c.viewport_width == p_viewport_width;
+	c.rect = p_rect;
+	c.atlas = directional_shadow.depth;
+	c.viewport_width = p_viewport_width;
+	return stand;
+}
+
+void LightStorage::directional_shadow_static_copy(const Rect2i &p_rect, bool p_to_atlas) {
+	ERR_FAIL_COND_MSG(directional_shadow.depth.is_null() || directional_shadow.static_depth.is_null(), "LONGSHOT patch #65: the directional shadow atlas and its static twin are made together (update_directional_shadow_atlas) before a cascade's map is kept.");
+	const RID from = p_to_atlas ? directional_shadow.static_depth : directional_shadow.depth;
+	const RID to = p_to_atlas ? directional_shadow.depth : directional_shadow.static_depth;
+	RD::get_singleton()->texture_copy(from, to, Vector3(p_rect.position.x, p_rect.position.y, 0), Vector3(p_rect.position.x, p_rect.position.y, 0), Vector3(p_rect.size.width, p_rect.size.height, 1), 0, 0, 0, 0);
+}
+
 void LightStorage::light_instance_mark_visible(RID p_light_instance) {
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL(light_instance);
@@ -2763,9 +2852,12 @@ void LightStorage::update_directional_shadow_atlas() {
 		tf.format = get_shadow_atlas_depth_format(directional_shadow.use_16_bits);
 		tf.width = directional_shadow.size;
 		tf.height = directional_shadow.size;
-		tf.usage_bits = get_shadow_atlas_depth_usage_bits();
+		// LONGSHOT patch #65 (THE SHADOWS CACHED): the atlas and its static twin copy between each other - a cascade's static map captured
+		// out of the atlas and blitted back into it while its window stands
+		tf.usage_bits = get_shadow_atlas_depth_usage_bits() | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
 
 		directional_shadow.depth = RD::get_singleton()->texture_create(tf, RD::TextureView());
+		directional_shadow.static_depth = RD::get_singleton()->texture_create(tf, RD::TextureView());
 		Vector<RID> fb_tex;
 		fb_tex.push_back(directional_shadow.depth);
 		directional_shadow.fb = RD::get_singleton()->framebuffer_create(fb_tex);
@@ -2790,6 +2882,10 @@ void LightStorage::directional_shadow_atlas_set_size(int p_size, bool p_16_bits)
 		RD::get_singleton()->free_rid(directional_shadow.depth);
 		directional_shadow.depth = RID();
 		RendererSceneRenderRD::get_singleton()->base_uniforms_changed();
+	}
+	if (directional_shadow.static_depth.is_valid()) { // LONGSHOT patch #65: the twin goes with the atlas; the kept maps' keys name the old atlas and are captured again
+		RD::get_singleton()->free_rid(directional_shadow.static_depth);
+		directional_shadow.static_depth = RID();
 	}
 }
 

@@ -449,6 +449,7 @@ public:
 
 	FUNC2(multimesh_set_buffer, RID, const Vector<float> &)
 	FUNC8(multimesh_set_external_buffers, RID, RID, RID, int, const Vector<float> &, const Vector<int32_t> &, int, int) // LONGSHOT patch #60
+	FUNC1(multimesh_external_changed, RID) // LONGSHOT patch #65
 	FUNC3(mesh_surface_set_level_index_data, RID, int, const Vector<uint8_t> &) // LONGSHOT patch #60
 	FUNC1RC(RID, multimesh_get_command_buffer_rd_rid, RID)
 	FUNC1RC(RID, multimesh_get_buffer_rd_rid, RID)

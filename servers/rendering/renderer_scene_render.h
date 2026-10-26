@@ -286,7 +286,9 @@ public:
 	struct RenderShadowData {
 		RID light;
 		int pass = 0;
-		PagedArray<RenderGeometryInstance *> instances;
+		PagedArray<RenderGeometryInstance *> instances; // LONGSHOT patch #65: a directional cascade's static casters (a local light's: all of them)
+		PagedArray<RenderGeometryInstance *> dynamic_instances; // LONGSHOT patch #65: the casters drawn each frame over the cascade's kept static map
+		int static_cache = 0; // LONGSHOT patch #65: the cache's word for the cascade (RendererLightStorage::ShadowCache): whole, stands or capture
 	};
 
 	struct RenderSDFGIData {

@@ -2511,6 +2511,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("multimesh_get_command_buffer_rd_rid", "multimesh"), &RenderingServer::multimesh_get_command_buffer_rd_rid);
 	ClassDB::bind_method(D_METHOD("multimesh_set_external_buffers", "multimesh", "instance_buffer", "command_buffer", "command_offset", "rung_keys", "slice_first", "passes", "instances"), &RenderingServer::multimesh_set_external_buffers); // LONGSHOT patch #60
 	ClassDB::bind_method(D_METHOD("mesh_surface_set_level_index_data", "mesh", "surface", "data"), &RenderingServer::mesh_surface_set_level_index_data); // LONGSHOT patch #60
+	ClassDB::bind_method(D_METHOD("multimesh_external_changed", "multimesh"), &RenderingServer::multimesh_external_changed); // LONGSHOT patch #65
 	ClassDB::bind_method(D_METHOD("multimesh_get_buffer_rd_rid", "multimesh"), &RenderingServer::multimesh_get_buffer_rd_rid);
 	ClassDB::bind_method(D_METHOD("multimesh_get_buffer", "multimesh"), &RenderingServer::multimesh_get_buffer);
 

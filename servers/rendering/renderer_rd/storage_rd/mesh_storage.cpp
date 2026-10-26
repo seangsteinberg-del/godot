@@ -2259,6 +2259,16 @@ void MeshStorage::_mesh_surface_set_level_index_data(RID p_mesh, int p_surface, 
 // renderer's: 0 the camera and anything else, 1..4 a directional light's cascade, 5 a local light's shadow, 6 the SDFGI's regions - a
 // maker with fewer passes draws its last for the rest. p_instances is the slices' room in all (the renderer's instance count: never
 // nought, so the draw is considered). The multimesh must be allocated indirect and carry its mesh already, every surface of the mesh given its levels' indices first (mesh_surface_set_level_index_data); its own buffers go.
+// LONGSHOT patch #65 (THE SHADOWS CACHED): the maker's cull moved the buffers' content; the instances drawing this multimesh are told
+// their bounds changed (their shadows with them: the sun's cascades redraw the kept static maps that held them, and draw them each
+// frame until they stand still again)
+void MeshStorage::_multimesh_external_changed(RID p_multimesh) {
+	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+	ERR_FAIL_NULL(multimesh);
+	ERR_FAIL_COND_MSG(!multimesh->external, "LONGSHOT patch #65: only an external multimesh (multimesh_set_external_buffers) is told of its content by its maker.");
+	multimesh->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+}
+
 void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
