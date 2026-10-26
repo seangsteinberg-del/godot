@@ -49,6 +49,7 @@
 #include "editor/script/script_editor_plugin.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/settings/project_settings_editor.h"
+#include "main/main.h" // LONGSHOT patch #63 (THE IMPORT LAW RE-IMPORTS): a command-line run revalidates every import
 #include "scene/main/scene_tree.h"
 #include "scene/resources/packed_scene.h"
 #include "servers/display/display_server.h"
@@ -436,6 +437,12 @@ void EditorFileSystem::_scan_filesystem() {
 						// everything there is.
 						filesystem_settings_version_for_import = l.strip_edges();
 						if (filesystem_settings_version_for_import != ResourceFormatImporter::get_singleton()->get_import_settings_hash()) {
+							revalidate_import_files = true;
+						}
+						// LONGSHOT patch #63 (THE IMPORT LAW RE-IMPORTS): a command-line run (--import, an export) asks every importer whether it
+						// still accepts each stored import, whatever the stamps say - a changed import law or post-import script reaches a tree
+						// through the import pass alone
+						if (Main::is_cmdline_tool()) {
 							revalidate_import_files = true;
 						}
 					}

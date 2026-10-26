@@ -31,7 +31,9 @@
 #include "resource_importer_scene.h"
 
 #include "core/error/error_macros.h"
+#include "core/io/config_file.h" // LONGSHOT patch #63
 #include "core/io/dir_access.h"
+#include "core/io/file_access.h" // LONGSHOT patch #63
 #include "core/io/resource_loader.h"
 #include "core/io/resource_saver.h"
 #include "core/object/class_db.h"
@@ -3490,10 +3492,42 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 
 	memdelete(scene);
 
+	// LONGSHOT patch #63 (THE IMPORT LAW RE-IMPORTS): the post-import script's hash rides the import's metadata, so a changed script
+	// invalidates every import it made (are_import_settings_valid below) and the import pass makes them again
+	if (r_metadata) {
+		Dictionary meta;
+		if (!post_import_script_path.is_empty() && FileAccess::exists(post_import_script_path)) {
+			meta["import_script_md5"] = FileAccess::get_md5(post_import_script_path);
+		}
+		*r_metadata = meta;
+	}
+
 	//this is not the time to reimport, wait until import process is done, import file is saved, etc.
 	//EditorNode::get_singleton()->reload_scene(p_source_file);
 
 	return OK;
+}
+
+// LONGSHOT patch #63 (THE IMPORT LAW RE-IMPORTS): a scene stands imported while the post-import script that shaped it is the one it
+// was imported with; a script changed since - or an import that predates the hash - imports again (the editor's scan asks when the
+// stamps moved, the import pass for every file: editor_file_system.cpp)
+bool ResourceImporterScene::are_import_settings_valid(const String &p_path, const Dictionary &p_meta) const {
+	Ref<ConfigFile> cf;
+	cf.instantiate();
+	if (cf->load(p_path + ".import") != OK) {
+		return true;
+	}
+	String script_path = cf->get_value("params", "import_script/path", "");
+	if (script_path.is_empty()) {
+		return true;
+	}
+	if (script_path.is_relative_path()) {
+		script_path = p_path.get_base_dir().path_join(script_path);
+	}
+	if (!FileAccess::exists(script_path)) {
+		return true;
+	}
+	return p_meta.has("import_script_md5") && String(p_meta["import_script_md5"]) == FileAccess::get_md5(script_path);
 }
 
 Vector<Ref<EditorSceneFormatImporter>> ResourceImporterScene::scene_importers;
