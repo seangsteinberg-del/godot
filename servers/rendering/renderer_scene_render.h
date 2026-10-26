@@ -288,7 +288,13 @@ public:
 		int pass = 0;
 		PagedArray<RenderGeometryInstance *> instances; // LONGSHOT patch #65: a directional cascade's static casters (a local light's: all of them)
 		PagedArray<RenderGeometryInstance *> dynamic_instances; // LONGSHOT patch #65: the casters drawn each frame over the cascade's kept static map
-		int static_cache = 0; // LONGSHOT patch #65: the cache's word for the cascade (RendererLightStorage::ShadowCache): whole, stands or capture
+		int static_cache = 0; // LONGSHOT patch #65: the cache's word for the cascade (RendererLightStorage::ShadowCache): whole, stands, capture or scroll
+		// LONGSHOT patch #66 (THE SCROLL): the kept map's overlap is blitted with the shift (the new window's texel (i, j) was the kept
+		// window's (i + x, j + y)) and the static casters in the uncovered strips are drawn into them, each strip a scissor of the map
+		PagedArray<RenderGeometryInstance *> strip_instances;
+		Vector2i scroll_shift;
+		int strip_count = 0;
+		Rect2i strip_rect[2];
 	};
 
 	struct RenderSDFGIData {

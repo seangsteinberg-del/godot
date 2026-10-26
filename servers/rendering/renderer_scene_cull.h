@@ -931,6 +931,7 @@ public:
 		struct DirectionalShadow {
 			PagedArray<RenderGeometryInstance *> cascade_geometry_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #65: the static casters
 			PagedArray<RenderGeometryInstance *> cascade_dynamic_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #65: the casters drawn each frame
+			PagedArray<RenderGeometryInstance *> cascade_strip_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #66: the static casters in a scroll's uncovered strips
 		} directional_shadows[RendererSceneRender::MAX_DIRECTIONAL_LIGHTS];
 
 		PagedArray<RenderGeometryInstance *> sdfgi_region_geometry_instances[SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE];
@@ -950,6 +951,7 @@ public:
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].clear();
 					directional_shadows[i].cascade_dynamic_instances[j].clear();
+					directional_shadows[i].cascade_strip_instances[j].clear();
 				}
 			}
 
@@ -976,6 +978,7 @@ public:
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].reset();
 					directional_shadows[i].cascade_dynamic_instances[j].reset();
+					directional_shadows[i].cascade_strip_instances[j].reset();
 				}
 			}
 
@@ -1003,6 +1006,7 @@ public:
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
 					directional_shadows[i].cascade_dynamic_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
+					directional_shadows[i].cascade_strip_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_strip_instances[j]);
 				}
 			}
 
@@ -1029,6 +1033,7 @@ public:
 				for (int j = 0; j < RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES; j++) {
 					directional_shadows[i].cascade_geometry_instances[j].set_page_pool(p_geometry_instance_pool);
 					directional_shadows[i].cascade_dynamic_instances[j].set_page_pool(p_geometry_instance_pool);
+					directional_shadows[i].cascade_strip_instances[j].set_page_pool(p_geometry_instance_pool);
 				}
 			}
 
@@ -1119,7 +1124,7 @@ public:
 	_FORCE_INLINE_ void _update_instance_lightmap_captures(Instance *p_instance) const;
 	void _unpair_instance(Instance *p_instance);
 
-	void _light_instance_setup_directional_shadow(int p_shadow_index, Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect);
+	void _light_instance_setup_directional_shadow(int p_shadow_index, Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, uint64_t p_owner); // LONGSHOT patch #65/#66: the render the kept maps are for
 
 	_FORCE_INLINE_ bool _light_instance_update_shadow(Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, RID p_shadow_atlas, Scenario *p_scenario, float p_screen_mesh_lod_threshold, uint32_t p_visible_layers = 0xFFFFFF);
 
@@ -1141,6 +1146,15 @@ public:
 				real_t bias_scale;
 				real_t range_begin;
 				Vector2 uv_scale;
+
+				// LONGSHOT patch #66 (THE SCROLL): the cache's word for the window before the cull (RendererLightStorage::ShadowCache), the
+				// scroll's shift in texels (the new window's texel (i, j) was the kept window's (i + x, j + y)), and the uncovered strips -
+				// up to two rects of the map in texels, each with the frustum the static casters drawn into it are culled by
+				int cache_word = 0;
+				Vector2i scroll_shift;
+				uint32_t strip_count = 0;
+				Rect2i strip_rect[2];
+				Frustum strip_frustum[2];
 
 			} cascades[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; //max 4 cascades
 			uint32_t cascade_count;

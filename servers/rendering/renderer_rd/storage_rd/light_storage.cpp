@@ -623,12 +623,35 @@ void LightStorage::light_instance_set_shadow_transform(RID p_light_instance, con
 	light_instance->shadow_transform[p_pass].uv_scale = p_uv_scale;
 }
 
-// LONGSHOT patch #65 (THE SHADOWS CACHED): a directional cascade's kept static map. The window stands while this frame's holds the same
-// slice (the texel - the window's width over the map - the depth range and the split within a texel), the light's axes within half a
-// texel's angle over the depth range, and the origin within half a snapping unit (two texels) of the kept one along the kept axes - the
-// slop the setup's own snapping carries, so the shadows stand on one texel grid until a rebuild, as they do today between two snaps.
-// At the pad under the sun's own motion a cascade's window stands for a few hundred frames; the static casters are drawn once in it.
-int LightStorage::light_instance_directional_cache(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, uint64_t p_casters_version, Projection &r_projection, Transform3D &r_transform, real_t &r_far, real_t &r_split, real_t &r_texel, real_t &r_bias_scale, real_t &r_range_begin, Vector2 &r_uv_scale) {
+// LONGSHOT patch #65 (THE SHADOWS CACHED) and #66 (THE SCROLL): a directional cascade's kept static map, in three calls a frame.
+// (1) THE FRAME: the kept basis, depth origin and range, when a map is kept for this render and the light's axes stand within half a
+// texel's angle of the kept ones over the depth range - the cascade's setup then makes its window in that frame, so the snapped bounds
+// fall on the kept texel grid. At the pad under the sun's own motion the kept frame stands for a few hundred frames.
+bool LightStorage::light_instance_directional_cache_frame(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, const Basis &p_light_basis, Basis &r_basis, real_t &r_origin_z, real_t &r_far) {
+	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
+	ERR_FAIL_NULL_V(light_instance, false);
+	ERR_FAIL_INDEX_V(p_cascade, DIRECTIONAL_CACHE_CASCADES, false);
+	const LightInstance::DirectionalCache &c = light_instance->directional_cache[p_cascade];
+	if (p_owner == 0 || !c.valid || c.owner != p_owner || c.light_index != p_light_index) {
+		return false;
+	}
+	const Basis &k = c.window.transform.basis;
+	const real_t texel = c.window.shadow_texel_size;
+	const real_t cos_tol = Math::cos(0.5 * texel / MAX(real_t(c.window.farplane), texel));
+	if (k.get_column(2).dot(p_light_basis.get_column(2).normalized()) < cos_tol || k.get_column(0).dot(p_light_basis.get_column(0).normalized()) < cos_tol) {
+		return false;
+	}
+	r_basis = k;
+	r_origin_z = c.window.transform.origin.dot(k.get_column(2));
+	r_far = c.window.farplane;
+	return true;
+}
+
+// (2) THE WINDOW: the word by geometry. In the kept frame the new window is the kept one moved by whole texels (the snapping's grid is the
+// kept one): no move is STANDS, a move within the map is SCROLL (CAPTURE while no map is kept yet); a window not in the kept frame, of
+// another width or depth range, moved along the light, or moved past the map, is recorded fresh and drawn WHOLE.
+int LightStorage::light_instance_directional_cache_window(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, bool p_kept_frame, const Projection &p_projection, const Transform3D &p_transform, real_t p_far, real_t p_texel, const Vector2 &p_uv_scale, Vector2i &r_shift) {
+	r_shift = Vector2i();
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL_V(light_instance, SHADOW_CACHE_WHOLE);
 	ERR_FAIL_INDEX_V(p_cascade, DIRECTIONAL_CACHE_CASCADES, SHADOW_CACHE_WHOLE);
@@ -643,54 +666,78 @@ int LightStorage::light_instance_directional_cache(RID p_light_instance, int p_c
 		}
 		c.valid = false; // its keeper stopped rendering: the record is this render's
 	}
-	bool stands = c.valid && c.light_index == p_light_index;
-	if (stands) {
+	bool fresh = !p_kept_frame || !c.valid || c.light_index != p_light_index;
+	Vector2i shift;
+	if (!fresh) {
 		const LightInstance::ShadowTransform &k = c.window;
 		const real_t texel = k.shadow_texel_size;
-		stands = Math::abs(r_texel - texel) <= texel * 1e-4 && Math::abs(r_far - real_t(k.farplane)) <= texel && Math::abs(r_split - real_t(k.split)) <= texel;
-		if (stands) {
-			const real_t cos_tol = Math::cos(0.5 * texel / MAX(real_t(k.farplane), texel));
-			stands = k.transform.basis.get_column(2).dot(r_transform.basis.get_column(2)) >= cos_tol && k.transform.basis.get_column(0).dot(r_transform.basis.get_column(0)) >= cos_tol;
-		}
-		if (stands) {
-			const Vector3 d = k.transform.basis.xform_inv(r_transform.origin - k.transform.origin);
-			const real_t slop = 2.0 * texel;
-			stands = Math::abs(d.x) <= slop && Math::abs(d.y) <= slop && Math::abs(d.z) <= slop;
+		fresh = Math::abs(p_texel - texel) > texel * 1e-4 || Math::abs(p_far - real_t(k.farplane)) > texel * 1e-3;
+		if (!fresh) {
+			const Vector3 d = k.transform.basis.xform_inv(p_transform.origin - k.transform.origin);
+			const real_t sx = Math::round(d.x / texel);
+			const real_t sy = Math::round(d.y / texel);
+			const int size = int(Math::round(2.0 * p_projection.get_viewport_half_extents().x / texel));
+			fresh = Math::abs(d.x - sx * texel) > texel * 1e-3 || Math::abs(d.y - sy * texel) > texel * 1e-3 || Math::abs(d.z) > texel * 1e-3 || Math::abs(sx) >= size || Math::abs(sy) >= size;
+			shift = Vector2i(int(sx), int(sy));
 		}
 	}
-	if (!stands) {
-		// this frame's window recorded; the cascade is drawn whole, and may stand from the next frame
+	if (fresh) {
 		c.valid = true;
 		c.captured = false;
 		c.owner = p_owner;
 		c.frame = frame;
 		c.light_index = p_light_index;
-		c.casters_version = p_casters_version;
-		c.window.camera = r_projection;
-		c.window.transform = r_transform;
-		c.window.farplane = r_far;
-		c.window.split = r_split;
-		c.window.shadow_texel_size = r_texel;
-		c.window.bias_scale = r_bias_scale;
-		c.window.range_begin = r_range_begin;
-		c.window.uv_scale = r_uv_scale;
-		return SHADOW_CACHE_WHOLE;
+		c.window.camera = p_projection;
+		c.window.transform = p_transform;
+		c.window.farplane = p_far;
+		c.window.shadow_texel_size = p_texel;
+		c.window.uv_scale = p_uv_scale;
+		c.shift = Vector2i();
+		c.word = SHADOW_CACHE_WHOLE;
+		return c.word;
 	}
 	c.frame = frame;
-	r_projection = c.window.camera;
-	r_transform = c.window.transform;
-	r_far = c.window.farplane;
-	r_split = c.window.split;
-	r_texel = c.window.shadow_texel_size;
-	r_bias_scale = c.window.bias_scale;
-	r_range_begin = c.window.range_begin;
-	r_uv_scale = c.window.uv_scale;
-	if (c.captured && c.casters_version == p_casters_version) {
-		return SHADOW_CACHE_STANDS;
+	// this frame's window, the record's once the word is settled after the cull and the map drawn or scrolled in it (a cascade the
+	// renderer leaves out this frame - past its count of shadow passes - keeps the kept window and its map, still agreeing)
+	c.next.camera = p_projection;
+	c.next.transform = p_transform;
+	c.next.farplane = p_far;
+	c.next.shadow_texel_size = p_texel;
+	c.next.uv_scale = p_uv_scale;
+	if (shift == Vector2i()) {
+		c.word = c.captured ? SHADOW_CACHE_STANDS : SHADOW_CACHE_CAPTURE;
+	} else {
+		// the window moved: a kept map scrolls into it; none is drawn whole in it and captured
+		c.word = c.captured ? SHADOW_CACHE_SCROLL : SHADOW_CACHE_CAPTURE;
 	}
-	c.captured = true; // the renderer draws the static casters in this window and captures the map this frame
-	c.casters_version = p_casters_version;
-	return SHADOW_CACHE_CAPTURE;
+	c.shift = c.word == SHADOW_CACHE_SCROLL ? shift : Vector2i();
+	r_shift = c.shift;
+	return c.word;
+}
+
+// (3) THE VERSION: after the cull moved or kept the cascade's static casters' version - a kept map whose casters changed (one entered or
+// left it) is drawn whole and captured again
+int LightStorage::light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version) {
+	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
+	ERR_FAIL_NULL_V(light_instance, SHADOW_CACHE_WHOLE);
+	ERR_FAIL_INDEX_V(p_cascade, DIRECTIONAL_CACHE_CASCADES, SHADOW_CACHE_WHOLE);
+	LightInstance::DirectionalCache &c = light_instance->directional_cache[p_cascade];
+	if (p_owner == 0 || !c.valid || c.owner != p_owner) {
+		return SHADOW_CACHE_WHOLE;
+	}
+	if ((c.word == SHADOW_CACHE_STANDS || c.word == SHADOW_CACHE_SCROLL) && c.casters_version != p_casters_version) {
+		c.word = SHADOW_CACHE_CAPTURE;
+	}
+	if (c.word == SHADOW_CACHE_CAPTURE) {
+		c.window = c.next; // the window the map is drawn and captured in this frame
+		c.captured = true;
+		c.casters_version = p_casters_version;
+	} else if (c.word == SHADOW_CACHE_SCROLL) {
+		c.window = c.next; // the window the kept map scrolls into and is captured in this frame
+	} else if (c.word == SHADOW_CACHE_WHOLE) {
+		c.casters_version = p_casters_version;
+	}
+	return c.word;
 }
 
 bool LightStorage::light_instance_directional_cache_keys(RID p_light_instance, int p_cascade, const Rect2i &p_rect, int p_viewport_width) {
@@ -705,11 +752,16 @@ bool LightStorage::light_instance_directional_cache_keys(RID p_light_instance, i
 	return stand;
 }
 
-void LightStorage::directional_shadow_static_copy(const Rect2i &p_rect, bool p_to_atlas) {
+void LightStorage::directional_shadow_static_copy(const Rect2i &p_dst, const Vector2i &p_src_offset, bool p_to_atlas) {
 	ERR_FAIL_COND_MSG(directional_shadow.depth.is_null() || directional_shadow.static_depth.is_null(), "LONGSHOT patch #65: the directional shadow atlas and its static twin are made together (update_directional_shadow_atlas) before a cascade's map is kept.");
-	const RID from = p_to_atlas ? directional_shadow.static_depth : directional_shadow.depth;
-	const RID to = p_to_atlas ? directional_shadow.depth : directional_shadow.static_depth;
-	RD::get_singleton()->texture_copy(from, to, Vector3(p_rect.position.x, p_rect.position.y, 0), Vector3(p_rect.position.x, p_rect.position.y, 0), Vector3(p_rect.size.width, p_rect.size.height, 1), 0, 0, 0, 0);
+	ERR_FAIL_COND(p_dst.size.width <= 0 || p_dst.size.height <= 0);
+	const Vector3 dst(p_dst.position.x, p_dst.position.y, 0);
+	const Vector3 size(p_dst.size.width, p_dst.size.height, 1);
+	if (p_to_atlas) {
+		RD::get_singleton()->texture_copy(directional_shadow.static_depth, directional_shadow.depth, Vector3(p_dst.position.x + p_src_offset.x, p_dst.position.y + p_src_offset.y, 0), dst, size, 0, 0, 0, 0);
+	} else {
+		RD::get_singleton()->texture_copy(directional_shadow.depth, directional_shadow.static_depth, dst, dst, size, 0, 0, 0, 0);
+	}
 }
 
 void LightStorage::light_instance_mark_visible(RID p_light_instance) {

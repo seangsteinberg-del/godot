@@ -2242,7 +2242,7 @@ void RendererSceneCull::_update_instance_lightmap_captures(Instance *p_instance)
 	geom->geometry_instance->set_lightmap_capture(p_instance->lightmap_sh.ptr());
 }
 
-void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_index, Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect) {
+void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_index, Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, uint64_t p_owner) {
 	// For later tight culling, the light culler needs to know the details of the directional light.
 	light_culler->prepare_directional_light(p_instance, p_shadow_index);
 
@@ -2321,9 +2321,16 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 		Transform3D transform = light_transform; //discard scale and stabilize light
 
-		Vector3 x_vec = transform.basis.get_column(Vector3::AXIS_X).normalized();
-		Vector3 y_vec = transform.basis.get_column(Vector3::AXIS_Y).normalized();
-		Vector3 z_vec = transform.basis.get_column(Vector3::AXIS_Z).normalized();
+		// LONGSHOT patch #66 (THE SCROLL): while a static map is kept for this cascade and the light's axes stand within half a texel's
+		// angle of the kept ones, the window is made in the KEPT basis with the kept depth origin and range - its snapped bounds then fall
+		// on the kept texel grid, so a camera move is a whole-texel shift of the map (no rounding, no drift) and the depth frame stands
+		Basis window_basis = transform.basis;
+		real_t kept_origin_z = 0.0, kept_far = 0.0;
+		const bool kept_frame = RSG::light_storage->light_instance_directional_cache_frame(light->instance, i, p_owner, p_shadow_index, transform.basis, window_basis, kept_origin_z, kept_far);
+
+		Vector3 x_vec = window_basis.get_column(Vector3::AXIS_X).normalized();
+		Vector3 y_vec = window_basis.get_column(Vector3::AXIS_Y).normalized();
+		Vector3 z_vec = window_basis.get_column(Vector3::AXIS_Z).normalized();
 		//z_vec points against the camera, like in default opengl
 
 		real_t x_min = 0.f, x_max = 0.f;
@@ -2425,11 +2432,16 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 			// This trick here is what stabilizes the shadow (make potential jaggies to not move)
 			// at the cost of some wasted resolution. Still, the quality increase is very well worth it.
+			// LONGSHOT patch #66: the centre is snapped and the half width (a whole number of units: unit = 4R / size) laid either side,
+			// so the window's width is exactly 2R and its texel exactly 2R / size - the kept map's grid, texel for texel, under a scroll
 			const real_t unit = (radius + soft_shadow_expand) * 4.0 / texture_size;
-			x_max_cam = Math::snapped(x_vec.dot(center) + radius + soft_shadow_expand, unit);
-			x_min_cam = Math::snapped(x_vec.dot(center) - radius - soft_shadow_expand, unit);
-			y_max_cam = Math::snapped(y_vec.dot(center) + radius + soft_shadow_expand, unit);
-			y_min_cam = Math::snapped(y_vec.dot(center) - radius - soft_shadow_expand, unit);
+			const real_t half_w = radius + soft_shadow_expand;
+			const real_t x_c = Math::snapped(x_vec.dot(center), unit);
+			const real_t y_c = Math::snapped(y_vec.dot(center), unit);
+			x_max_cam = x_c + half_w;
+			x_min_cam = x_c - half_w;
+			y_max_cam = y_c + half_w;
+			y_min_cam = y_c - half_w;
 		}
 
 		//now that we know all ranges, we can proceed to make the light frustum planes, for culling octree
@@ -2451,32 +2463,83 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 		z_max = z_vec.dot(center) + radius + pancake_size;
 
+		// LONGSHOT patch #66 (THE SCROLL): the depth frame. The map's range is the slice's depth (2r) with the pancake on the near side
+		// and, from this patch, a far margin of 2r (the depth and normal biases are in texels, patch #27; the transmittance bias keeps the
+		// unmargined range as its scale). A kept frame's origin and range stand while the slice fits them - its near end at least half the
+		// pancake under the kept origin, its far end above the kept far plane - so the camera's motion along the light moves no depth
+		// value and a scrolled map's overlap is copied as it is. Casters nearer than the near plane are pancaked as always; casters beyond
+		// the far plane are behind the slice and shadow nothing in it.
+		const real_t slice_near = z_vec.dot(center) + radius;
+		real_t origin_z = z_max;
+		real_t depth_range = (z_max - z_min_cam) + 2.0 * radius;
+		if (kept_frame && kept_origin_z - slice_near >= pancake_size * 0.5 && z_min_cam >= kept_origin_z - kept_far) {
+			origin_z = kept_origin_z;
+			depth_range = kept_far;
+		}
+
 		{
 			Projection ortho_camera;
 			real_t half_x = (x_max_cam - x_min_cam) * 0.5;
 			real_t half_y = (y_max_cam - y_min_cam) * 0.5;
 
-			ortho_camera.set_orthogonal(-half_x, half_x, -half_y, half_y, 0, (z_max - z_min_cam));
+			ortho_camera.set_orthogonal(-half_x, half_x, -half_y, half_y, 0, depth_range);
 
 			Vector2 uv_scale(1.0 / (x_max_cam - x_min_cam), 1.0 / (y_max_cam - y_min_cam));
 
 			Transform3D ortho_transform;
-			ortho_transform.basis = transform.basis;
-			ortho_transform.origin = x_vec * (x_min_cam + half_x) + y_vec * (y_min_cam + half_y) + z_vec * z_max;
+			ortho_transform.basis = window_basis;
+			ortho_transform.origin = x_vec * (x_min_cam + half_x) + y_vec * (y_min_cam + half_y) + z_vec * origin_z;
 
-			cull.shadows[p_shadow_index].cascades[i].frustum = Frustum(light_frustum_planes);
-			cull.shadows[p_shadow_index].cascades[i].projection = ortho_camera;
-			cull.shadows[p_shadow_index].cascades[i].transform = ortho_transform;
-			cull.shadows[p_shadow_index].cascades[i].zfar = z_max - z_min_cam;
-			cull.shadows[p_shadow_index].cascades[i].split = distances[i + 1];
+			Cull::Shadow::Cascade &cascade = cull.shadows[p_shadow_index].cascades[i];
 			// LONGSHOT (patch #28): the texel is the map's - the expansion included. The depth bias (#27) and the normal bias are
 			// counted in this texel; on the bare radius they covered a fifth of the boots' cascade's real texel, and a slope read
 			// the map's texel grid as terraces along its contours (the Moon at noon: one texel spans 0.084 m of depth on a 17 deg
 			// slope, the bias covered 0.059; the hill's third cascade, texel 1.15 m against a bias of 0.94, stayed clean).
-			cull.shadows[p_shadow_index].cascades[i].shadow_texel_size = (radius + soft_shadow_expand) * 2.0 / texture_size;
-			cull.shadows[p_shadow_index].cascades[i].bias_scale = (z_max - z_min_cam);
-			cull.shadows[p_shadow_index].cascades[i].range_begin = (search_bounded ? search_begin : z_max) - z_vec.dot(p_cam_transform.origin);   // LONGSHOT (#29)
-			cull.shadows[p_shadow_index].cascades[i].uv_scale = uv_scale;
+			const real_t texel = (radius + soft_shadow_expand) * 2.0 / texture_size;
+			cascade.frustum = Frustum(light_frustum_planes);
+			cascade.projection = ortho_camera;
+			cascade.transform = ortho_transform;
+			cascade.zfar = depth_range;
+			cascade.split = distances[i + 1];
+			cascade.shadow_texel_size = texel;
+			cascade.bias_scale = (z_max - z_min_cam);
+			cascade.range_begin = (search_bounded ? search_begin : z_max) - z_vec.dot(p_cam_transform.origin);   // LONGSHOT (#29)
+			cascade.uv_scale = uv_scale;
+
+			// LONGSHOT patch #66: the cache's word for this window, and a scroll's uncovered strips - the texels of the new window that
+			// were not in the kept one (the new texel (i, j) was the kept (i + shift.x, j + shift.y)), as rects of the map and as frusta
+			// (the strip's bounds along the window's axes, the cascade's own depth planes) the static casters drawn into them are culled
+			// by. The casters' version is settled after the cull; a word of STANDS or SCROLL may still become a whole capture there.
+			cascade.scroll_shift = Vector2i();
+			cascade.strip_count = 0;
+			cascade.cache_word = RSG::light_storage->light_instance_directional_cache_window(light->instance, i, p_owner, p_shadow_index, kept_frame, ortho_camera, ortho_transform, depth_range, texel, uv_scale, cascade.scroll_shift);
+			if (cascade.cache_word == RendererLightStorage::SHADOW_CACHE_SCROLL) {
+				const int size = int(texture_size);
+				const Vector2i s = cascade.scroll_shift;
+				Vector<Plane> strip_planes = light_frustum_planes; // the whole window's planes; a strip narrows one axis
+				if (s.x != 0) {
+					const int i0 = s.x > 0 ? size - s.x : 0;
+					const int i1 = s.x > 0 ? size : -s.x;
+					cascade.strip_rect[cascade.strip_count] = Rect2i(i0, 0, i1 - i0, size);
+					strip_planes.write[0] = Plane(x_vec, x_min_cam + i1 * texel);
+					strip_planes.write[1] = Plane(-x_vec, -(x_min_cam + i0 * texel));
+					strip_planes.write[2] = light_frustum_planes[2];
+					strip_planes.write[3] = light_frustum_planes[3];
+					cascade.strip_frustum[cascade.strip_count] = Frustum(strip_planes);
+					cascade.strip_count++;
+				}
+				if (s.y != 0) {
+					const int j0 = s.y > 0 ? size - s.y : 0;
+					const int j1 = s.y > 0 ? size : -s.y;
+					cascade.strip_rect[cascade.strip_count] = Rect2i(0, j0, size, j1 - j0);
+					strip_planes.write[0] = light_frustum_planes[0];
+					strip_planes.write[1] = light_frustum_planes[1];
+					strip_planes.write[2] = Plane(y_vec, y_min_cam + j1 * texel);
+					strip_planes.write[3] = Plane(-y_vec, -(y_min_cam + j0 * texel));
+					cascade.strip_frustum[cascade.strip_count] = Frustum(strip_planes);
+					cascade.strip_count++;
+				}
+			}
 		}
 	}
 }
@@ -3381,6 +3444,16 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 							if (caster_static) {
 								cull_result.directional_shadows[j].cascade_geometry_instances[k].push_back(idata.instance_geometry);
 								static_cascades |= 1u << (j * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + k);
+								// LONGSHOT patch #66 (THE SCROLL): a static caster in a scrolling cascade's uncovered strips is drawn into them
+								const Cull::Shadow::Cascade &cascade = cull_data.cull->shadows[j].cascades[k];
+								if (cascade.cache_word == RendererLightStorage::SHADOW_CACHE_SCROLL) {
+									for (uint32_t s = 0; s < cascade.strip_count; s++) {
+										if (IN_FRUSTUM(cascade.strip_frustum[s])) {
+											cull_result.directional_shadows[j].cascade_strip_instances[k].push_back(idata.instance_geometry);
+											break;
+										}
+									}
+								}
 							} else {
 								cull_result.directional_shadows[j].cascade_dynamic_instances[k].push_back(idata.instance_geometry);
 							}
@@ -3491,6 +3564,10 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 	/* STEP 2 - CULL */
 
+	// LONGSHOT patch #65 (THE SHADOWS CACHED): the render the sun's cascades' static maps are kept for - its buffers' object id; a
+	// render with none (a probe's) is served whole and leaves the kept maps alone
+	const uint64_t shadow_owner = p_render_buffers.is_valid() ? uint64_t(p_render_buffers->get_instance_id()) : 0;
+
 	Vector<Plane> planes = p_camera_data->main_projection.get_projection_planes(p_camera_data->main_transform);
 	cull.frustum = Frustum(planes);
 
@@ -3526,7 +3603,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		RSG::light_storage->set_directional_shadow_count(lights_with_shadow.size());
 
 		for (int i = 0; i < lights_with_shadow.size(); i++) {
-			_light_instance_setup_directional_shadow(i, lights_with_shadow[i], p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect);
+			_light_instance_setup_directional_shadow(i, lights_with_shadow[i], p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect, shadow_owner);
 		}
 	}
 
@@ -3619,29 +3696,28 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 
 		// Directional Shadows
 
-		// LONGSHOT patch #65 (THE SHADOWS CACHED): the render these cascades' maps are kept for (its buffers' object id; a render with
-		// none is served whole), and for each cascade the cache's word: a kept map stands while its window holds this frame's slice
-		// within the snapping's own slop, its light within half a texel's angle at the depth range, and its static casters' version -
-		// then the window the map was drawn in is this frame's, so the dynamic casters and the sampling agree with the map to the texel.
-		const uint64_t shadow_owner = p_render_buffers.is_valid() ? uint64_t(p_render_buffers->get_instance_id()) : 0;
-
+		// LONGSHOT patch #65 (THE SHADOWS CACHED) and #66 (THE SCROLL): the cascade's window is the one its setup made - in a kept map's
+		// frame when one stands - and the cache's word, given by geometry at the setup, is settled here against the static casters'
+		// version the cull just moved or kept: a kept map whose casters changed is drawn whole and captured again.
 		for (uint32_t i = 0; i < cull.shadow_count; i++) {
 			for (uint32_t j = 0; j < cull.shadows[i].cascade_count; j++) {
-				Cull::Shadow::Cascade c = cull.shadows[i].cascades[j]; // a copy: a kept map's window replaces this frame's
+				const Cull::Shadow::Cascade &c = cull.shadows[i].cascades[j];
 				//			print_line("shadow " + itos(i) + " cascade " + itos(j) + " elements: " + itos(c.cull_result.size()));
-				int static_cache = RendererLightStorage::SHADOW_CACHE_WHOLE;
-				if (max_shadows_used < MAX_UPDATE_SHADOWS) {
-					static_cache = RSG::light_storage->light_instance_directional_cache(cull.shadows[i].light_instance, j, shadow_owner, i, scenario->static_casters_version[i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + j].get(), c.projection, c.transform, c.zfar, c.split, c.shadow_texel_size, c.bias_scale, c.range_begin, c.uv_scale);
-				}
 				RSG::light_storage->light_instance_set_shadow_transform(cull.shadows[i].light_instance, c.projection, c.transform, c.zfar, c.split, j, c.shadow_texel_size, c.bias_scale, c.range_begin, c.uv_scale);
 				if (max_shadows_used == MAX_UPDATE_SHADOWS) {
 					continue;
 				}
-				render_shadow_data[max_shadows_used].light = cull.shadows[i].light_instance;
-				render_shadow_data[max_shadows_used].pass = j;
-				render_shadow_data[max_shadows_used].instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
-				render_shadow_data[max_shadows_used].dynamic_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
-				render_shadow_data[max_shadows_used].static_cache = static_cache;
+				RendererSceneRender::RenderShadowData &data = render_shadow_data[max_shadows_used];
+				data.light = cull.shadows[i].light_instance;
+				data.pass = j;
+				data.instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
+				data.dynamic_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
+				data.strip_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_strip_instances[j]);
+				data.static_cache = RSG::light_storage->light_instance_directional_cache_settle(cull.shadows[i].light_instance, j, shadow_owner, scenario->static_casters_version[i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + j].get());
+				data.scroll_shift = c.scroll_shift;
+				data.strip_count = int(c.strip_count);
+				data.strip_rect[0] = c.strip_rect[0];
+				data.strip_rect[1] = c.strip_rect[1];
 				max_shadows_used++;
 			}
 		}
@@ -3867,6 +3943,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		render_shadow_data[i].instances.clear();
 		render_shadow_data[i].dynamic_instances.clear(); // LONGSHOT patch #65
 		render_shadow_data[i].static_cache = RendererLightStorage::SHADOW_CACHE_WHOLE;
+		render_shadow_data[i].strip_instances.clear(); // LONGSHOT patch #66
+		render_shadow_data[i].strip_count = 0;
 	}
 	max_shadows_used = 0;
 
@@ -4660,6 +4738,7 @@ RendererSceneCull::RendererSceneCull() {
 	for (uint32_t i = 0; i < MAX_UPDATE_SHADOWS; i++) {
 		render_shadow_data[i].instances.set_page_pool(&geometry_instance_cull_page_pool);
 		render_shadow_data[i].dynamic_instances.set_page_pool(&geometry_instance_cull_page_pool); // LONGSHOT patch #65
+		render_shadow_data[i].strip_instances.set_page_pool(&geometry_instance_cull_page_pool); // LONGSHOT patch #66
 	}
 	for (uint32_t i = 0; i < SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE; i++) {
 		render_sdfgi_data[i].instances.set_page_pool(&geometry_instance_cull_page_pool);
@@ -4692,6 +4771,7 @@ RendererSceneCull::~RendererSceneCull() {
 	for (uint32_t i = 0; i < MAX_UPDATE_SHADOWS; i++) {
 		render_shadow_data[i].instances.reset();
 		render_shadow_data[i].dynamic_instances.reset(); // LONGSHOT patch #65
+		render_shadow_data[i].strip_instances.reset(); // LONGSHOT patch #66
 	}
 	for (uint32_t i = 0; i < SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE; i++) {
 		render_sdfgi_data[i].instances.reset();

@@ -441,8 +441,16 @@ private:
 
 			uint32_t uniform_buffer_index;
 			uint32_t external_pass = 0; // LONGSHOT patch #60
-			bool blit_static = false; // LONGSHOT patch #65: the cascade's kept static map copied into its rect before the draw
-			bool capture_static = false; // LONGSHOT patch #65: the rect copied out to the static twin after the draw, kept
+			// LONGSHOT patch #65 (THE SHADOWS CACHED) and #66 (THE SCROLL): the kept map's part in this pass - a blit of blit_rect from the
+			// static twin (read at blit_rect moved by blit_src) before the draw, a scissor over the draw (a scroll's strip), and the
+			// cascade's rect captured out to the twin after it
+			struct Cache {
+				bool blit = false;
+				Rect2i blit_rect;
+				Vector2i blit_src;
+				Rect2i scissor;
+				bool capture = false;
+			} cache;
 		};
 
 		LocalVector<ShadowPass> shadow_passes;
@@ -482,7 +490,7 @@ private:
 	template <PassMode p_pass_mode, uint32_t p_color_pass_flags = 0>
 	_FORCE_INLINE_ void _render_list_template(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
 	void _render_list(RenderingDevice::DrawListID p_draw_list, RenderingDevice::FramebufferFormatID p_framebuffer_Format, RenderListParameters *p_params, uint32_t p_from_element, uint32_t p_to_element);
-	void _render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL, const Vector<Color> &p_clear_color_values = Vector<Color>(), float p_clear_depth_value = 0.0, uint32_t p_clear_stencil_value = 0, const Rect2 &p_region = Rect2());
+	void _render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags = RD::DRAW_DEFAULT_ALL, const Vector<Color> &p_clear_color_values = Vector<Color>(), float p_clear_depth_value = 0.0, uint32_t p_clear_stencil_value = 0, const Rect2 &p_region = Rect2(), const Rect2i &p_scissor = Rect2i()); // LONGSHOT patch #66: a scissor within the region
 
 	void _fill_instance_data(RenderListType p_render_list, int *p_render_info = nullptr, uint32_t p_offset = 0, int32_t p_max_elements = -1, bool p_update_buffer = true);
 	void _fill_render_list(RenderListType p_render_list, const RenderDataRD *p_render_data, PassMode p_pass_mode, bool p_using_sdfgi = false, bool p_using_opaque_gi = false, bool p_using_motion_pass = false, bool p_append = false);
@@ -778,9 +786,9 @@ private:
 
 	/* Render shadows */
 
-	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RenderGeometryInstance *> &p_dynamic_instances, int p_static_cache, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D()); // LONGSHOT patch #65: the dynamic casters and the cache's word with the (static) instances
+	void _render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RenderGeometryInstance *> &p_dynamic_instances, const PagedArray<RenderGeometryInstance *> &p_strip_instances, int p_static_cache, const Vector2i &p_scroll_shift, int p_strip_count, const Rect2i *p_strip_rect, float p_lod_distance_multiplier = 0, float p_screen_mesh_lod_threshold = 0.0, bool p_open_pass = true, bool p_close_pass = true, bool p_clear_region = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D()); // LONGSHOT patch #65: the dynamic casters and the cache's word with the (static) instances
 	void _render_shadow_begin();
-	void _render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier = 0.0, float p_screen_mesh_lod_threshold = 0.0, const Rect2i &p_rect = Rect2i(), bool p_flip_y = false, bool p_clear_region = true, bool p_begin = true, bool p_end = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D(), uint32_t p_external_pass = 0, bool p_blit_static = false, bool p_capture_static = false);
+	void _render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier = 0.0, float p_screen_mesh_lod_threshold = 0.0, const Rect2i &p_rect = Rect2i(), bool p_flip_y = false, bool p_clear_region = true, bool p_begin = true, bool p_end = true, RenderingServerTypes::RenderInfo *p_render_info = nullptr, const Size2i &p_viewport_size = Size2i(1, 1), const Transform3D &p_main_cam_transform = Transform3D(), uint32_t p_external_pass = 0, const SceneState::ShadowPass::Cache &p_cache = SceneState::ShadowPass::Cache());
 	void _render_shadow_process();
 	void _render_shadow_end();
 

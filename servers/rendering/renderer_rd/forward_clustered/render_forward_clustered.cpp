@@ -703,11 +703,14 @@ void RenderForwardClustered::_render_list(RenderingDevice::DrawListID p_draw_lis
 	}
 }
 
-void RenderForwardClustered::_render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags, const Vector<Color> &p_clear_color_values, float p_clear_depth_value, uint32_t p_clear_stencil_value, const Rect2 &p_region) {
+void RenderForwardClustered::_render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags, const Vector<Color> &p_clear_color_values, float p_clear_depth_value, uint32_t p_clear_stencil_value, const Rect2 &p_region, const Rect2i &p_scissor) {
 	RD::FramebufferFormatID fb_format = RD::get_singleton()->framebuffer_get_format(p_framebuffer);
 	p_params->framebuffer_format = fb_format;
 
 	RD::DrawListID draw_list = RD::get_singleton()->draw_list_begin(p_framebuffer, p_draw_flags, p_clear_color_values, p_clear_depth_value, p_clear_stencil_value, p_region);
+	if (p_scissor != Rect2i()) {
+		RD::get_singleton()->draw_list_enable_scissor(draw_list, p_scissor); // LONGSHOT patch #66: a scroll's strip, within the region (the scissor is relative to it)
+	}
 	_render_list(draw_list, fb_format, p_params, 0, p_params->element_count);
 	RD::get_singleton()->draw_list_end();
 }
@@ -1616,7 +1619,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 			RENDER_TIMESTAMP("Render OmniLight Shadows");
 			// Cube shadows are rendered in their own way.
 			for (const int &index : p_render_data->cube_shadows) {
-				_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, p_render_data->render_shadows[index].dynamic_instances, p_render_data->render_shadows[index].static_cache, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
+				_render_shadow_pass(p_render_data->render_shadows[index].light, p_render_data->shadow_atlas, p_render_data->render_shadows[index].pass, p_render_data->render_shadows[index].instances, p_render_data->render_shadows[index].dynamic_instances, p_render_data->render_shadows[index].strip_instances, p_render_data->render_shadows[index].static_cache, p_render_data->render_shadows[index].scroll_shift, p_render_data->render_shadows[index].strip_count, p_render_data->render_shadows[index].strip_rect, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, true, true, true, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
 			}
 		}
 
@@ -1647,11 +1650,11 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 
 		//render directional shadows
 		for (uint32_t i = 0; i < p_render_data->directional_shadows.size(); i++) {
-			_render_shadow_pass(p_render_data->render_shadows[p_render_data->directional_shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->directional_shadows[i]].pass, p_render_data->render_shadows[p_render_data->directional_shadows[i]].instances, p_render_data->render_shadows[p_render_data->directional_shadows[i]].dynamic_instances, p_render_data->render_shadows[p_render_data->directional_shadows[i]].static_cache, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, false, i == p_render_data->directional_shadows.size() - 1, false, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
+			_render_shadow_pass(p_render_data->render_shadows[p_render_data->directional_shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->directional_shadows[i]].pass, p_render_data->render_shadows[p_render_data->directional_shadows[i]].instances, p_render_data->render_shadows[p_render_data->directional_shadows[i]].dynamic_instances, p_render_data->render_shadows[p_render_data->directional_shadows[i]].strip_instances, p_render_data->render_shadows[p_render_data->directional_shadows[i]].static_cache, p_render_data->render_shadows[p_render_data->directional_shadows[i]].scroll_shift, p_render_data->render_shadows[p_render_data->directional_shadows[i]].strip_count, p_render_data->render_shadows[p_render_data->directional_shadows[i]].strip_rect, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, false, i == p_render_data->directional_shadows.size() - 1, false, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
 		}
 		//render positional shadows
 		for (uint32_t i = 0; i < p_render_data->shadows.size(); i++) {
-			_render_shadow_pass(p_render_data->render_shadows[p_render_data->shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->shadows[i]].pass, p_render_data->render_shadows[p_render_data->shadows[i]].instances, p_render_data->render_shadows[p_render_data->shadows[i]].dynamic_instances, p_render_data->render_shadows[p_render_data->shadows[i]].static_cache, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
+			_render_shadow_pass(p_render_data->render_shadows[p_render_data->shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->shadows[i]].pass, p_render_data->render_shadows[p_render_data->shadows[i]].instances, p_render_data->render_shadows[p_render_data->shadows[i]].dynamic_instances, p_render_data->render_shadows[p_render_data->shadows[i]].strip_instances, p_render_data->render_shadows[p_render_data->shadows[i]].static_cache, p_render_data->render_shadows[p_render_data->shadows[i]].scroll_shift, p_render_data->render_shadows[p_render_data->shadows[i]].strip_count, p_render_data->render_shadows[p_render_data->shadows[i]].strip_rect, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, target_size, p_render_data->scene_data->cam_transform);
 		}
 
 		_render_shadow_process();
@@ -2668,7 +2671,7 @@ void RenderForwardClustered::_render_buffers_debug_draw(const RenderDataRD *p_re
 	}
 }
 
-void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RenderGeometryInstance *> &p_dynamic_instances, int p_static_cache, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform) {
+void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RenderGeometryInstance *> &p_dynamic_instances, const PagedArray<RenderGeometryInstance *> &p_strip_instances, int p_static_cache, const Vector2i &p_scroll_shift, int p_strip_count, const Rect2i *p_strip_rect, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform) {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	ERR_FAIL_COND(!light_storage->owns_light_instance(p_light));
@@ -2764,12 +2767,17 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 		render_texture = RID();
 		flip_y = true;
 
-		// LONGSHOT patch #65 (THE SHADOWS CACHED): a kept map is blitted into the cascade's rect and the dynamic casters drawn over it; a
-		// map to capture is drawn from the static casters and copied out; a cascade with no map is drawn whole. The map's render-side
+		// LONGSHOT patch #65 (THE SHADOWS CACHED) and #66 (THE SCROLL): a kept map is blitted into the cascade's rect and the dynamic
+		// casters drawn over it; a scrolled map's overlap is blitted with its shift and the static casters drawn in the uncovered strips;
+		// a map to capture is drawn from the static casters and copied out; a cascade with no map is drawn whole. The map's render-side
 		// keys - its rect, the atlas, the viewport's width behind the level-of-detail threshold - are checked here: a kept map whose keys
-		// moved is drawn and captured again, in its own window (the cull restored it above the light buffers).
+		// moved is drawn and captured again, in its own window (the cull made the window in the kept frame, above the light buffers).
 		static_cache = p_static_cache;
 		if (static_cache != RendererLightStorage::SHADOW_CACHE_WHOLE && !light_storage->light_instance_directional_cache_keys(p_light, p_pass, atlas_rect, p_viewport_size.width)) {
+			static_cache = RendererLightStorage::SHADOW_CACHE_CAPTURE;
+		}
+		if (static_cache == RendererLightStorage::SHADOW_CACHE_SCROLL && p_strip_count <= 0) {
+			ERR_PRINT_ONCE("LONGSHOT patch #66: a scrolling cascade came with no strip; drawn whole and captured instead.");
 			static_cache = RendererLightStorage::SHADOW_CACHE_CAPTURE;
 		}
 
@@ -2885,14 +2893,37 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 
 	} else {
 		//render shadow
+		SceneState::ShadowPass::Cache ops;
 		if (static_cache == RendererLightStorage::SHADOW_CACHE_STANDS) {
 			// LONGSHOT patch #65: the kept map blitted in, the dynamic casters over it (never a clear)
-			_render_shadow_append(render_fb, p_dynamic_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, true, false);
+			ops.blit = true;
+			ops.blit_rect = atlas_rect;
+			_render_shadow_append(render_fb, p_dynamic_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, ops);
+		} else if (static_cache == RendererLightStorage::SHADOW_CACHE_SCROLL) {
+			// LONGSHOT patch #66: the kept map's overlap blitted with the shift (the new texel (i, j) was the kept (i + x, j + y)), the
+			// static casters of the uncovered strips drawn into them under their scissors, the map captured after the last strip, and
+			// the dynamic casters over all of it
+			const Vector2i s = p_scroll_shift;
+			ops.blit = true;
+			ops.blit_src = s;
+			ops.blit_rect = Rect2i(atlas_rect.position + Vector2i(MAX(0, -s.x), MAX(0, -s.y)), atlas_rect.size - Vector2i(ABS(s.x), ABS(s.y)));
+			for (int st = 0; st < p_strip_count; st++) {
+				ops.scissor = p_strip_rect[st];
+				ops.capture = st == p_strip_count - 1;
+				_render_shadow_append(render_fb, p_strip_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, ops);
+				ops.blit = false;
+				ops.blit_src = Vector2i();
+				ops.blit_rect = Rect2i();
+			}
+			if (p_dynamic_instances.size() > 0) {
+				_render_shadow_append(render_fb, p_dynamic_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, SceneState::ShadowPass::Cache());
+			}
 		} else {
 			// the static casters (the map captured when it is to be kept), then the dynamic casters over them when there are any
-			_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, false, static_cache == RendererLightStorage::SHADOW_CACHE_CAPTURE);
+			ops.capture = static_cache == RendererLightStorage::SHADOW_CACHE_CAPTURE;
+			_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, ops);
 			if (p_dynamic_instances.size() > 0) {
-				_render_shadow_append(render_fb, p_dynamic_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, false, false);
+				_render_shadow_append(render_fb, p_dynamic_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, SceneState::ShadowPass::Cache());
 			}
 		}
 	}
@@ -2908,11 +2939,10 @@ void RenderForwardClustered::_render_shadow_begin() {
 	// because _fill_instance_data will do that if it detects p_offset == 0u.
 }
 
-void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, const Rect2i &p_rect, bool p_flip_y, bool p_clear_region, bool p_begin, bool p_end, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform, uint32_t p_external_pass, bool p_blit_static, bool p_capture_static) {
+void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const PagedArray<RenderGeometryInstance *> &p_instances, const Projection &p_projection, const Transform3D &p_transform, float p_zfar, float p_bias, float p_normal_bias, bool p_reverse_cull_face, bool p_use_dp, bool p_use_dp_flip, bool p_use_pancake, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, const Rect2i &p_rect, bool p_flip_y, bool p_clear_region, bool p_begin, bool p_end, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform, uint32_t p_external_pass, const SceneState::ShadowPass::Cache &p_cache) {
 	SceneState::ShadowPass shadow_pass;
 	shadow_pass.external_pass = p_external_pass; // LONGSHOT patch #60
-	shadow_pass.blit_static = p_blit_static; // LONGSHOT patch #65
-	shadow_pass.capture_static = p_capture_static;
+	shadow_pass.cache = p_cache; // LONGSHOT patch #65/#66
 
 	RenderSceneDataRD scene_data;
 	scene_data.flip_y = !p_flip_y; // Q: Why is this inverted? Do we assume flip in shadow logic?
@@ -3009,16 +3039,16 @@ void RenderForwardClustered::_render_shadow_end() {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	for (SceneState::ShadowPass &shadow_pass : scene_state.shadow_passes) {
-		if (shadow_pass.blit_static) {
-			light_storage->directional_shadow_static_copy(shadow_pass.rect, true); // LONGSHOT patch #65: the kept map into the cascade's rect
+		if (shadow_pass.cache.blit) {
+			light_storage->directional_shadow_static_copy(shadow_pass.cache.blit_rect, shadow_pass.cache.blit_src, true); // LONGSHOT patch #65/#66: the kept map (its overlap, shifted) into the cascade's rect
 		}
 		if (shadow_pass.element_count > 0 || shadow_pass.clear_depth) { // LONGSHOT patch #65: nothing to draw and nothing to clear is no draw list
 			RenderListParameters render_list_parameters(render_list[RENDER_LIST_SECONDARY].elements.ptr() + shadow_pass.element_from, render_list[RENDER_LIST_SECONDARY].element_info.ptr() + shadow_pass.element_from, shadow_pass.element_count, shadow_pass.flip_cull, shadow_pass.pass_mode, 0, true, false, shadow_pass.rp_uniform_set, false, Vector2(), shadow_pass.lod_distance_multiplier, shadow_pass.screen_mesh_lod_threshold, 1, shadow_pass.element_from);
 			render_list_parameters.external_pass = shadow_pass.external_pass; // LONGSHOT patch #60
-			_render_list_with_draw_list(&render_list_parameters, shadow_pass.framebuffer, shadow_pass.clear_depth ? RD::DRAW_CLEAR_DEPTH : RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0, shadow_pass.rect);
+			_render_list_with_draw_list(&render_list_parameters, shadow_pass.framebuffer, shadow_pass.clear_depth ? RD::DRAW_CLEAR_DEPTH : RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0, shadow_pass.rect, shadow_pass.cache.scissor);
 		}
-		if (shadow_pass.capture_static) {
-			light_storage->directional_shadow_static_copy(shadow_pass.rect, false); // LONGSHOT patch #65: the static casters' map out, kept
+		if (shadow_pass.cache.capture) {
+			light_storage->directional_shadow_static_copy(shadow_pass.rect, Vector2i(), false); // LONGSHOT patch #65: the static casters' map out, kept
 		}
 	}
 
