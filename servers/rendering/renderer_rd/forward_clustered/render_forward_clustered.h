@@ -445,6 +445,7 @@ private:
 			// static twin (read at blit_rect moved by blit_src) before the draw, a scissor over the draw (a scroll's strip), and the
 			// cascade's rect captured out to the twin after it
 			struct Cache {
+				Rect2i clear_rect; // LONGSHOT patch #68: the atlas cleared here (a region clear, no draw) before the blit and the draw - a drawn cascade's rect, a scroll's strip; a kept map needs none
 				bool blit = false;
 				Rect2i blit_rect;
 				Vector2i blit_src;

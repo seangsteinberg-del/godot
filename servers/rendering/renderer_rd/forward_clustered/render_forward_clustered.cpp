@@ -1626,8 +1626,9 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 		if (p_render_data->directional_shadows.size()) {
 			//open the pass for directional shadows
 			light_storage->update_directional_shadow_atlas();
-			RD::get_singleton()->draw_list_begin(light_storage->direction_shadow_get_fb(), RD::DRAW_CLEAR_DEPTH, Vector<Color>(), 0.0f);
-			RD::get_singleton()->draw_list_end();
+			// LONGSHOT patch #68 (THE ATLAS CLEARED WHERE IT IS DRAWN): the whole atlas was cleared here every frame (64 MB at 4096 x 4096
+			// D32); each cascade now clears its own rect, or a scroll its strips, before its draw (ShadowPass::Cache::clear_rect), and a
+			// kept map blitted whole clears nothing
 		}
 	}
 
@@ -2909,6 +2910,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 			ops.blit_rect = Rect2i(atlas_rect.position + Vector2i(MAX(0, -s.x), MAX(0, -s.y)), atlas_rect.size - Vector2i(ABS(s.x), ABS(s.y)));
 			for (int st = 0; st < p_strip_count; st++) {
 				ops.scissor = p_strip_rect[st];
+				ops.clear_rect = Rect2i(atlas_rect.position + p_strip_rect[st].position, p_strip_rect[st].size); // LONGSHOT patch #68: the strip cleared before its casters
 				ops.capture = st == p_strip_count - 1;
 				_render_shadow_append(render_fb, p_strip_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, ops);
 				ops.blit = false;
@@ -2921,6 +2923,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 		} else {
 			// the static casters (the map captured when it is to be kept), then the dynamic casters over them when there are any
 			ops.capture = static_cache == RendererLightStorage::SHADOW_CACHE_CAPTURE;
+			ops.clear_rect = atlas_rect; // LONGSHOT patch #68: the cascade's rect cleared before it is drawn whole
 			_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, p_clear_region, p_open_pass, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, ops);
 			if (p_dynamic_instances.size() > 0) {
 				_render_shadow_append(render_fb, p_dynamic_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, using_dual_paraboloid, using_dual_paraboloid_flip, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, atlas_rect, flip_y, false, false, p_close_pass, p_render_info, p_viewport_size, p_main_cam_transform, external_pass, SceneState::ShadowPass::Cache());
@@ -3039,6 +3042,11 @@ void RenderForwardClustered::_render_shadow_end() {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	for (SceneState::ShadowPass &shadow_pass : scene_state.shadow_passes) {
+		if (shadow_pass.cache.clear_rect != Rect2i()) {
+			// LONGSHOT patch #68: a region clear, the way the whole atlas was cleared before - the drawn rect or a scroll's strip alone
+			RD::get_singleton()->draw_list_begin(shadow_pass.framebuffer, RD::DRAW_CLEAR_DEPTH, Vector<Color>(), 0.0f, 0, shadow_pass.cache.clear_rect);
+			RD::get_singleton()->draw_list_end();
+		}
 		if (shadow_pass.cache.blit) {
 			light_storage->directional_shadow_static_copy(shadow_pass.cache.blit_rect, shadow_pass.cache.blit_src, true); // LONGSHOT patch #65/#66: the kept map (its overlap, shifted) into the cascade's rect
 		}
