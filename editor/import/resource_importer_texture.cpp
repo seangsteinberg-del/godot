@@ -463,6 +463,29 @@ void ResourceImporterTexture::_save_ctex(const Ref<Image> &p_image, const String
 		image->generate_mipmap_roughness(p_roughness_channel, p_normal);
 	}
 
+	// THE LOSSLESS PICTURE KEEPS THE CHANNELS IT USES (longshot patch #59): a picture stored without a codec - lossless, or VRAM
+	// uncompressed - is stored in the smallest eight-bit form that holds its texels exactly: a grey picture as one byte a texel (L8), a
+	// mask or a white print over alpha as two (LA8); the device holds it so, where the source file held four bytes a texel. The texels
+	// are unchanged (the detection keeps a channel one byte uses; the loader brings the packed data back to this format, the file's
+	// header), and a sampler reads the same value in every channel it read before (the swizzles of the grey formats). Red-only and
+	// red-green forms are not taken: they have no sRGB view (detect_used_channels' own rule for an sRGB source).
+	if ((p_compress_mode == COMPRESS_LOSSLESS || p_compress_mode == COMPRESS_VRAM_UNCOMPRESSED) && (image->get_format() == Image::FORMAT_RGB8 || image->get_format() == Image::FORMAT_RGBA8)) {
+		const Image::Format was = image->get_format();
+		switch (image->detect_used_channels(Image::COMPRESS_SOURCE_SRGB)) {
+			case Image::USED_CHANNELS_L:
+				image->convert(Image::FORMAT_L8);
+				break;
+			case Image::USED_CHANNELS_LA:
+				image->convert(Image::FORMAT_LA8);
+				break;
+			default:
+				break;
+		}
+		if (image->get_format() != was) {
+			print_line(vformat("[import] %s kept in %s: its channels are %s (%dx%d)", p_to_path.get_file(), Image::get_format_name(image->get_format()), image->get_format() == Image::FORMAT_L8 ? "one grey" : "grey over alpha", image->get_width(), image->get_height()));
+		}
+	}
+
 	// Optimization: Only check for color channels when compressing as BasisU or VRAM.
 	Image::UsedChannels used_channels = Image::USED_CHANNELS_RGBA;
 
@@ -1043,6 +1066,12 @@ Error ResourceImporterTexture::import(ResourceUID::ID p_source_id, const String 
 			meta["imported_formats"] = formats_imported;
 		}
 
+		// THE LOSSLESS PICTURE KEEPS THE CHANNELS IT USES (longshot patch #59): a picture stored without a codec records the law it was
+		// stored under, so a tree whose import predates the law imports it again (are_import_settings_valid), and no other picture
+		if (compress_mode == COMPRESS_LOSSLESS || compress_mode == COMPRESS_VRAM_UNCOMPRESSED) {
+			meta["channels"] = 1;
+		}
+
 		if (editor_image.is_valid()) {
 			meta["has_editor_variant"] = true;
 		}
@@ -1099,7 +1128,10 @@ bool ResourceImporterTexture::are_import_settings_valid(const String &p_path, co
 	}
 
 	if (!bool(p_meta["vram_texture"])) {
-		return true; // Do not care about non-VRAM.
+		// THE LOSSLESS PICTURE KEEPS THE CHANNELS IT USES (longshot patch #59): a picture stored without a codec before the law is
+		// stored again under it (its import carries no "channels"); a lossy or Basis import carries none either and is read once more,
+		// the same bytes, so every tree converges on the one form without a format-version bump (a full re-import is hours a tree)
+		return p_meta.has("channels");
 	}
 
 	// Will become invalid if formats are missing to import.
