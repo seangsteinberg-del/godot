@@ -823,6 +823,7 @@ void SceneShaderForwardMobile::init(const String p_defines) {
 		actions.render_mode_defines["specular_toon"] = "#define SPECULAR_TOON\n";
 		actions.render_mode_defines["specular_disabled"] = "#define SPECULAR_DISABLED\n";
 		actions.render_mode_defines["shadows_disabled"] = "#define SHADOWS_DISABLED\n";
+		actions.render_mode_defines["shadows_near"] = "#define SHADOWS_NEAR\n"; // LONGSHOT patch #77 (the mobile renderer samples every cascade as before: the define is read by the clustered shader alone)
 		actions.render_mode_defines["ambient_light_disabled"] = "#define AMBIENT_LIGHT_DISABLED\n";
 		actions.render_mode_defines["shadow_to_opacity"] = "#define USE_SHADOW_TO_OPACITY\n";
 		actions.render_mode_defines["unshaded"] = "#define MODE_UNSHADED\n";

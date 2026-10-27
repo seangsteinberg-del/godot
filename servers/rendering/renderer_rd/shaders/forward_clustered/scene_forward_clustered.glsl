@@ -2411,6 +2411,18 @@ void fragment_shader(in SceneData scene_data) {
 	normal_bias -= light_dir * dot(light_dir, normal_bias);                                     \
 	m_var.xyz += normal_bias;
 
+					// LONGSHOT patch #77 (THE FAR GROUND SHADOWS ITSELF): a material with `shadows_near` takes the sun's maps within the first
+					// three cascades alone; beyond their reach it is lit by its own law (the ground's relief statistics, its horizon tiles toward
+					// the sun), one shadow law a scale - the far ground was shadowed twice (the map's share times its horizon's) and sampled
+					// the maps for every far pixel
+#ifdef SHADOWS_NEAR
+					const bool shadow_beyond_near = depth_z >= directional_lights.data[i].shadow_split_offsets.z;
+#else
+					const bool shadow_beyond_near = false;
+#endif
+					if (shadow_beyond_near) {
+						shadow = 1.0;
+					} else
 					//version with soft shadows, more expensive
 					if (sc_use_directional_soft_shadows() && directional_lights.data[i].softshadow_angle > 0) {
 						uint blend_count = 0;
