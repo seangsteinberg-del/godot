@@ -34,6 +34,7 @@
 #include "core/object/script_language.h"
 #include "core/os/main_loop.h"
 #include "core/os/os.h"
+#include "core/os/thread.h" // LONGSHOT patch #72: the aborting thread named against the main thread's id
 #include "core/string/print_string.h"
 #include "core/version.h"
 
@@ -155,8 +156,14 @@ DWORD CrashHandlerException(EXCEPTION_POINTERS *ep) {
 	print_error(vformat("Dumping the backtrace. %s", msg));
 
 	// Load the symbols:
+	// LONGSHOT patch #72: a process whose symbols were initialised before (a backtrace printed earlier, a stack read) refuses a second
+	// SymInitialize and the handler left without a frame ("Dumping the backtrace" and nothing after it); cleaned up and asked again
 	if (!SymInitialize(process, nullptr, false)) {
-		return EXCEPTION_CONTINUE_SEARCH;
+		SymCleanup(process);
+		if (!SymInitialize(process, nullptr, false)) {
+			print_error(vformat("LONGSHOT: the symbols did not initialise (error %d): no frames", (int)GetLastError()));
+			return EXCEPTION_CONTINUE_SEARCH;
+		}
 	}
 
 	SymSetOptions(SymGetOptions() | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_EXACT_SYMBOLS);
@@ -288,7 +295,16 @@ static void _longshot_abort_backtrace(const char *p_what) {
 	EXCEPTION_RECORD rec = {};
 	rec.ExceptionCode = 0xC0000409; // what the abort returns to the shell
 	EXCEPTION_POINTERS ep = { &rec, &ctx };
-	print_error(vformat("LONGSHOT: %s ends the process - the backtrace is the thread's at the abort", p_what));
+	// the aborting thread named: its id and its description (the engine names its threads), beside the main thread's id
+	String thread_name;
+	{
+		PWSTR desc = nullptr;
+		if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc)) && desc) {
+			thread_name = String((const char16_t *)desc);
+			LocalFree(desc);
+		}
+	}
+	print_error(vformat("LONGSHOT: %s ends the process on thread %d ('%s'; the main thread is %d) - the backtrace is that thread's at the abort", p_what, (int)GetCurrentThreadId(), thread_name, (int)Thread::get_main_id()));
 	CrashHandlerException(&ep);
 }
 
