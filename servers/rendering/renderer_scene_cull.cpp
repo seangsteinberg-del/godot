@@ -1419,6 +1419,25 @@ Projection RendererSceneCull::instance_light_get_shadow_cascade_projection(RID p
 	return proj;
 }
 
+// LONGSHOT patch #80 (THE CASTER'S CASCADES): the directional cascades the caster may be drawn into, a bit a cascade (0 draws into none,
+// 0xFF into all). The ground's shadow bands - a multimesh a band of rows by the eye's distance, each with a tight box - keep each band
+// out of the finer cascades whose windows its annulus' box still crosses, so a band's box fits its own cascade's kept band and the keeper
+// holds it instead of drawing it every frame (3.17 M shadow primitives a frame at the resting pad, 10-27)
+void RendererSceneCull::instance_geometry_set_shadow_cascade_mask(RID p_instance, uint32_t p_mask) {
+	Instance *instance = instance_owner.get_or_null(p_instance);
+	ERR_FAIL_NULL(instance);
+	const uint8_t mask = uint8_t(p_mask & 0xFFu);
+	if (instance->shadow_cascade_mask == mask) {
+		return;
+	}
+	instance->shadow_cascade_mask = mask;
+	if (instance->scenario && instance->array_index >= 0) {
+		InstanceData &idata = instance->scenario->instance_data[instance->array_index];
+		idata.shadow_cascade_mask = mask;
+		_shadow_caster_changed(idata, instance->scenario); // the cascades' casters read the mask: the maps it leaves or enters re-capture
+	}
+}
+
 void RendererSceneCull::instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) {
 	Instance *instance = instance_owner.get_or_null(p_instance);
 	ERR_FAIL_NULL(instance);
@@ -1930,6 +1949,7 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		if (p_instance->cast_shadows == RSE::SHADOW_CASTING_SETTING_SHADOWS_ONLY) {
 			idata.flags |= InstanceData::FLAG_CAST_SHADOWS_ONLY;
 		}
+		idata.shadow_cascade_mask = p_instance->shadow_cascade_mask; // LONGSHOT patch #80 (THE CASTER'S CASCADES)
 		if (p_instance->redraw_if_visible) {
 			idata.flags |= InstanceData::FLAG_REDRAW_IF_VISIBLE;
 		}
@@ -3476,6 +3496,9 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 
 			for (uint32_t j = 0; j < cull_data.cull->shadow_count; j++) {
 				for (uint32_t k = 0; k < cull_data.cull->shadows[j].cascade_count; k++) {
+					if (!((idata.shadow_cascade_mask >> k) & 1u)) {
+						continue; // LONGSHOT patch #80 (THE CASTER'S CASCADES): the caster's maker keeps it out of this cascade
+					}
 					if (!light_culler->cull_directional_light(cull_data.scenario->instance_aabbs[i], j, k)) { // pass the cascade index
 						continue;
 					}

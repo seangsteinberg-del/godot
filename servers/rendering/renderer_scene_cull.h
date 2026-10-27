@@ -305,6 +305,10 @@ public:
 		// of it moves on its own (a skeleton or blend shapes, particles, an animated material).
 		uint64_t shadow_moved_frame = 0;
 		uint32_t shadow_static_cascades = 0;
+		// LONGSHOT patch #80 (THE CASTER'S CASCADES): the directional cascades this caster may be drawn into, a bit a cascade (all by default).
+		// A maker that sorts its rows into bands by the eye's distance (the ground's shadow bands) keeps a band out of the finer cascades
+		// whose windows its annulus' box still crosses, so each band's box fits its own cascade's kept band and the keeper holds it
+		uint8_t shadow_cascade_mask = 0xFF;
 	};
 
 	struct InstanceVisibilityData {
@@ -451,6 +455,7 @@ public:
 		Vector<RID> materials;
 
 		RSE::ShadowCastingSetting cast_shadows;
+		uint8_t shadow_cascade_mask = 0xFF; // LONGSHOT patch #80 (THE CASTER'S CASCADES): the cascades it may be drawn into
 
 		uint32_t layer_mask;
 		// Fit in 32 bits.
@@ -1105,6 +1110,7 @@ public:
 
 	virtual void instance_geometry_set_flag(RID p_instance, RSE::InstanceFlags p_flags, bool p_enabled);
 	virtual void instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting);
+	virtual void instance_geometry_set_shadow_cascade_mask(RID p_instance, uint32_t p_mask); // LONGSHOT patch #80 (THE CASTER'S CASCADES)
 	virtual Vector2 instance_light_get_shadow_cascade(RID p_instance, int p_cascade); // LONGSHOT patch #61
 	virtual Transform3D instance_light_get_shadow_cascade_transform(RID p_instance, int p_cascade); // LONGSHOT patch #67
 	virtual Projection instance_light_get_shadow_cascade_projection(RID p_instance, int p_cascade); // LONGSHOT patch #67

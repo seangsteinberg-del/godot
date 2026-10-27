@@ -111,6 +111,7 @@ public:
 
 	virtual void instance_geometry_set_flag(RID p_instance, RSE::InstanceFlags p_flags, bool p_enabled) = 0;
 	virtual void instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) = 0;
+	virtual void instance_geometry_set_shadow_cascade_mask(RID p_instance, uint32_t p_mask) = 0; // LONGSHOT patch #80 (THE CASTER'S CASCADES)
 	virtual Vector2 instance_light_get_shadow_cascade(RID p_instance, int p_cascade) = 0; // LONGSHOT patch #61
 	virtual Transform3D instance_light_get_shadow_cascade_transform(RID p_instance, int p_cascade) = 0; // LONGSHOT patch #67
 	virtual Projection instance_light_get_shadow_cascade_projection(RID p_instance, int p_cascade) = 0; // LONGSHOT patch #67

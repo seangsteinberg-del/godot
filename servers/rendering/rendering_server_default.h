@@ -974,6 +974,7 @@ public:
 
 	FUNC3(instance_geometry_set_flag, RID, RSE::InstanceFlags, bool)
 	FUNC2(instance_geometry_set_cast_shadows_setting, RID, RSE::ShadowCastingSetting)
+	FUNC2(instance_geometry_set_shadow_cascade_mask, RID, uint32_t) // LONGSHOT patch #80
 	FUNC2R(Vector2, instance_light_get_shadow_cascade, RID, int) // LONGSHOT patch #61
 	FUNC2R(Transform3D, instance_light_get_shadow_cascade_transform, RID, int) // LONGSHOT patch #67
 	FUNC2R(Projection, instance_light_get_shadow_cascade_projection, RID, int) // LONGSHOT patch #67

@@ -3267,6 +3267,7 @@ void RenderingServer::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("instance_geometry_set_flag", "instance", "flag", "enabled"), &RenderingServer::instance_geometry_set_flag);
 	ClassDB::bind_method(D_METHOD("instance_geometry_set_cast_shadows_setting", "instance", "shadow_casting_setting"), &RenderingServer::instance_geometry_set_cast_shadows_setting);
+	ClassDB::bind_method(D_METHOD("instance_geometry_set_shadow_cascade_mask", "instance", "mask"), &RenderingServer::instance_geometry_set_shadow_cascade_mask); // LONGSHOT patch #80
 	ClassDB::bind_method(D_METHOD("instance_light_get_shadow_cascade", "instance", "cascade"), &RenderingServer::instance_light_get_shadow_cascade); // LONGSHOT patch #61
 	ClassDB::bind_method(D_METHOD("instance_light_get_shadow_cascade_transform", "instance", "cascade"), &RenderingServer::instance_light_get_shadow_cascade_transform); // LONGSHOT patch #67
 	ClassDB::bind_method(D_METHOD("instance_light_get_shadow_cascade_projection", "instance", "cascade"), &RenderingServer::instance_light_get_shadow_cascade_projection); // LONGSHOT patch #67

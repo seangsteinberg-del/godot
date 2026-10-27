@@ -778,6 +778,8 @@ public:
 
 	virtual void instance_geometry_set_flag(RID p_instance, RSE::InstanceFlags p_flags, bool p_enabled) = 0;
 	virtual void instance_geometry_set_cast_shadows_setting(RID p_instance, RSE::ShadowCastingSetting p_shadow_casting_setting) = 0;
+	// LONGSHOT patch #80 (THE CASTER'S CASCADES): the directional cascades the caster may be drawn into, a bit a cascade (all by default)
+	virtual void instance_geometry_set_shadow_cascade_mask(RID p_instance, uint32_t p_mask) = 0;
 	// LONGSHOT patch #61: a directional light instance's cascade as it last rendered - x its far split (metres of view depth), y its texel (metres)
 	virtual Vector2 instance_light_get_shadow_cascade(RID p_instance, int p_cascade) = 0;
 	// LONGSHOT patch #67: the cascade's window as it last rendered - its transform (the light's basis, the origin at the near plane) and its
