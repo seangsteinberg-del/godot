@@ -54,6 +54,7 @@ Error AudioDriverDummy::init() {
 }
 
 void AudioDriverDummy::thread_func(void *p_udata) {
+	Thread::set_name("AudioDriverDummy"); // LONGSHOT patch #73: every engine thread named (the crash handler, the profilers)
 	AudioDriverDummy *ad = static_cast<AudioDriverDummy *>(p_udata);
 
 	uint64_t usdelay = (ad->buffer_frames / float(ad->mix_rate)) * 1000000;

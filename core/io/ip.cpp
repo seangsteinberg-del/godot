@@ -108,6 +108,7 @@ struct _IP_ResolverPrivate {
 	}
 
 	static void _thread_function(void *self) {
+		Thread::set_name("IP resolver"); // LONGSHOT patch #73: every engine thread named (the crash handler, the profilers)
 		_IP_ResolverPrivate *ipr = static_cast<_IP_ResolverPrivate *>(self);
 
 		while (!ipr->thread_abort.is_set()) {
