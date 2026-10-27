@@ -99,7 +99,13 @@ void RendererCanvasCull::_render_canvas_item_tree(RID p_to_render_target, Canvas
 		}
 	}
 
-	RENDER_TIMESTAMP("Render CanvasItems");
+	// LONGSHOT (10-27, the codebase correction lane; THE CANVAS NAMED PER VIEWPORT): the canvas pass's timestamp names the render target it
+	// draws by its size, so the frame ledger lists the root's canvas and each sub-view's apart (one label for every viewport's 2D pass
+	// summed them into one number - 1.7 ms a frame at a still seat with no owner named)
+	{
+		const Size2i rt_size = RSG::texture_storage->render_target_get_size(p_to_render_target);
+		RENDER_TIMESTAMP(vformat("Render CanvasItems %dx%d", rt_size.width, rt_size.height));
+	}
 
 	bool sdf_flag;
 	RSG::canvas_render->canvas_render_items(p_to_render_target, list, p_modulate, p_lights, p_directional_lights, p_transform, p_default_filter, p_default_repeat, p_snap_2d_vertices_to_pixel, sdf_flag, r_render_info);
