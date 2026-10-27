@@ -32,9 +32,10 @@
 
 #include "core/config/project_settings.h"
 #include "core/object/script_language.h"
+#include "core/object/worker_thread_pool.h" // LONGSHOT patch #72: the aborting thread named by the pool's index
 #include "core/os/main_loop.h"
 #include "core/os/os.h"
-#include "core/os/thread.h" // LONGSHOT patch #72: the aborting thread named against the main thread's id
+#include "core/os/thread.h" // LONGSHOT patch #72: the aborting thread named by the engine's own id
 #include "core/string/print_string.h"
 #include "core/version.h"
 
@@ -45,7 +46,9 @@
 #include <psapi.h>
 
 #include <algorithm>
+#include <atomic> // LONGSHOT patch #72
 #include <csignal> // LONGSHOT patch #72
+#include <cstdio> // LONGSHOT patch #72
 #include <cstdlib>
 #include <exception> // LONGSHOT patch #72
 #include <iterator>
@@ -165,6 +168,7 @@ DWORD CrashHandlerException(EXCEPTION_POINTERS *ep) {
 			return EXCEPTION_CONTINUE_SEARCH;
 		}
 	}
+	print_error("LONGSHOT: the symbols initialised; the modules next (the loader lock), then the walk");
 
 	SymSetOptions(SymGetOptions() | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME | SYMOPT_EXACT_SYMBOLS);
 	EnumProcessModules(process, &module_handles[0], module_handles.size() * sizeof(HMODULE), &cbNeeded);
@@ -173,7 +177,7 @@ DWORD CrashHandlerException(EXCEPTION_POINTERS *ep) {
 	std::transform(module_handles.begin(), module_handles.end(), std::back_inserter(modules), get_mod_info(process));
 	void *base = modules[0].base_address;
 
-	print_error(vformat("Load address: %x\n", (uint64_t)base));
+	print_error(vformat("Load address: %x (%d modules)\n", (uint64_t)base, (int)modules.size()));
 
 	// Setup stuff:
 	CONTEXT *context = ep->ContextRecord;
@@ -289,13 +293,63 @@ void CrashHandler::disable() {
 // fast-fail (0xC0000409) that no exception filter sees: no backtrace, no fault record (the lane's smokes returned 127 at a clean exit
 // for an hour before the raw code said what it was). The abort's signal and the terminate handler capture the thread's context and print
 // the same backtrace as a crash, then let the abort go on as it would
+// THE FIRST ABORT WALKS, A SECOND HOLDS (10-27 02:1x): the C runtime arms the abort's signal once - the first abort's handler runs, and a
+// second abort on any thread meets the default and ends the process by its fast-fail while the first still loads the symbols (the
+// instruments smoke, 01:52: the header, no frame, the process gone from inside the main thread's cleanup). The handler arms the signal
+// again as it starts; the first aborting thread walks, a later one says its own raw frames and holds until the walker's return ends the
+// process. THE RAW FRAMES FIRST: before the symbols (dbghelp, the loader lock) a thread says its return addresses as offsets from the
+// executable's base, lock-free and straight to stderr, so a walk that never returns still leaves the trace the build's symbols resolve
+static std::atomic<DWORD> g_abort_walker{ 0 };
+
+static void _longshot_say(const char *p_line) {
+	fputs(p_line, stderr);
+	fputc('\n', stderr);
+	fflush(stderr);
+}
+
+static void _longshot_raw_frames(const char *p_what, DWORD p_thread) {
+	void *frames[62];
+	const USHORT n = RtlCaptureStackBackTrace(0, 62, frames, nullptr);
+	const uintptr_t base = (uintptr_t)GetModuleHandleW(nullptr);
+	char line[4096];
+	int w = snprintf(line, sizeof(line), "LONGSHOT: %s on thread %lu - its %d frames as offsets from the executable's base (another module's as its address):", p_what, (unsigned long)p_thread, (int)n);
+	for (USHORT i = 0; i < n && w > 0 && w < int(sizeof(line)) - 40; i++) {
+		const uintptr_t a = (uintptr_t)frames[i];
+		if (a >= base && a - base < (uintptr_t)0x40000000) {
+			w += snprintf(line + w, sizeof(line) - size_t(w), " +%llx", (unsigned long long)(a - base));
+		} else {
+			w += snprintf(line + w, sizeof(line) - size_t(w), " %llx", (unsigned long long)a);
+		}
+	}
+	_longshot_say(line);
+}
+
 static void _longshot_abort_backtrace(const char *p_what) {
+	const DWORD me = GetCurrentThreadId();
+	DWORD walker = 0;
+	if (!g_abort_walker.compare_exchange_strong(walker, me)) {
+		if (walker == me) {
+			_longshot_say("LONGSHOT: the walk itself aborted - the process ends as the abort would");
+			return;
+		}
+		_longshot_raw_frames(p_what, me);
+		char line[256];
+		snprintf(line, sizeof(line), "LONGSHOT: thread %lu holds while thread %lu walks its backtrace", (unsigned long)me, (unsigned long)walker);
+		_longshot_say(line);
+		Sleep(INFINITE);
+	}
+	_longshot_raw_frames(p_what, me);
 	CONTEXT ctx;
 	RtlCaptureContext(&ctx);
 	EXCEPTION_RECORD rec = {};
 	rec.ExceptionCode = 0xC0000409; // what the abort returns to the shell
 	EXCEPTION_POINTERS ep = { &rec, &ctx };
-	// the aborting thread named: its id and its description (the engine names its threads), beside the main thread's id
+	// the aborting thread named: the engine's own id (a small ordinal for a thread the engine started, a hash for one made outside it), the
+	// pool's index when it is a worker, its description (the engine names its threads) and its os id
+	String who = Thread::is_main_thread() ? String("the main thread") : vformat("thread %d", (int64_t)Thread::get_caller_id());
+	if (!Thread::is_main_thread() && WorkerThreadPool::get_singleton() && WorkerThreadPool::get_singleton()->get_thread_index() >= 0) {
+		who += vformat(" (worker %d of the pool)", WorkerThreadPool::get_singleton()->get_thread_index());
+	}
 	String thread_name;
 	{
 		PWSTR desc = nullptr;
@@ -304,18 +358,20 @@ static void _longshot_abort_backtrace(const char *p_what) {
 			LocalFree(desc);
 		}
 	}
-	print_error(vformat("LONGSHOT: %s ends the process on thread %d ('%s'; the main thread is %d) - the backtrace is that thread's at the abort", p_what, (int)GetCurrentThreadId(), thread_name, (int)Thread::get_main_id()));
+	print_error(vformat("LONGSHOT: %s ends the process on %s ('%s', os id %d) - the backtrace is that thread's at the abort", p_what, who, thread_name, (int)me));
 	CrashHandlerException(&ep);
 }
 
 static void _longshot_sigabrt(int) {
-	signal(SIGABRT, SIG_DFL);
+	signal(SIGABRT, _longshot_sigabrt); // the runtime arms it once: armed again, so a second thread's abort is told and held, not the process' end
 	_longshot_abort_backtrace("an abort");
 }
 
 static void _longshot_terminate() {
-	signal(SIGABRT, SIG_DFL);
+	// (the runtime keeps a terminate handler per thread: this one serves the main thread; another thread's terminate aborts, and the
+	// abort's signal, process-wide, tells it)
 	_longshot_abort_backtrace("an uncaught exception (std::terminate)");
+	signal(SIGABRT, SIG_DFL);
 	abort();
 }
 #endif
