@@ -2907,7 +2907,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 			const Vector2i s = p_scroll_shift;
 			ops.blit = true;
 			ops.blit_src = s;
-			ops.blit_rect = Rect2i(atlas_rect.position + Vector2i(MAX(0, -s.x), MAX(0, -s.y)), atlas_rect.size - Vector2i(ABS(s.x), ABS(s.y)));
+			ops.blit_rect = Rect2i(atlas_rect.position + Vector2i(MAX(0, -s.x), MAX(0, -s.y)), atlas_rect.size - Vector2i(Math::abs(s.x), Math::abs(s.y)));
 			for (int st = 0; st < p_strip_count; st++) {
 				ops.scissor = p_strip_rect[st];
 				ops.clear_rect = Rect2i(atlas_rect.position + p_strip_rect[st].position, p_strip_rect[st].size); // LONGSHOT patch #68: the strip cleared before its casters
