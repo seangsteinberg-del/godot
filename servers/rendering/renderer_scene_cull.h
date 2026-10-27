@@ -384,6 +384,7 @@ public:
 		}
 	};
 	static_assert(RendererSceneRender::MAX_DIRECTIONAL_LIGHTS * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES <= 32, "LONGSHOT patch #65: InstanceData::shadow_static_cascades holds a bit a (light, cascade)");
+	static constexpr real_t SHADOW_KEPT_BAND_MIN_M = 2000.0; // LONGSHOT (10-27): the kept map's band about a cascade's slice centre is at least this each way, so a site's structures stand in the near cascades' kept maps (renderer_scene_cull.cpp THE BAND HOLDS THE NEAR GROUND'S STRUCTURES)
 	static constexpr uint64_t SHADOW_STATIC_AFTER_FRAMES = 2; // LONGSHOT patch #65: a caster still for longer than this many frames is static
 	static void _shadow_caster_changed(InstanceData &r_idata, Scenario *p_scenario); // LONGSHOT patch #65: stamped moving; the kept maps that held it are stale
 	static void _shadow_hidden_changed(InstanceData &r_idata, uint32_t p_hidden_before, Scenario *p_scenario); // LONGSHOT patch #65: hidden or shown by its range: the kept maps that held it are stale

@@ -2538,7 +2538,13 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 			// seconds of the sun's motion (half a texel over the whole pancake stood for two frames at the pad), and the far casters -
 			// the mountains in the pancake, whose shadows sweep the pad as the sun moves - are drawn every frame over it
 			cascade.slice_z_centre = z_vec.dot(center);
-			cascade.slice_z_band = 3.0 * radius;
+			// LONGSHOT (10-27, the codebase correction lane; THE BAND HOLDS THE NEAR GROUND'S STRUCTURES): the band is at least two kilometres
+			// each way - three radii of the near cascades is tens of metres, and every piece of a launch site beyond it (its towers, halls and
+			// roads, a thousand instances) was drawn fresh into those cascades every frame: 2.2 of the shadow pass's 3.3 ms at a still pad
+			// (the pass-owners probe, 10:40). A caster two kilometres along the light trips the half-texel tolerance of the finest cascade
+			// after a sixth of a second of the sun's turn - a capture every ten frames in place of a fresh draw every frame - and the far
+			// mountains beyond the band are drawn fresh as before
+			cascade.slice_z_band = MAX(3.0 * radius, SHADOW_KEPT_BAND_MIN_M);
 
 			// LONGSHOT patch #66: the cache's word for this window, and a scroll's uncovered strips - the texels of the new window that
 			// were not in the kept one (the new texel (i, j) was the kept (i + shift.x, j + shift.y)), as rects of the map and as frusta
