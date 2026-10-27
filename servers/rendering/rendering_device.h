@@ -1941,8 +1941,8 @@ public:
 	uint64_t get_device_memory_size() const;
 	uint64_t get_device_memory_budget() const;
 	// THE DEVICE'S TEXTURES BY NAME (longshot patch #33): every live texture and buffer with its name and the bytes the driver holds for it.
-	TypedArray<Dictionary> texture_debug_usage();
-	TypedArray<Dictionary> buffer_debug_usage();
+	Dictionary texture_debug_usage(); // LONGSHOT patch #79 THE CENSUS IN COLUMNS: the lists as typed columns, one dictionary (a dictionary a texture cost the frame 20-36 ms)
+	Dictionary buffer_debug_usage();
 
 	RenderingDevice *create_local_device();
 

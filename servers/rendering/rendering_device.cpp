@@ -8102,53 +8102,71 @@ uint32_t RenderingDevice::get_frame_delay() const {
 // server's census (RenderingServer::texture_debug_usage, patch #26) sees the server's own textures alone: the render buffers, the global
 // illumination's cascades, the shadow atlases and every texture a script or a module makes on the device stood unnamed beside it
 // (4.8 of 13.9 GB at the game's launch pad). A view of another texture (a shared texture, a slice) holds no memory of its own.
-TypedArray<Dictionary> RenderingDevice::texture_debug_usage() {
+// THE CENSUS IN COLUMNS (Longshot patch #79): one dictionary of typed columns, a row a texture - "name" (PackedStringArray), "type",
+// "format", "width", "height", "depth", "layers", "mipmaps", "samples" (PackedInt32Array), "usage", "bytes" (PackedInt64Array) and
+// "shared" (PackedByteArray, 1 for a view of another texture). A dictionary a texture (twelve keys each, twenty thousand textures) cost
+// the calling frame 20-36 ms under the device's lock - a hitch at every census of a game's ledger; the columns cost it about a millisecond
+Dictionary RenderingDevice::texture_debug_usage() {
 	_THREAD_SAFE_METHOD_
 
-	TypedArray<Dictionary> out;
+	PackedStringArray names;
+	PackedInt32Array types, formats, widths, heights, depths, layers, mipmaps, samples;
+	PackedInt64Array usage, bytes;
+	PackedByteArray shared;
 	for (const RID &rid : texture_owner.get_owned_list()) {
 		Texture *t = texture_owner.get_or_null(rid);
 		if (!t) {
 			continue;
 		}
-		Dictionary d;
-		d["name"] = t->name;
-		d["type"] = (int)t->type;
-		d["format"] = (int)t->format;
-		d["width"] = t->width;
-		d["height"] = t->height;
-		d["depth"] = t->depth;
-		d["layers"] = t->layers;
-		d["mipmaps"] = t->mipmaps;
-		d["samples"] = (int)t->samples;
-		d["usage"] = t->usage_flags;
-		d["shared"] = t->owner.is_valid();
-		uint64_t bytes = 0;
+		names.push_back(t->name);
+		types.push_back((int32_t)t->type);
+		formats.push_back((int32_t)t->format);
+		widths.push_back((int32_t)t->width);
+		heights.push_back((int32_t)t->height);
+		depths.push_back((int32_t)t->depth);
+		layers.push_back((int32_t)t->layers);
+		mipmaps.push_back((int32_t)t->mipmaps);
+		samples.push_back((int32_t)t->samples);
+		usage.push_back((int64_t)t->usage_flags);
+		shared.push_back(t->owner.is_valid() ? 1 : 0);
+		uint64_t b = 0;
 		if (t->owner.is_null()) {
-			bytes = driver->texture_get_allocation_size(t->driver_id);
+			b = driver->texture_get_allocation_size(t->driver_id);
 		}
 		if (t->shared_fallback != nullptr && t->shared_fallback->texture) {
-			bytes += driver->texture_get_allocation_size(t->shared_fallback->texture);
+			b += driver->texture_get_allocation_size(t->shared_fallback->texture);
 		}
-		d["bytes"] = bytes;
-		out.push_back(d);
+		bytes.push_back((int64_t)b);
 	}
+	Dictionary out;
+	out["name"] = names;
+	out["type"] = types;
+	out["format"] = formats;
+	out["width"] = widths;
+	out["height"] = heights;
+	out["depth"] = depths;
+	out["layers"] = layers;
+	out["mipmaps"] = mipmaps;
+	out["samples"] = samples;
+	out["usage"] = usage;
+	out["shared"] = shared;
+	out["bytes"] = bytes;
 	return out;
 }
 
-TypedArray<Dictionary> RenderingDevice::buffer_debug_usage() {
+// THE CENSUS IN COLUMNS (Longshot patch #79): the buffers as columns too - "name", "kind" (PackedStringArray) and "size" (PackedInt64Array)
+Dictionary RenderingDevice::buffer_debug_usage() {
 	_THREAD_SAFE_METHOD_
 
-	TypedArray<Dictionary> out;
-	auto add = [&out](const char *p_kind, const Buffer *p_buffer) {
+	PackedStringArray names, kinds;
+	PackedInt64Array sizes;
+	auto add = [&](const char *p_kind, const Buffer *p_buffer) {
 		if (!p_buffer) {
 			return;
 		}
-		Dictionary d;
-		d["name"] = p_buffer->name;
-		d["kind"] = p_kind;
-		d["size"] = (uint64_t)p_buffer->size;
-		out.push_back(d);
+		names.push_back(p_buffer->name);
+		kinds.push_back(String(p_kind));
+		sizes.push_back((int64_t)p_buffer->size);
 	};
 	for (const RID &rid : vertex_buffer_owner.get_owned_list()) {
 		add("vertex", vertex_buffer_owner.get_or_null(rid));
@@ -8165,6 +8183,10 @@ TypedArray<Dictionary> RenderingDevice::buffer_debug_usage() {
 	for (const RID &rid : storage_buffer_owner.get_owned_list()) {
 		add("storage", storage_buffer_owner.get_or_null(rid));
 	}
+	Dictionary out;
+	out["name"] = names;
+	out["kind"] = kinds;
+	out["size"] = sizes;
 	return out;
 }
 
