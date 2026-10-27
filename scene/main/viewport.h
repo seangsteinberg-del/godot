@@ -154,6 +154,8 @@ public:
 		RENDER_INFO_TYPE_VISIBLE,
 		RENDER_INFO_TYPE_SHADOW,
 		RENDER_INFO_TYPE_CANVAS,
+		RENDER_INFO_TYPE_SHADOW_KEPT, // LONGSHOT patch #75: the static casters the kept directional shadow maps served (objects alone)
+		RENDER_INFO_TYPE_SHADOW_CAPTURED, // LONGSHOT patch #75: the static casters drawn into the directional maps (objects alone)
 		RENDER_INFO_TYPE_MAX
 	};
 

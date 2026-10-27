@@ -561,6 +561,8 @@ enum ViewportRenderInfoType {
 	VIEWPORT_RENDER_INFO_TYPE_VISIBLE,
 	VIEWPORT_RENDER_INFO_TYPE_SHADOW,
 	VIEWPORT_RENDER_INFO_TYPE_CANVAS,
+	VIEWPORT_RENDER_INFO_TYPE_SHADOW_KEPT, // LONGSHOT patch #75: the static casters the kept directional shadow maps served this frame (objects alone)
+	VIEWPORT_RENDER_INFO_TYPE_SHADOW_CAPTURED, // LONGSHOT patch #75: the static casters drawn into the directional maps this frame (objects alone)
 	VIEWPORT_RENDER_INFO_TYPE_MAX,
 };
 

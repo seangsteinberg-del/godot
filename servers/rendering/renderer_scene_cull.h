@@ -1141,6 +1141,7 @@ public:
 		struct Shadow {
 			RID light_instance;
 			uint32_t caster_mask;
+			bool keeper = true; // LONGSHOT patch #75 (THE KEEPER MOVES THE VERSIONS): this render keeps the light's static maps; another's cull leaves the casters' bits
 			struct Cascade {
 				Frustum frustum;
 
@@ -1173,6 +1174,7 @@ public:
 		} shadows[RendererSceneRender::MAX_DIRECTIONAL_LIGHTS];
 
 		uint32_t shadow_count;
+		uint32_t shadow_keeper_mask = 0; // LONGSHOT patch #75: the cascade bits (light * MAX_DIRECTIONAL_LIGHT_CASCADES + cascade) of the lights this render keeps maps for
 
 		struct SDFGI {
 			//have arrays here because SDFGI functions expects this, plus regions can have areas

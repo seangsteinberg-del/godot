@@ -748,6 +748,27 @@ int LightStorage::light_instance_directional_cache_settle(RID p_light_instance, 
 	return c.word;
 }
 
+// LONGSHOT patch #75 (THE KEEPER MOVES THE VERSIONS): a render may keep the light's maps when no cascade's record is another render's and
+// in use. A second same-world render of a frame (a crew portrait's sub-viewport, drawn every second frame) is served whole by the window
+// law above - but its cull rewrote every caster's static-cascade bits for ITS cascades and moved the versions of the main render's maps, so
+// the main's every cascade was captured again every frame and the kept maps served nothing at a still pad (2,311 shadow draws a frame,
+// the pass 3.3 ms; the probe of 10-27: the portraits hidden, 1.2 ms). The cull asks here before it touches a caster's bits
+bool LightStorage::light_instance_directional_cache_keeper(RID p_light_instance, uint64_t p_owner) {
+	if (p_owner == 0) {
+		return false;
+	}
+	const LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
+	ERR_FAIL_NULL_V(light_instance, false);
+	const uint64_t frame = RSG::rasterizer->get_frame_number();
+	for (int i = 0; i < DIRECTIONAL_CACHE_CASCADES; i++) {
+		const LightInstance::DirectionalCache &c = light_instance->directional_cache[i];
+		if (c.valid && c.owner != p_owner && frame - c.frame <= DIRECTIONAL_CACHE_HOLD_FRAMES) {
+			return false;
+		}
+	}
+	return true;
+}
+
 bool LightStorage::light_instance_directional_cache_keys(RID p_light_instance, int p_cascade, const Rect2i &p_rect, int p_viewport_width) {
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL_V(light_instance, false);

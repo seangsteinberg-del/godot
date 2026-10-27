@@ -2320,6 +2320,7 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 	cull.shadow_count = p_shadow_index + 1;
 	cull.shadows[p_shadow_index].cascade_count = splits;
 	cull.shadows[p_shadow_index].light_instance = light->instance;
+	cull.shadows[p_shadow_index].keeper = RSG::light_storage->light_instance_directional_cache_keeper(light->instance, p_owner); // LONGSHOT patch #75
 	cull.shadows[p_shadow_index].caster_mask = RSG::light_storage->light_get_shadow_caster_mask(p_instance->base);
 
 	for (int i = 0; i < splits; i++) {
@@ -3502,7 +3503,11 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 							}
 							if (in_band) {
 								cull_result.directional_shadows[j].cascade_geometry_instances[k].push_back(idata.instance_geometry);
-								static_cascades |= 1u << (j * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + k);
+								// LONGSHOT patch #75 (THE KEEPER MOVES THE VERSIONS): a render served whole (another's maps held) lists the caster to draw
+								// it, and leaves its static-cascade bits - and so the keeper's versions - as they stand
+								if (cull_data.cull->shadows[j].keeper) {
+									static_cascades |= 1u << (j * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + k);
+								}
 								// LONGSHOT patch #66 (THE SCROLL): a static caster in a scrolling cascade's uncovered strips is drawn into them
 								if (cascade.cache_word == RendererLightStorage::SHADOW_CACHE_SCROLL) {
 									for (uint32_t s = 0; s < cascade.strip_count; s++) {
@@ -3521,9 +3526,11 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 				}
 			}
 
-			if (static_cascades != idata.shadow_static_cascades) {
-				cull_data.scenario->shadow_static_changed(static_cascades ^ idata.shadow_static_cascades);
-				idata.shadow_static_cascades = static_cascades;
+			// LONGSHOT patch #75: the bits of the lights this render does not keep stand as the keeper's cull left them
+			const uint32_t static_bits = (idata.shadow_static_cascades & ~cull_data.cull->shadow_keeper_mask) | static_cascades;
+			if (static_bits != idata.shadow_static_cascades) {
+				cull_data.scenario->shadow_static_changed(static_bits ^ idata.shadow_static_cascades);
+				idata.shadow_static_cascades = static_bits;
 			}
 		}
 
@@ -3690,6 +3697,16 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		}
 	}
 
+	// LONGSHOT patch #75 (THE KEEPER MOVES THE VERSIONS): the cascade bits this render's cull may move - the lights it keeps maps for
+	cull.shadow_keeper_mask = 0;
+	for (uint32_t i = 0; i < cull.shadow_count; i++) {
+		if (cull.shadows[i].keeper) {
+			for (uint32_t k = 0; k < cull.shadows[i].cascade_count; k++) {
+				cull.shadow_keeper_mask |= 1u << (i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + k);
+			}
+		}
+	}
+
 	scene_cull_result.clear();
 
 	{
@@ -3773,6 +3790,24 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				data.strip_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_strip_instances[j]);
 				data.static_cache = RSG::light_storage->light_instance_directional_cache_settle(cull.shadows[i].light_instance, j, shadow_owner, scenario->static_casters_version[i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + j].get(),
 						scene_cull_result.directional_shadows[i].cascade_static_reach[j]); // LONGSHOT patch #70: the kept casters' reach
+				// LONGSHOT patch #75: the kept maps' casters counted for the viewport's render info - the static casters a kept map served
+				// without a draw, and those drawn into a map (a whole draw, a capture, a scroll's strips); the dynamic casters are the shadow
+				// pass's objects less the captured
+				if (r_render_info) {
+					const int n_static = int(data.instances.size());
+					const int n_strip = int(data.strip_instances.size());
+					int kept = 0;
+					int captured = n_static;
+					if (data.static_cache == RendererLightStorage::SHADOW_CACHE_STANDS) {
+						kept = n_static;
+						captured = 0;
+					} else if (data.static_cache == RendererLightStorage::SHADOW_CACHE_SCROLL) {
+						kept = MAX(n_static - n_strip, 0);
+						captured = n_strip;
+					}
+					r_render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW_KEPT][RSE::VIEWPORT_RENDER_INFO_OBJECTS_IN_FRAME] += kept;
+					r_render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_SHADOW_CAPTURED][RSE::VIEWPORT_RENDER_INFO_OBJECTS_IN_FRAME] += captured;
+				}
 				data.scroll_shift = c.scroll_shift;
 				data.strip_count = int(c.strip_count);
 				data.strip_rect[0] = c.strip_rect[0];
