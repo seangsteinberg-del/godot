@@ -300,7 +300,7 @@ static void _longshot_abort_backtrace(const char *p_what) {
 	{
 		PWSTR desc = nullptr;
 		if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc)) && desc) {
-			thread_name = String((const char16_t *)desc);
+			thread_name = String::utf16((const char16_t *)desc);
 			LocalFree(desc);
 		}
 	}
