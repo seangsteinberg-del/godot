@@ -6083,7 +6083,11 @@ void RenderingDevice::draw_list_draw(DrawListID p_list, bool p_use_indices, uint
 			} else if (uniform_set_owner.owns(draw_list.state.sets[i].uniform_set)) {
 				UniformSet *us = uniform_set_owner.get_or_null(draw_list.state.sets[i].uniform_set);
 				const String us_info = us ? vformat("(%d):\n%s\n", i, _shader_uniform_debug(us->shader_id, us->shader_set)) : vformat("(%d, which was just freed) ", i);
-				ERR_FAIL_MSG(vformat("Uniforms supplied for set %sare not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n%s", us_info, _shader_uniform_debug(draw_list.state.pipeline_shader)));
+				// LONGSHOT patch #71: the two shaders named - the set's and the pipeline's - so a material drawn under another shader's pipeline
+				// says which (the layouts alone told nothing of twenty-nine such errors a session)
+				const Shader *us_shader = us ? shader_owner.get_or_null(us->shader_id) : nullptr;
+				const Shader *pipe_shader = shader_owner.get_or_null(draw_list.state.pipeline_shader);
+				ERR_FAIL_MSG(vformat("Uniforms supplied for set %sare not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n%s\nLONGSHOT: the uniform set's shader is '%s', the pipeline's shader is '%s'.", us_info, _shader_uniform_debug(draw_list.state.pipeline_shader), us_shader ? us_shader->name : String("?"), pipe_shader ? pipe_shader->name : String("?")));
 			} else {
 				ERR_FAIL_MSG(vformat("Uniforms supplied for set (%d, which was just freed) are not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n%s", i, _shader_uniform_debug(draw_list.state.pipeline_shader)));
 			}
@@ -6247,7 +6251,11 @@ void RenderingDevice::draw_list_draw_indirect(DrawListID p_list, bool p_use_indi
 			} else if (uniform_set_owner.owns(draw_list.state.sets[i].uniform_set)) {
 				UniformSet *us = uniform_set_owner.get_or_null(draw_list.state.sets[i].uniform_set);
 				const String us_info = us ? vformat("(%d):\n%s\n", i, _shader_uniform_debug(us->shader_id, us->shader_set)) : vformat("(%d, which was just freed) ", i);
-				ERR_FAIL_MSG(vformat("Uniforms supplied for set %sare not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n%s", us_info, _shader_uniform_debug(draw_list.state.pipeline_shader)));
+				// LONGSHOT patch #71: the two shaders named - the set's and the pipeline's - so a material drawn under another shader's pipeline
+				// says which (the layouts alone told nothing of twenty-nine such errors a session)
+				const Shader *us_shader = us ? shader_owner.get_or_null(us->shader_id) : nullptr;
+				const Shader *pipe_shader = shader_owner.get_or_null(draw_list.state.pipeline_shader);
+				ERR_FAIL_MSG(vformat("Uniforms supplied for set %sare not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n%s\nLONGSHOT: the uniform set's shader is '%s', the pipeline's shader is '%s'.", us_info, _shader_uniform_debug(draw_list.state.pipeline_shader), us_shader ? us_shader->name : String("?"), pipe_shader ? pipe_shader->name : String("?")));
 			} else {
 				ERR_FAIL_MSG(vformat("Uniforms supplied for set (%d, which was just freed) are not the same format as required by the pipeline shader. Pipeline shader requires the following bindings:\n%s", i, _shader_uniform_debug(draw_list.state.pipeline_shader)));
 			}
