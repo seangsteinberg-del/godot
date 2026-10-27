@@ -3903,6 +3903,23 @@ bool Viewport::is_using_occlusion_culling() const {
 	return use_occlusion_culling;
 }
 
+// LONGSHOT patch #76 (THE PORTRAIT TAKES THE EYE'S SHADOWS): a sub-viewport in the parent's world that renders after nothing of its
+// own in the sun's shadow maps - it sets up and draws no cascades, and samples the maps its parent's render left (a frame old: a
+// sub-viewport renders before its parent). For a view a few metres deep inside the parent's near cascades - a crew portrait
+void Viewport::set_directional_shadows_from_parent(bool p_from_parent) {
+	ERR_MAIN_THREAD_GUARD;
+	if (directional_shadows_from_parent == p_from_parent) {
+		return;
+	}
+	directional_shadows_from_parent = p_from_parent;
+	RS::get_singleton()->viewport_set_directional_shadows_from_parent(viewport, p_from_parent);
+}
+
+bool Viewport::is_taking_directional_shadows_from_parent() const {
+	ERR_READ_THREAD_GUARD_V(false);
+	return directional_shadows_from_parent;
+}
+
 void Viewport::set_debug_draw(DebugDraw p_debug_draw) {
 	ERR_MAIN_THREAD_GUARD;
 	debug_draw = p_debug_draw;
@@ -5184,6 +5201,8 @@ void Viewport::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("set_use_occlusion_culling", "enable"), &Viewport::set_use_occlusion_culling);
 	ClassDB::bind_method(D_METHOD("is_using_occlusion_culling"), &Viewport::is_using_occlusion_culling);
+	ClassDB::bind_method(D_METHOD("set_directional_shadows_from_parent", "enable"), &Viewport::set_directional_shadows_from_parent); // LONGSHOT patch #76
+	ClassDB::bind_method(D_METHOD("is_taking_directional_shadows_from_parent"), &Viewport::is_taking_directional_shadows_from_parent);
 
 	ClassDB::bind_method(D_METHOD("set_debug_draw", "debug_draw"), &Viewport::set_debug_draw);
 	ClassDB::bind_method(D_METHOD("get_debug_draw"), &Viewport::get_debug_draw);
@@ -5363,6 +5382,7 @@ void Viewport::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_taa"), "set_use_taa", "is_using_taa");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_debanding"), "set_use_debanding", "is_using_debanding");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_occlusion_culling"), "set_use_occlusion_culling", "is_using_occlusion_culling");
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "directional_shadows_from_parent"), "set_directional_shadows_from_parent", "is_taking_directional_shadows_from_parent"); // LONGSHOT patch #76
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "mesh_lod_threshold", PROPERTY_HINT_RANGE, "0,1024,0.1"), "set_mesh_lod_threshold", "get_mesh_lod_threshold");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "debug_draw", PROPERTY_HINT_ENUM, "Disabled,Unshaded,Lighting,Overdraw,Wireframe,Normal Buffer,VoxelGI Albedo,VoxelGI Lighting,VoxelGI Emission,Shadow Atlas,Directional Shadow Map,Scene Luminance,SSAO,SSIL,Directional Shadow Splits,Decal Atlas,SDFGI Cascades,SDFGI Probes,VoxelGI/SDFGI Buffer,Disable Mesh LOD,OmniLight3D Cluster,SpotLight3D Cluster,Decal Cluster,ReflectionProbe Cluster,Occlusion Culling Buffer,Motion Vectors,Internal Buffer,AreaLight3D Cluster,AreaLight3D Atlas"), "set_debug_draw", "get_debug_draw");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_hdr_2d"), "set_use_hdr_2d", "is_using_hdr_2d");

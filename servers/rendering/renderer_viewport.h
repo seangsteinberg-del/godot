@@ -81,6 +81,7 @@ public:
 
 		bool use_occlusion_culling = false;
 		bool occlusion_buffer_dirty = false;
+		bool directional_shadows_from_parent = false; // LONGSHOT patch #76 (THE PORTRAIT TAKES THE EYE'S SHADOWS): no cascades of its own; the parent render's stand
 
 		DisplayServerEnums::WindowID viewport_to_screen = DisplayServerEnums::INVALID_WINDOW_ID;
 		Rect2 viewport_to_screen_rect;
@@ -294,6 +295,8 @@ public:
 	void viewport_set_use_debanding(RID p_viewport, bool p_use_debanding);
 	void viewport_set_force_motion_vectors(RID p_viewport, bool p_force_motion_vectors);
 	void viewport_set_use_occlusion_culling(RID p_viewport, bool p_use_occlusion_culling);
+	void viewport_set_directional_shadows_from_parent(RID p_viewport, bool p_from_parent); // LONGSHOT patch #76
+	bool viewport_get_directional_shadows_from_parent(RID p_viewport);
 	void viewport_set_occlusion_rays_per_thread(int p_rays_per_thread);
 	void viewport_set_occlusion_culling_build_quality(RSE::ViewportOcclusionCullingBuildQuality p_quality);
 	void viewport_set_mesh_lod_threshold(RID p_viewport, float p_pixels);

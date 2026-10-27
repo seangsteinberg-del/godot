@@ -35,6 +35,7 @@
 #include "core/math/geometry_3d.h"
 #include "core/object/callable_mp.h"
 #include "core/object/worker_thread_pool.h"
+#include "servers/rendering/renderer_viewport.h" // LONGSHOT patch #76: a viewport that takes its parent's directional shadows
 #include "servers/rendering/rendering_light_culler.h"
 #include "servers/rendering/rendering_server.h"
 #include "servers/rendering/rendering_server_default.h"
@@ -3632,6 +3633,11 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 	// LONGSHOT patch #65 (THE SHADOWS CACHED): the render the sun's cascades' static maps are kept for - its buffers' object id; a
 	// render with none (a probe's) is served whole and leaves the kept maps alone
 	const uint64_t shadow_owner = p_render_buffers.is_valid() ? uint64_t(p_render_buffers->get_instance_id()) : 0;
+	// LONGSHOT patch #76 (THE PORTRAIT TAKES THE EYE'S SHADOWS): a viewport flagged to take its parent's directional shadows sets up and
+	// draws no cascades of its own - its lights keep the shadow transforms, atlas rects and maps the parent's render left (the frame
+	// before: a sub-viewport renders before its parent), and its shading samples them as any render would. A crew portrait's
+	// sub-viewport drew the sun's four cascades every second frame (0.57 ms a frame at the pad) for a face twelve metres deep
+	const bool shadows_from_parent = p_viewport.is_valid() && RSG::viewport->viewport_get_directional_shadows_from_parent(p_viewport);
 
 	Vector<Plane> planes = p_camera_data->main_projection.get_projection_planes(p_camera_data->main_transform);
 	cull.frustum = Frustum(planes);
@@ -3657,7 +3663,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			//check shadow..
 
 			if (light) {
-				if (p_using_shadows && p_shadow_atlas.is_valid() && RSG::light_storage->light_has_shadow(E->base) && !(RSG::light_storage->light_get_type(E->base) == RSE::LIGHT_DIRECTIONAL && RSG::light_storage->light_directional_get_sky_mode(E->base) == RSE::LIGHT_DIRECTIONAL_SKY_MODE_SKY_ONLY)) {
+				if (p_using_shadows && !shadows_from_parent && p_shadow_atlas.is_valid() && RSG::light_storage->light_has_shadow(E->base) && !(RSG::light_storage->light_get_type(E->base) == RSE::LIGHT_DIRECTIONAL && RSG::light_storage->light_directional_get_sky_mode(E->base) == RSE::LIGHT_DIRECTIONAL_SKY_MODE_SKY_ONLY)) {
 					lights_with_shadow.push_back(E);
 				}
 				//add to list
@@ -3665,7 +3671,9 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			}
 		}
 
-		RSG::light_storage->set_directional_shadow_count(lights_with_shadow.size());
+		if (!shadows_from_parent) { // LONGSHOT patch #76: the parent's count and rects stand
+			RSG::light_storage->set_directional_shadow_count(lights_with_shadow.size());
+		}
 
 		for (int i = 0; i < lights_with_shadow.size(); i++) {
 			_light_instance_setup_directional_shadow(i, lights_with_shadow[i], p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect, shadow_owner);

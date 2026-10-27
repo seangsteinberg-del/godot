@@ -1636,6 +1636,24 @@ void RendererViewport::viewport_set_use_occlusion_culling(RID p_viewport, bool p
 	viewport->occlusion_buffer_dirty = true;
 }
 
+// LONGSHOT patch #76 (THE PORTRAIT TAKES THE EYE'S SHADOWS): a viewport that takes its parent's directional shadows (the scene cull
+// reads it per render: no cascades set up or drawn, the parent's shadow transforms, rects and maps sampled as they stand)
+void RendererViewport::viewport_set_directional_shadows_from_parent(RID p_viewport, bool p_from_parent) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	if (viewport->directional_shadows_from_parent == p_from_parent) {
+		return;
+	}
+	viewport->directional_shadows_from_parent = p_from_parent;
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
+}
+
+bool RendererViewport::viewport_get_directional_shadows_from_parent(RID p_viewport) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL_V(viewport, false);
+	return viewport->directional_shadows_from_parent;
+}
+
 void RendererViewport::viewport_set_occlusion_rays_per_thread(int p_rays_per_thread) {
 	if (occlusion_rays_per_thread == p_rays_per_thread) {
 		return;
