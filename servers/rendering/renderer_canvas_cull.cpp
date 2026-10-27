@@ -99,6 +99,14 @@ void RendererCanvasCull::_render_canvas_item_tree(RID p_to_render_target, Canvas
 		}
 	}
 
+	// LONGSHOT (10-27, the codebase correction lane; THE EMPTY CANVAS COSTS NOTHING): a canvas with no visible item - a hidden menu's
+	// layer, a closed panel's, a lifted curtain's - is no pass: the renderer uploaded its state block, walked its lights and reset its
+	// batches for every attached canvas (thirteen of the pad's fourteen at rest drew nothing), and the ledger counted each as a pass.
+	// A requested clear is not lost: the viewport clears the target itself when no canvas drew
+	if (!list) {
+		return;
+	}
+
 	// LONGSHOT (10-27, the codebase correction lane; THE CANVAS NAMED PER VIEWPORT): the canvas pass's timestamp names the render target it
 	// draws by its size, so the frame ledger lists the root's canvas and each sub-view's apart (one label for every viewport's 2D pass
 	// summed them into one number - 1.7 ms a frame at a still seat with no owner named)
