@@ -554,6 +554,7 @@ public:
 
 	virtual void _multimesh_set_visible_instances(RID p_multimesh, int p_visible) override;
 	virtual int _multimesh_get_visible_instances(RID p_multimesh) const override;
+	virtual void _multimesh_external_changed(RID p_multimesh) override {} // LONGSHOT patch #65: the GL renderer keeps no shadow cache - nothing to tell
 
 	virtual MultiMeshInterpolator *_multimesh_get_interpolator(RID p_multimesh) const override;
 
