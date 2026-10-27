@@ -1922,6 +1922,47 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 
 	/* Update dynamic lights in SDFGI cascades */
 
+	// LONGSHOT patch #78 (THE GI STANDS WHILE THE SCENE DOES): the GI's inputs hashed as they are taken - the environment's terms and, below,
+	// every cascade's lights at the probes' own resolution (directions and colours to 1/256, energies to a hundredth by a log quantum,
+	// positions and ranges to a sixteenth of the cascade's cell); _stand_check at the end says whether they stand
+	uint64_t stand = 0xcbf29ce484222325ULL;
+	auto mix = [&stand](uint32_t p_word) { stand = (stand ^ uint64_t(p_word)) * 0x100000001b3ULL; };
+	auto mix_q = [&mix](float p_v, float p_quantum) { mix(uint32_t(int32_t(Math::round(p_v / p_quantum)))); };
+	auto mix_log = [&mix](float p_v) { mix(p_v > 0.0f ? uint32_t(int32_t(Math::round(Math::log2(p_v) * 64.0f))) : 0u); };
+	{
+		mix(uint32_t(cascades.size()));
+		mix_q(energy, 1.0f / 256.0f);
+		mix_q(bounce_feedback, 1.0f / 256.0f);
+		mix_q(y_mult, 1.0f / 256.0f);
+		mix(uint32_t(reads_sky));
+		mix(uint32_t(uses_occlusion));
+		RendererSceneRenderRD *scene = RendererSceneRenderRD::get_singleton();
+		const RID env = p_render_data->environment;
+		if (env.is_valid()) {
+			mix(uint32_t(scene->environment_get_background(env)));
+			mix_q(scene->environment_get_bg_energy_multiplier(env), 1.0f / 256.0f);
+			mix_q(scene->environment_get_bg_intensity(env), 1.0f / 256.0f);
+			const Color bg = scene->environment_get_bg_color(env);
+			mix_q(bg.r, 1.0f / 256.0f);
+			mix_q(bg.g, 1.0f / 256.0f);
+			mix_q(bg.b, 1.0f / 256.0f);
+			const Basis sky_basis = scene->environment_get_sky_orientation(env);
+			for (int c = 0; c < 3; c++) {
+				const Vector3 col = sky_basis.get_column(c);
+				mix_q(float(col.x), 1.0f / 256.0f);
+				mix_q(float(col.y), 1.0f / 256.0f);
+				mix_q(float(col.z), 1.0f / 256.0f);
+			}
+			mix(uint32_t(scene->environment_get_volumetric_fog_enabled(env)));
+		}
+		if (p_render_data->camera_attributes.is_valid()) {
+			mix_q(RSG::camera_attributes->camera_attributes_get_exposure_normalization_factor(p_render_data->camera_attributes), 1.0f / 256.0f);
+		}
+		if (p_render_data->render_buffers.is_valid()) {
+			mix_q(p_render_data->render_buffers->get_luminance_multiplier(), 1.0f / 256.0f);
+		}
+	}
+
 	for (uint32_t i = 0; i < cascades.size(); i++) {
 		SDFGI::Cascade &cascade = cascades[i];
 
@@ -2073,12 +2114,62 @@ void GI::SDFGI::pre_process_gi(const Transform3D &p_transform, RenderDataRD *p_r
 		}
 
 		cascade_dynamic_light_count[i] = idx;
+
+		// LONGSHOT patch #78: this cascade's lights and place into the frame's hash
+		mix(uint32_t(idx));
+		mix(uint32_t(cascade.position.x));
+		mix(uint32_t(cascade.position.y));
+		mix(uint32_t(cascade.position.z));
+		mix_q(cascade.baked_exposure_normalization, 1.0f / 256.0f);
+		const float cell_q = MAX(cascade.cell_size, 0.001f) / 16.0f;
+		for (uint32_t k = 0; k < idx; k++) {
+			const SDFGIShader::Light &L = lights[k];
+			mix(L.type);
+			mix(L.has_shadow);
+			for (int c = 0; c < 3; c++) {
+				mix_q(L.direction[c], 1.0f / 256.0f);
+				mix_q(L.color[c], 1.0f / 256.0f);
+				mix_q(L.position[c], cell_q);
+			}
+			mix_log(L.energy);
+			mix_q(L.attenuation, 1.0f / 256.0f);
+			mix_q(L.radius, cell_q);
+			mix_q(L.cos_spot_angle, 1.0f / 256.0f);
+			mix_q(L.inv_spot_attenuation, 1.0f / 256.0f);
+			for (int c = 0; c < 4; c++) {
+				mix_q(L.area_width[c], cell_q);
+				mix_q(L.area_height[c], cell_q);
+				mix_q(L.area_projector_rect[c], 1.0f / 256.0f);
+			}
+		}
 	}
+	_stand_check(stand, RendererSceneRenderRD::get_singleton()->sky_radiance_version(p_render_data->environment));
+}
+
+// LONGSHOT patch #78 (THE GI STANDS WHILE THE SCENE DOES): the frame's inputs against the last frame's - the hash of the lights and the
+// environment's terms, the sky's radiance version, the cascades' content version, and no cascade's lights marked dirty. A frame that
+// equals the last counts a standing frame; the GI stands once the injection's frames (sdfgi_frames_to_update_light) and the probes'
+// history have had their turn since the last change. The sun's creep moves the hash about every fifty seconds at a still pad: twenty
+// frames of integration, then the GI stands again
+void GI::SDFGI::_stand_check(uint64_t p_hash, uint32_t p_sky_version) {
+	bool dirty_lights = false;
+	for (uint32_t i = 0; i < cascades.size(); i++) {
+		dirty_lights = dirty_lights || cascades[i].all_dynamic_lights_dirty;
+	}
+	const bool same = p_hash == stand_hash && p_sky_version == stand_sky_version && sdf_version == stand_sdf_version && !dirty_lights;
+	stand_hash = p_hash;
+	stand_sky_version = p_sky_version;
+	stand_sdf_version = sdf_version;
+	stand_frames = same ? stand_frames + 1 : 0;
+	static const uint32_t frames_to_update_table[RSE::ENV_SDFGI_UPDATE_LIGHT_MAX] = { 1, 2, 4, 8, 16 };
+	const uint32_t settle = frames_to_update_table[gi->sdfgi_frames_to_update_light] + history_size + 1;
+	standing = stand_frames > settle;
 }
 
 void GI::SDFGI::render_region(Ref<RenderSceneBuffersRD> p_render_buffers, int p_region, const PagedArray<RenderGeometryInstance *> &p_instances, float p_exposure_normalization) {
 	//print_line("rendering region " + itos(p_region));
 	ERR_FAIL_COND(p_render_buffers.is_null()); // we wouldn't be here if this failed but...
+	sdf_version++; // LONGSHOT patch #78: the cascades' content moves
 	AABB bounds;
 	Vector3i from;
 	Vector3i size;
@@ -2439,6 +2530,7 @@ void GI::SDFGI::render_region(Ref<RenderSceneBuffersRD> p_render_buffers, int p_
 
 void GI::SDFGI::render_static_lights(RenderDataRD *p_render_data, Ref<RenderSceneBuffersRD> p_render_buffers, uint32_t p_cascade_count, const uint32_t *p_cascade_indices, const PagedArray<RID> *p_positional_light_cull_result) {
 	ERR_FAIL_COND(p_render_buffers.is_null()); // we wouldn't be here if this failed but...
+	sdf_version++; // LONGSHOT patch #78: the static lights move the cascades' content
 
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();

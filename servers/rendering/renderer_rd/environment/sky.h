@@ -269,6 +269,7 @@ public:
 		int processing_layer = 0;
 		Sky *dirty_list = nullptr;
 		float baked_exposure = 1.0;
+		uint32_t radiance_version = 0; // LONGSHOT patch #78 (THE GI STANDS WHILE THE SCENE DOES): moved every time the radiance map or one of its layers is rendered - the GI's probes read the radiance
 
 		// State to track when radiance octmap needs updating.
 		SkyMaterialData *prev_material = nullptr;

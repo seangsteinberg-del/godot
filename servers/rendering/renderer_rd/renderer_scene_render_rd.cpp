@@ -1367,6 +1367,15 @@ void RendererSceneRenderRD::_update_vrs(Ref<RenderSceneBuffersRD> p_render_buffe
 	}
 }
 
+// LONGSHOT patch #78 (THE GI STANDS WHILE THE SCENE DOES): the radiance version of the environment's sky - the GI's probes read it
+uint32_t RendererSceneRenderRD::sky_radiance_version(RID p_env) const {
+	if (p_env.is_null()) {
+		return 0;
+	}
+	RendererRD::SkyRD::Sky *s = sky.get_sky(environment_get_sky(p_env));
+	return s ? s->radiance_version : 0;
+}
+
 bool RendererSceneRenderRD::_needs_post_prepass_render(RenderDataRD *p_render_data, bool p_use_gi) {
 	if (p_render_data->render_buffers.is_valid()) {
 		if (p_render_data->render_buffers->has_custom_data(RB_SCOPE_SDFGI)) {
@@ -1383,7 +1392,9 @@ void RendererSceneRenderRD::_post_prepass_render(RenderDataRD *p_render_data, bo
 		}
 
 		Ref<RendererRD::GI::SDFGI> sdfgi = p_render_data->render_buffers->get_custom_data(RB_SCOPE_SDFGI);
-		sdfgi->update_probes(p_render_data->environment, sky.sky_owner.get_or_null(environment_get_sky(p_render_data->environment)), p_render_data->render_buffers->get_luminance_multiplier());
+		if (!sdfgi->stands()) { // LONGSHOT patch #78: the probes hold their integration while the GI's inputs stand
+			sdfgi->update_probes(p_render_data->environment, sky.sky_owner.get_or_null(environment_get_sky(p_render_data->environment)), p_render_data->render_buffers->get_luminance_multiplier());
+		}
 	}
 }
 

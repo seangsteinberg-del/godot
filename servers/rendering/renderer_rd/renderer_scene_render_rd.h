@@ -212,6 +212,7 @@ public:
 
 	virtual Ref<Image> environment_bake_panorama(RID p_env, bool p_bake_irradiance, const Size2i &p_size) override;
 
+	uint32_t sky_radiance_version(RID p_env) const; // LONGSHOT patch #78 (THE GI STANDS WHILE THE SCENE DOES): the environment's sky's radiance version, nought without one
 	_FORCE_INLINE_ bool is_using_physical_light_units() {
 		return use_physical_light_units;
 	}

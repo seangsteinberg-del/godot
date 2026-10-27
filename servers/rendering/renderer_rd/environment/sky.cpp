@@ -1360,6 +1360,7 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 		// pre-exposure of 2^14 made a starlit hull a white blaze). The bake remembers the whole factor it was rendered at.
 		sky->baked_exposure = p_luminance_multiplier * p_brightness_multiplier;
 		sky->reflection.dirty = false;
+		sky->radiance_version++; // LONGSHOT patch #78: the radiance is new to the GI's probes
 
 	} else {
 		if (sky_mode == RSE::SKY_MODE_INCREMENTAL && sky->processing_layer < max_processing_layer) {
@@ -1370,6 +1371,7 @@ void SkyRD::update_radiance_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, 
 			}
 
 			sky->processing_layer++;
+			sky->radiance_version++; // LONGSHOT patch #78: a layer of the radiance landed
 		}
 	}
 }

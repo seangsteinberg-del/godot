@@ -682,6 +682,17 @@ public:
 		uint32_t version = 0;
 		uint32_t render_pass = 0;
 
+		// LONGSHOT patch #78 (THE GI STANDS WHILE THE SCENE DOES; D:/longshot-overflow/perf_lane/day/design_gi_stands.md): the GI's inputs - the
+		// lights as it takes them at the probes' resolution, the environment's terms, the sky's radiance version, the cascades' content
+		// version - hashed each frame in pre_process_gi; a frame whose inputs equal the last frame's counts a standing frame, and once the
+		// injection and the integration have had their frames to converge the GI stands: update_light and update_probes are not run
+		uint64_t stand_hash = 0;
+		uint32_t stand_frames = 0;
+		uint32_t sdf_version = 1; // moved by render_region and render_static_lights
+		uint32_t stand_sdf_version = 0;
+		uint32_t stand_sky_version = 0;
+		bool standing = false;
+
 		int32_t cascade_dynamic_light_count[SDFGI::MAX_CASCADES]; //used dynamically
 		RID integrate_sky_uniform_set;
 
@@ -693,6 +704,8 @@ public:
 		void update(RID p_env, const Vector3 &p_world_position);
 		void update_light();
 		void update_probes(RID p_env, RendererRD::SkyRD::Sky *p_sky, float p_luminance_multiplier);
+		bool stands() const { return standing; } // LONGSHOT patch #78: the GI's inputs stand and its integration has converged - nothing to inject or integrate this frame
+		void _stand_check(uint64_t p_hash, uint32_t p_sky_version); // LONGSHOT patch #78: the frame's inputs against the last frame's (pre_process_gi's end)
 		void store_probes();
 		int get_pending_region_data(int p_region, Vector3i &r_local_offset, Vector3i &r_local_size, AABB &r_bounds) const;
 		void update_cascades();

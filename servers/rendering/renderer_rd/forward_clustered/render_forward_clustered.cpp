@@ -1814,7 +1814,9 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 			if (sdfgi.is_valid()) {
 				sdfgi->update_cascades();
 				sdfgi->pre_process_gi(p_render_data->scene_data->cam_transform, p_render_data);
-				sdfgi->update_light();
+				if (!sdfgi->stands()) { // LONGSHOT patch #78: the injection holds while the GI's inputs stand
+					sdfgi->update_light();
+				}
 			}
 		}
 
