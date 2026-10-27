@@ -637,7 +637,10 @@ bool LightStorage::light_instance_directional_cache_frame(RID p_light_instance, 
 	}
 	const Basis &k = c.window.transform.basis;
 	const real_t texel = c.window.shadow_texel_size;
-	const real_t cos_tol = Math::cos(0.5 * texel / MAX(real_t(c.window.farplane), texel));
+	// LONGSHOT patch #70 (THE FAR CASTERS TURN WITH THE SUN): the tolerance is half a texel over the KEPT casters' reach from the slice's
+	// centre (at most three radii: the cull draws the farther ones each frame), not over the whole depth range - half a texel over a
+	// 24 km pancake stood for two frames of the sun's motion at the pad, and the kept map was never kept
+	const real_t cos_tol = Math::cos(0.5 * texel / MAX(c.reach, texel));
 	if (k.get_column(2).dot(p_light_basis.get_column(2).normalized()) < cos_tol || k.get_column(0).dot(p_light_basis.get_column(0).normalized()) < cos_tol) {
 		return false;
 	}
@@ -717,7 +720,7 @@ int LightStorage::light_instance_directional_cache_window(RID p_light_instance, 
 
 // (3) THE VERSION: after the cull moved or kept the cascade's static casters' version - a kept map whose casters changed (one entered or
 // left it) is drawn whole and captured again
-int LightStorage::light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version) {
+int LightStorage::light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version, real_t p_casters_reach) {
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL_V(light_instance, SHADOW_CACHE_WHOLE);
 	ERR_FAIL_INDEX_V(p_cascade, DIRECTIONAL_CACHE_CASCADES, SHADOW_CACHE_WHOLE);
@@ -728,14 +731,19 @@ int LightStorage::light_instance_directional_cache_settle(RID p_light_instance, 
 	if ((c.word == SHADOW_CACHE_STANDS || c.word == SHADOW_CACHE_SCROLL) && c.casters_version != p_casters_version) {
 		c.word = SHADOW_CACHE_CAPTURE;
 	}
+	// LONGSHOT patch #70: the reach the kept map's tolerance is judged by is the kept casters' at their drawing - a map drawn whole or
+	// captured takes this frame's; a scroll's strips may bring a farther caster in, so the reach grows with them and never shrinks while kept
 	if (c.word == SHADOW_CACHE_CAPTURE) {
 		c.window = c.next; // the window the map is drawn and captured in this frame
 		c.captured = true;
 		c.casters_version = p_casters_version;
+		c.reach = p_casters_reach;
 	} else if (c.word == SHADOW_CACHE_SCROLL) {
 		c.window = c.next; // the window the kept map scrolls into and is captured in this frame
+		c.reach = MAX(c.reach, p_casters_reach);
 	} else if (c.word == SHADOW_CACHE_WHOLE) {
 		c.casters_version = p_casters_version;
+		c.reach = p_casters_reach;
 	}
 	return c.word;
 }

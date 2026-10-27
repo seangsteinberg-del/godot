@@ -932,6 +932,7 @@ public:
 			PagedArray<RenderGeometryInstance *> cascade_geometry_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #65: the static casters
 			PagedArray<RenderGeometryInstance *> cascade_dynamic_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #65: the casters drawn each frame
 			PagedArray<RenderGeometryInstance *> cascade_strip_instances[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; // LONGSHOT patch #66: the static casters in a scroll's uncovered strips
+			real_t cascade_static_reach[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES] = {}; // LONGSHOT patch #70: the kept casters' farthest reach from the slice's centre along the light (the kept frame's angle tolerance is half a texel over it)
 		} directional_shadows[RendererSceneRender::MAX_DIRECTIONAL_LIGHTS];
 
 		PagedArray<RenderGeometryInstance *> sdfgi_region_geometry_instances[SDFGI_MAX_CASCADES * SDFGI_MAX_REGIONS_PER_CASCADE];
@@ -952,6 +953,7 @@ public:
 					directional_shadows[i].cascade_geometry_instances[j].clear();
 					directional_shadows[i].cascade_dynamic_instances[j].clear();
 					directional_shadows[i].cascade_strip_instances[j].clear();
+					directional_shadows[i].cascade_static_reach[j] = 0.0; // LONGSHOT patch #70
 				}
 			}
 
@@ -1007,6 +1009,7 @@ public:
 					directional_shadows[i].cascade_geometry_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
 					directional_shadows[i].cascade_dynamic_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
 					directional_shadows[i].cascade_strip_instances[j].merge_unordered(p_cull_result.directional_shadows[i].cascade_strip_instances[j]);
+					directional_shadows[i].cascade_static_reach[j] = MAX(directional_shadows[i].cascade_static_reach[j], p_cull_result.directional_shadows[i].cascade_static_reach[j]); // LONGSHOT patch #70
 				}
 			}
 
@@ -1157,6 +1160,11 @@ public:
 				uint32_t strip_count = 0;
 				Rect2i strip_rect[2];
 				Frustum strip_frustum[2];
+				// LONGSHOT patch #70 (THE FAR CASTERS TURN WITH THE SUN): the slice's centre along the light and the band about it (three radii
+				// each way) a static caster must lie within to stand in the kept map; a caster beyond it - a mountain in the pancake, a far
+				// ground row - is drawn each frame, its shadow turning with the sun as it does
+				real_t slice_z_centre = 0.0;
+				real_t slice_z_band = 0.0;
 
 			} cascades[RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES]; //max 4 cascades
 			uint32_t cascade_count;

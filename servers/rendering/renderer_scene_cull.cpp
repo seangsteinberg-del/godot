@@ -2533,6 +2533,12 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 			cascade.bias_scale = (z_max - z_min_cam);
 			cascade.range_begin = (search_bounded ? search_begin : z_max) - z_vec.dot(p_cam_transform.origin);   // LONGSHOT (#29)
 			cascade.uv_scale = uv_scale;
+			// LONGSHOT patch #70 (THE FAR CASTERS TURN WITH THE SUN): the kept map holds the static casters within three radii of the
+			// slice's centre along the light; a kept map's angle tolerance is half a texel over the kept casters' reach, so it stands for
+			// seconds of the sun's motion (half a texel over the whole pancake stood for two frames at the pad), and the far casters -
+			// the mountains in the pancake, whose shadows sweep the pad as the sun moves - are drawn every frame over it
+			cascade.slice_z_centre = z_vec.dot(center);
+			cascade.slice_z_band = 3.0 * radius;
 
 			// LONGSHOT patch #66: the cache's word for this window, and a scroll's uncovered strips - the texels of the new window that
 			// were not in the kept one (the new texel (i, j) was the kept (i + shift.x, j + shift.y)), as rects of the map and as frusta
@@ -3469,11 +3475,29 @@ void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cul
 						uint32_t base_type = idata.flags & InstanceData::FLAG_BASE_TYPE_MASK;
 
 						if (((1 << base_type) & RSE::INSTANCE_GEOMETRY_MASK) && idata.flags & InstanceData::FLAG_CAST_SHADOWS && (LAYER_CHECK & cull_data.cull->shadows[j].caster_mask)) {
+							// LONGSHOT patch #70 (THE FAR CASTERS TURN WITH THE SUN): a static caster stands in the kept map only when its whole depth
+							// along the light lies within the slice's band; beyond it (the pancake's mountains, a far ground row) it is drawn each
+							// frame with the dynamic casters, so its shadow turns with the sun. The kept casters' farthest reach from the slice's
+							// centre is the kept frame's angle tolerance (RendererLightStorage::light_instance_directional_cache_frame)
+							const Cull::Shadow::Cascade &cascade = cull_data.cull->shadows[j].cascades[k];
+							bool in_band = caster_static;
 							if (caster_static) {
+								const Vector3 z_axis = cascade.transform.basis.get_column(2);
+								const real_t *bb = cull_data.scenario->instance_aabbs[i].bounds;
+								const Vector3 lo(z_axis.x >= 0.0 ? bb[0] : bb[3], z_axis.y >= 0.0 ? bb[1] : bb[4], z_axis.z >= 0.0 ? bb[2] : bb[5]);
+								const Vector3 hi(z_axis.x >= 0.0 ? bb[3] : bb[0], z_axis.y >= 0.0 ? bb[4] : bb[1], z_axis.z >= 0.0 ? bb[5] : bb[2]);
+								const real_t z_lo = z_axis.dot(lo) - cascade.slice_z_centre;
+								const real_t z_hi = z_axis.dot(hi) - cascade.slice_z_centre;
+								in_band = z_lo >= -cascade.slice_z_band && z_hi <= cascade.slice_z_band;
+								if (in_band) {
+									real_t &reach = cull_result.directional_shadows[j].cascade_static_reach[k];
+									reach = MAX(reach, MAX(-z_lo, z_hi));
+								}
+							}
+							if (in_band) {
 								cull_result.directional_shadows[j].cascade_geometry_instances[k].push_back(idata.instance_geometry);
 								static_cascades |= 1u << (j * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + k);
 								// LONGSHOT patch #66 (THE SCROLL): a static caster in a scrolling cascade's uncovered strips is drawn into them
-								const Cull::Shadow::Cascade &cascade = cull_data.cull->shadows[j].cascades[k];
 								if (cascade.cache_word == RendererLightStorage::SHADOW_CACHE_SCROLL) {
 									for (uint32_t s = 0; s < cascade.strip_count; s++) {
 										if (IN_FRUSTUM(cascade.strip_frustum[s])) {
@@ -3741,7 +3765,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				data.instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_geometry_instances[j]);
 				data.dynamic_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_dynamic_instances[j]);
 				data.strip_instances.merge_unordered(scene_cull_result.directional_shadows[i].cascade_strip_instances[j]);
-				data.static_cache = RSG::light_storage->light_instance_directional_cache_settle(cull.shadows[i].light_instance, j, shadow_owner, scenario->static_casters_version[i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + j].get());
+				data.static_cache = RSG::light_storage->light_instance_directional_cache_settle(cull.shadows[i].light_instance, j, shadow_owner, scenario->static_casters_version[i * RendererSceneRender::MAX_DIRECTIONAL_LIGHT_CASCADES + j].get(),
+						scene_cull_result.directional_shadows[i].cascade_static_reach[j]); // LONGSHOT patch #70: the kept casters' reach
 				data.scroll_shift = c.scroll_shift;
 				data.strip_count = int(c.strip_count);
 				data.strip_rect[0] = c.strip_rect[0];

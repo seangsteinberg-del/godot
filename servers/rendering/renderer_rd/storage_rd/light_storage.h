@@ -141,6 +141,7 @@ private:
 			ShadowTransform next; // LONGSHOT patch #66: this frame's window in the kept frame, the record's once the word is settled and the map drawn or scrolled
 			int word = 0; // LONGSHOT patch #66: this frame's word by geometry (ShadowCache), settled against the casters' version after the cull
 			Vector2i shift; // LONGSHOT patch #66: a scroll's shift in texels
+			real_t reach = 0.0; // LONGSHOT patch #70: the kept casters' farthest reach from the slice's centre along the light at the capture
 			Rect2i rect;
 			RID atlas; // the atlas it was captured from
 			int viewport_width = 0; // the render's width (the level-of-detail threshold's base) at the capture
@@ -656,7 +657,7 @@ public:
 	// LONGSHOT patch #65 (THE SHADOWS CACHED) and #66 (THE SCROLL)
 	virtual bool light_instance_directional_cache_frame(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, const Basis &p_light_basis, Basis &r_basis, real_t &r_origin_z, real_t &r_far) override;
 	virtual int light_instance_directional_cache_window(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, bool p_kept_frame, const Projection &p_projection, const Transform3D &p_transform, real_t p_far, real_t p_texel, const Vector2 &p_uv_scale, Vector2i &r_shift) override;
-	virtual int light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version) override;
+	virtual int light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version, real_t p_casters_reach) override;
 	bool light_instance_directional_cache_keys(RID p_light_instance, int p_cascade, const Rect2i &p_rect, int p_viewport_width); // the kept map's render-side keys (its rect, the atlas, the viewport's width): true when they stand; set to this frame's either way
 	void directional_shadow_static_copy(const Rect2i &p_dst, const Vector2i &p_src_offset, bool p_to_atlas); // p_dst copied from the static twin (read at p_dst moved by p_src_offset) into the atlas, or out of the atlas into the twin at the same place
 	virtual void light_instance_mark_visible(RID p_light_instance) override;

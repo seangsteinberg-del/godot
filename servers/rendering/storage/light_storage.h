@@ -131,7 +131,7 @@ public:
 	};
 	virtual bool light_instance_directional_cache_frame(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, const Basis &p_light_basis, Basis &r_basis, real_t &r_origin_z, real_t &r_far) { return false; }
 	virtual int light_instance_directional_cache_window(RID p_light_instance, int p_cascade, uint64_t p_owner, uint32_t p_light_index, bool p_kept_frame, const Projection &p_projection, const Transform3D &p_transform, real_t p_far, real_t p_texel, const Vector2 &p_uv_scale, Vector2i &r_shift) { return SHADOW_CACHE_WHOLE; }
-	virtual int light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version) { return SHADOW_CACHE_WHOLE; }
+	virtual int light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version, real_t p_casters_reach) { return SHADOW_CACHE_WHOLE; } // LONGSHOT patch #70: the kept casters' reach along the light
 	virtual void light_instance_mark_visible(RID p_light_instance) = 0;
 	virtual bool light_instances_can_render_shadow_cube() const {
 		return true;
