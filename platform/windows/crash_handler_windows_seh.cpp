@@ -44,7 +44,9 @@
 #include <psapi.h>
 
 #include <algorithm>
+#include <csignal> // LONGSHOT patch #72
 #include <cstdlib>
+#include <exception> // LONGSHOT patch #72
 #include <iterator>
 #include <string>
 #include <vector>
@@ -275,5 +277,36 @@ void CrashHandler::disable() {
 	disabled = true;
 }
 
+#ifdef CRASH_HANDLER_EXCEPTION
+// LONGSHOT patch #72 (THE ABORT NAMED): an abort - the C runtime's own, or an uncaught throw's std::terminate - leaves the process by a
+// fast-fail (0xC0000409) that no exception filter sees: no backtrace, no fault record (the lane's smokes returned 127 at a clean exit
+// for an hour before the raw code said what it was). The abort's signal and the terminate handler capture the thread's context and print
+// the same backtrace as a crash, then let the abort go on as it would
+static void _longshot_abort_backtrace(const char *p_what) {
+	CONTEXT ctx;
+	RtlCaptureContext(&ctx);
+	EXCEPTION_RECORD rec = {};
+	rec.ExceptionCode = 0xC0000409; // what the abort returns to the shell
+	EXCEPTION_POINTERS ep = { &rec, &ctx };
+	print_error(vformat("LONGSHOT: %s ends the process - the backtrace is the thread's at the abort", p_what));
+	CrashHandlerException(&ep);
+}
+
+static void _longshot_sigabrt(int) {
+	signal(SIGABRT, SIG_DFL);
+	_longshot_abort_backtrace("an abort");
+}
+
+static void _longshot_terminate() {
+	signal(SIGABRT, SIG_DFL);
+	_longshot_abort_backtrace("an uncaught exception (std::terminate)");
+	abort();
+}
+#endif
+
 void CrashHandler::initialize() {
+#ifdef CRASH_HANDLER_EXCEPTION
+	signal(SIGABRT, _longshot_sigabrt); // LONGSHOT patch #72
+	std::set_terminate(_longshot_terminate);
+#endif
 }
