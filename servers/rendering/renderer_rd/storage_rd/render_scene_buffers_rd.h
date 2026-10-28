@@ -193,6 +193,10 @@ private:
 	// frame it was settled in; the TAA keeps that share of each pixel as it stands (a stale stamp is none)
 	RID longshot_settled;
 	uint64_t longshot_settled_frame = UINT64_MAX;
+	// LONGSHOT patch (THE SETTLED GAS STANDS FOR FSR 2): that image's opacity as FSR 2's reactive mask - its alpha read in every channel
+	// (the mask's red is what FSR 2 reads), a view made once an image and freed with the buffers
+	RID longshot_settled_alpha;
+	RID longshot_settled_alpha_of;
 
 protected:
 	static void _bind_methods();
@@ -212,6 +216,7 @@ public:
 	void set_longshot_settled(RID p_settled);
 	bool has_longshot_settled() const;
 	RID get_longshot_settled() const { return longshot_settled; }
+	RID get_longshot_settled_alpha();
 
 	// info from our renderer
 	void set_can_be_storage(const bool p_can_be_storage) { can_be_storage = p_can_be_storage; }
