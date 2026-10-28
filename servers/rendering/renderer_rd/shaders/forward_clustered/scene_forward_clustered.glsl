@@ -1213,12 +1213,12 @@ float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, bool near_tier, ou
 	return near_tier ? textureLod(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), uv, 0.0).r : textureLod(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
 }
 float longshot_cloud_sun_shadow(vec3 p) {
-	if (!bool(scene_data.flags & SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW)) {
+	if (!bool(scene_data_block.data.flags & SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW)) {
 		return 1.0;
 	}
 	float e_far, e_near;
-	float t_far = longshot_cloud_sun_tier(p, scene_data.longshot_cloud_shadow[3], scene_data.longshot_cloud_shadow[4], scene_data.longshot_cloud_shadow[5], false, e_far);
-	float t_near = longshot_cloud_sun_tier(p, scene_data.longshot_cloud_shadow[0], scene_data.longshot_cloud_shadow[1], scene_data.longshot_cloud_shadow[2], true, e_near);
+	float t_far = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[3], scene_data_block.data.longshot_cloud_shadow[4], scene_data_block.data.longshot_cloud_shadow[5], false, e_far);
+	float t_near = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[0], scene_data_block.data.longshot_cloud_shadow[1], scene_data_block.data.longshot_cloud_shadow[2], true, e_near);
 	if (t_near >= 0.0) {
 		return t_far >= 0.0 ? mix(mix(t_near, t_far, e_near), 1.0, e_far) : mix(t_near, 1.0, e_near);
 	}
