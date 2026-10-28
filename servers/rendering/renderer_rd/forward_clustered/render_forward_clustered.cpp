@@ -736,6 +736,11 @@ uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render
 
 	float luminance_multiplier = rd.is_valid() ? rd->get_luminance_multiplier() : 1.0;
 
+	// LONGSHOT patch #83: the clouds' light map's frames to the scene data (the render buffers hold what the clouds effect handed over)
+	p_render_data->scene_data->longshot_cloud_shadow_on = rd.is_valid() && rd->has_longshot_cloud_shadow();
+	if (p_render_data->scene_data->longshot_cloud_shadow_on) {
+		memcpy(p_render_data->scene_data->longshot_cloud_shadow_frames, rd->get_longshot_cloud_shadow_frames(), sizeof(p_render_data->scene_data->longshot_cloud_shadow_frames));
+	}
 	p_render_data->scene_data->update_ubo(scene_state.uniform_buffers[uniform_buffer_index], get_debug_draw_mode(), env, reflection_probe_instance, p_render_data->camera_attributes, p_pancake_shadows, p_screen_size, p_viewport_size, p_default_bg_color, luminance_multiplier, p_opaque_render_buffers, p_apply_alpha_multiplier, p_longshot_clouds);
 
 	// now do implementation UBO
@@ -3936,6 +3941,18 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		v.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 		v.append_id(clouds ? rb->get_longshot_clouds_depth() : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK));
 		uniforms.push_back(v);
+	}
+	{
+		// LONGSHOT patch #83: THE SUN WEARS THE DECK'S SHADOW - the clouds' light map's two tiers for every list (fixed textures; white where
+		// none stands, and the scene data's flag says whether to read them)
+		const bool cs = rb.is_valid() && rb->has_longshot_cloud_shadow();
+		for (int t = 0; t < 2; t++) {
+			RD::Uniform w;
+			w.binding = 39 + t;
+			w.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+			w.append_id(cs ? rb->get_longshot_cloud_shadow(t) : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_WHITE));
+			uniforms.push_back(w);
+		}
 	}
 
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.default_shader_rd, RENDER_PASS_UNIFORM_SET, uniforms);

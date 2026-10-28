@@ -11,6 +11,7 @@
 #define SCENE_DATA_FLAGS_USE_UV2_MATERIAL (1 << 5)
 #define SCENE_DATA_FLAGS_USE_PANCAKE_SHADOWS (1 << 6)
 #define SCENE_DATA_FLAGS_IN_SHADOW_PASS (1 << 7)
+#define SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW (1 << 9) // LONGSHOT patch #83: the directional lights' shadows wear the clouds' transmittance
 #define SCENE_DATA_FLAGS_LONGSHOT_CLOUDS (1 << 8) // LONGSHOT patch #18: the transparent pass takes the clouds in front of each surface
 
 struct SceneData {
@@ -82,4 +83,5 @@ struct SceneData {
 	float IBL_exposure_normalization;
 	uint camera_visible_layers;
 	float pass_alpha_multiplier;
+	vec4 longshot_cloud_shadow[6]; // LONGSHOT patch #83: the light map's two tiers' frames (o, u, v a tier; the near first)
 };

@@ -207,6 +207,16 @@ public:
 	bool has_longshot_clouds() const;
 	RID get_longshot_clouds_light() const { return longshot_clouds_light; }
 	RID get_longshot_clouds_depth() const { return longshot_clouds_depth; }
+	// LONGSHOT patch #83: THE SUN WEARS THE DECK'S SHADOW - the clouds' transmittance along the key light in two tiers about the eye's deck
+	// point (the clouds effect's light textures, fixed RIDs rewritten in place) and their frames (o with the half-extent, u with the texel,
+	// v with the standing flag, a tier), handed over each frame; every directional light's shadow takes them in the scene shader
+	RID longshot_cloud_shadow_tex[2];
+	float longshot_cloud_shadow_frame[6][4] = {};
+	bool longshot_cloud_shadow_on = false;
+	void set_longshot_cloud_shadow(RID p_near, RID p_far, const float *p_frames, bool p_on);
+	bool has_longshot_cloud_shadow() const;
+	RID get_longshot_cloud_shadow(int p_tier) const { return longshot_cloud_shadow_tex[p_tier]; }
+	const float *get_longshot_cloud_shadow_frames() const { return &longshot_cloud_shadow_frame[0][0]; }
 
 	// LONGSHOT patch #25: a settled layer's hand-over (its own image: its opacity in alpha, at the internal size)
 	void set_longshot_settled(RID p_settled);

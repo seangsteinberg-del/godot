@@ -99,6 +99,18 @@ void RenderSceneBuffersRD::_bind_methods() {
 }
 
 // LONGSHOT patch #18: the clouds hand over this frame's textures; they stand for this frame alone
+// LONGSHOT patch #83: the clouds' light map for the sun's shadow (set by the clouds effect each frame; read at the next frame's setup)
+void RenderSceneBuffersRD::set_longshot_cloud_shadow(RID p_near, RID p_far, const float *p_frames, bool p_on) {
+	longshot_cloud_shadow_tex[0] = p_near;
+	longshot_cloud_shadow_tex[1] = p_far;
+	memcpy(longshot_cloud_shadow_frame, p_frames, sizeof(longshot_cloud_shadow_frame));
+	longshot_cloud_shadow_on = p_on;
+}
+
+bool RenderSceneBuffersRD::has_longshot_cloud_shadow() const {
+	return longshot_cloud_shadow_on && longshot_cloud_shadow_tex[0].is_valid() && longshot_cloud_shadow_tex[1].is_valid() && RD::get_singleton()->texture_is_valid(longshot_cloud_shadow_tex[0]) && RD::get_singleton()->texture_is_valid(longshot_cloud_shadow_tex[1]);
+}
+
 void RenderSceneBuffersRD::set_longshot_clouds(RID p_light, RID p_depth) {
 	const uint64_t frame = RSG::rasterizer->get_frame_number();
 	// THE ORDER SAID LOUDLY: whoever takes the clouds this frame (an effect's own march, the transparent pass) asks after they are handed

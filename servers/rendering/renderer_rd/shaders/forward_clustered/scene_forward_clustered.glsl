@@ -1193,6 +1193,37 @@ vec4 fog_process(vec3 vertex) {
 // the weights before z sum to 1 - T(z) - their moments give the clouds' depth along the ray, here a normal about their mean with their
 // spread, truncated at the eye; the clouds' light in front of z is that share of their light, their transmittance in front of z
 // 1 - share x (1 - T). Normal CDF by its logistic form (error under 2e-4)
+// LONGSHOT patch #83: THE SUN WEARS THE DECK'S SHADOW - the clouds' transmittance along the key light through a world point, from the
+// clouds' light map in two tiers about the eye's deck point (the near blended into the far over its outer fifth, the far's outer fifth
+// into one; the frames in the scene data: o with the half-extent, u with the texel, v with the standing flag); one at every point no tier
+// holds and while no map stands. Every directional light's shadow takes it (the map is the key light's; it stands by day alone)
+float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, bool near_tier, out float edge) {
+	edge = 1.0;
+	if (v.w < 0.5) {
+		return -1.0;
+	}
+	vec3 d = p - o.xyz;
+	vec2 xy = vec2(dot(d, u.xyz), dot(d, v.xyz));
+	float m = max(abs(xy.x), abs(xy.y));
+	if (m >= o.w) {
+		return -1.0;
+	}
+	edge = smoothstep(0.8 * o.w, o.w, m);
+	vec2 uv = xy / (2.0 * o.w) + 0.5;
+	return near_tier ? textureLod(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), uv, 0.0).r : textureLod(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+}
+float longshot_cloud_sun_shadow(vec3 p) {
+	if (!bool(scene_data.flags & SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW)) {
+		return 1.0;
+	}
+	float e_far, e_near;
+	float t_far = longshot_cloud_sun_tier(p, scene_data.longshot_cloud_shadow[3], scene_data.longshot_cloud_shadow[4], scene_data.longshot_cloud_shadow[5], false, e_far);
+	float t_near = longshot_cloud_sun_tier(p, scene_data.longshot_cloud_shadow[0], scene_data.longshot_cloud_shadow[1], scene_data.longshot_cloud_shadow[2], true, e_near);
+	if (t_near >= 0.0) {
+		return t_far >= 0.0 ? mix(mix(t_near, t_far, e_near), 1.0, e_far) : mix(t_near, 1.0, e_near);
+	}
+	return t_far >= 0.0 ? mix(t_far, 1.0, e_far) : 1.0;
+}
 float longshot_clouds_cdf(float x) {
 	return 1.0 / (1.0 + exp(-1.5976 * x * (1.0 + 0.04417 * x * x)));
 }
@@ -2632,6 +2663,8 @@ void fragment_shader(in SceneData scene_data) {
 
 #undef BIAS_FUNC
 				} // shadows
+
+				shadow *= longshot_cloud_sun_shadow((inv_view_matrix * vec4(vertex, 1.0)).xyz); // LONGSHOT patch #83: the clouds' transmittance on the light's shadow
 
 				if (i < 4) {
 					shadow0 |= uint(clamp(shadow * 255.0, 0.0, 255.0)) << (i * 8);
