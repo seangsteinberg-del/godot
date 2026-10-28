@@ -135,6 +135,11 @@ public:
 	// LONGSHOT patch #75 (THE KEEPER MOVES THE VERSIONS): whether this render may keep the light's directional maps - no other render's map is
 	// held for it. Only the keeper's cull moves a caster's static-cascade bits and the casters' versions; a render served whole leaves them
 	virtual bool light_instance_directional_cache_keeper(RID p_light_instance, uint64_t p_owner) { return p_owner != 0; }
+	// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): a positional light's kept static map in its atlas slot. The cull hands the atlas, the
+	// pass (an omni's two halves) and the static set's word - a hash of the light's own version and the static casters the pass lists;
+	// the storage answers whether the slot's twin holds that word for this light (the same light, the same word, captured) and records
+	// the word for the capture this frame makes. A storage keeping no maps answers false.
+	virtual bool light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) { return false; }
 	virtual void light_instance_mark_visible(RID p_light_instance) = 0;
 	virtual bool light_instances_can_render_shadow_cube() const {
 		return true;

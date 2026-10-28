@@ -732,6 +732,7 @@ public:
 	struct InstanceLightData : public InstanceBaseData {
 		RID instance;
 		uint64_t last_version;
+		uint64_t static_version = 1; // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): moved when the light itself moves - the kept maps are its old view
 		List<Instance *>::Element *D; // directional light in scenario
 
 		bool uses_projector = false;
@@ -1138,6 +1139,11 @@ public:
 
 	void _light_instance_setup_directional_shadow(int p_shadow_index, Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, uint64_t p_owner); // LONGSHOT patch #65/#66: the render the kept maps are for
 
+	// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): a positional light's casters sorted into the pass's static and dynamic lists as the sun's
+	// keeper sorts them, the static set's word folded; the word settled against the light's slot - the kept map blitted and the movers
+	// drawn over it (STANDS), or the static casters drawn and captured with the movers over them (CAPTURE)
+	void _positional_caster_sort(Scenario *p_scenario, Instance *p_instance, RendererSceneRender::RenderShadowData &r_shadow_data);
+	void _positional_cache_word(InstanceLightData *p_light, RID p_shadow_atlas, int p_pass, RendererSceneRender::RenderShadowData &r_shadow_data);
 	_FORCE_INLINE_ bool _light_instance_update_shadow(Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, RID p_shadow_atlas, Scenario *p_scenario, float p_screen_mesh_lod_threshold, uint32_t p_visible_layers = 0xFFFFFF);
 
 	RID _render_get_environment(RID p_camera, RID p_scenario);

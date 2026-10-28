@@ -815,6 +815,7 @@ void RenderForwardMobile::_pre_opaque_render(RenderDataRD *p_render_data) {
 		}
 		//render positional shadows
 		for (uint32_t i = 0; i < p_render_data->shadows.size(); i++) {
+			ERR_CONTINUE_MSG(p_render_data->render_shadows[p_render_data->shadows[i]].static_cache != RendererLightStorage::SHADOW_CACHE_WHOLE, "LONGSHOT patch #86: the mobile renderer keeps no shadow maps; the cull served a positional light a kept word (the keeper is the clustered renderer's).");
 			_render_shadow_pass(p_render_data->render_shadows[p_render_data->shadows[i]].light, p_render_data->shadow_atlas, p_render_data->render_shadows[p_render_data->shadows[i]].pass, p_render_data->render_shadows[p_render_data->shadows[i]].instances, p_render_data->render_shadows[p_render_data->shadows[i]].dynamic_instances, lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, i == 0, i == p_render_data->shadows.size() - 1, true, p_render_data->render_info, p_render_data->scene_data->cam_transform);
 		}
 

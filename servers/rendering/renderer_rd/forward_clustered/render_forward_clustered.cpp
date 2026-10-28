@@ -2882,6 +2882,13 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 		}
 	}
 
+	// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): a positional light's kept map in its slot - the spot, the area light and the paraboloid
+	// omni take the cull's word (stands or capture); the cube omni keeps nothing (its faces are rendered to a cubemap and copied)
+	RID cache_atlas;
+	if (light_storage->light_get_type(base) != RSE::LIGHT_DIRECTIONAL && !render_cubemap) {
+		static_cache = p_static_cache;
+		cache_atlas = p_shadow_atlas;
+	}
 	if (render_cubemap) {
 		//rendering to cubemap
 		_render_shadow_append(render_fb, p_instances, light_projection, light_transform, zfar, 0, 0, reverse_cull_face, false, false, use_pancake, lod_distance_multiplier, screen_mesh_lod_threshold, Rect2(), false, true, true, true, p_render_info, p_viewport_size, p_main_cam_transform, external_pass);
@@ -2903,6 +2910,7 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 	} else {
 		//render shadow
 		SceneState::ShadowPass::Cache ops;
+		ops.atlas = cache_atlas; // LONGSHOT patch #86
 		if (static_cache == RendererLightStorage::SHADOW_CACHE_STANDS) {
 			// LONGSHOT patch #65: the kept map blitted in, the dynamic casters over it (never a clear)
 			ops.blit = true;
@@ -3055,7 +3063,9 @@ void RenderForwardClustered::_render_shadow_end() {
 			RD::get_singleton()->draw_list_begin(shadow_pass.framebuffer, RD::DRAW_CLEAR_DEPTH, Vector<Color>(), 0.0f, 0, shadow_pass.cache.clear_rect);
 			RD::get_singleton()->draw_list_end();
 		}
-		if (shadow_pass.cache.blit) {
+		if (shadow_pass.cache.blit && shadow_pass.cache.atlas.is_valid()) {
+			light_storage->shadow_atlas_static_copy(shadow_pass.cache.atlas, shadow_pass.cache.blit_rect, true); // LONGSHOT patch #86: the lamp's kept map into its slot
+		} else if (shadow_pass.cache.blit) {
 			light_storage->directional_shadow_static_copy(shadow_pass.cache.blit_rect, shadow_pass.cache.blit_src, true); // LONGSHOT patch #65/#66: the kept map (its overlap, shifted) into the cascade's rect
 		}
 		if (shadow_pass.element_count > 0 || shadow_pass.clear_depth) { // LONGSHOT patch #65: nothing to draw and nothing to clear is no draw list
@@ -3063,7 +3073,9 @@ void RenderForwardClustered::_render_shadow_end() {
 			render_list_parameters.external_pass = shadow_pass.external_pass; // LONGSHOT patch #60
 			_render_list_with_draw_list(&render_list_parameters, shadow_pass.framebuffer, shadow_pass.clear_depth ? RD::DRAW_CLEAR_DEPTH : RD::DRAW_DEFAULT_ALL, Vector<Color>(), 0.0f, 0, shadow_pass.rect, shadow_pass.cache.scissor);
 		}
-		if (shadow_pass.cache.capture) {
+		if (shadow_pass.cache.capture && shadow_pass.cache.atlas.is_valid()) {
+			light_storage->shadow_atlas_static_copy(shadow_pass.cache.atlas, shadow_pass.rect, false); // LONGSHOT patch #86: the lamp's static casters' map out, kept in the atlas's twin
+		} else if (shadow_pass.cache.capture) {
 			light_storage->directional_shadow_static_copy(shadow_pass.rect, Vector2i(), false); // LONGSHOT patch #65: the static casters' map out, kept
 		}
 	}

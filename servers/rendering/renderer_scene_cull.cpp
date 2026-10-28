@@ -1743,6 +1743,7 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 
 		RSG::light_storage->light_instance_set_transform(light->instance, *instance_xform);
 		RSG::light_storage->light_instance_set_aabb(light->instance, instance_xform->xform(p_instance->aabb));
+		light->static_version++; // LONGSHOT patch #86: the kept maps are of the light's old place
 		light->make_shadow_dirty();
 
 		RSE::LightBakeMode bake_mode = RSG::light_storage->light_get_bake_mode(p_instance->base);
@@ -2606,6 +2607,42 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 	}
 }
 
+// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS; D:/longshot-overflow/perf_lane/day/design_lamps_keeper.md): a positional light's shadow map is
+// two sets of casters. The static - the sun's keeper's law (patch #65): nothing of the caster changed for SHADOW_STATIC_AFTER_FRAMES, no
+// skeleton, no shadow-moving material, not particles - go to the pass's static list and fold their identities into the pass's word; the
+// movers go to its dynamic list, drawn every frame over the kept map. The number: the Fab's eleven shadowed lamps re-rendered the whole hall
+// (224 k primitives, 107 draws a frame at the resting pad) because a walker in their range dirtied them every frame.
+void RendererSceneCull::_positional_caster_sort(Scenario *p_scenario, Instance *p_instance, RendererSceneRender::RenderShadowData &r_shadow_data) {
+	RenderGeometryInstance *gi = static_cast<InstanceGeometryData *>(p_instance->base_data)->geometry_instance;
+	bool is_static = false;
+	if (p_instance->array_index >= 0 && p_instance->array_index < int32_t(p_scenario->instance_data.size())) {
+		const InstanceData &idata = p_scenario->instance_data[p_instance->array_index];
+		const uint64_t frame_number = RSG::rasterizer->get_frame_number();
+		is_static = p_instance->base_type != RSE::INSTANCE_PARTICLES && !(idata.flags & (InstanceData::FLAG_USES_MESH_INSTANCE | InstanceData::FLAG_SHADOW_ANIMATED)) && frame_number - idata.shadow_moved_frame > SHADOW_STATIC_AFTER_FRAMES;
+	}
+	if (is_static) {
+		r_shadow_data.instances.push_back(gi);
+		const uint64_t id = (uint64_t)(uintptr_t)p_instance;
+		r_shadow_data.keeper_word ^= uint64_t(hash_one_uint64(id)) * 0x9E3779B97F4A7C15ULL + id; // order-free: the set, not the list
+		r_shadow_data.keeper_static++;
+	} else {
+		r_shadow_data.dynamic_instances.push_back(gi);
+	}
+}
+
+// the pass's word (the static set's, the light's own version, the count) settled against the light's slot: the kept map stands - blitted
+// into the slot, the movers over it - or the static casters are drawn and captured, the movers over them
+void RendererSceneCull::_positional_cache_word(InstanceLightData *p_light, RID p_shadow_atlas, int p_pass, RendererSceneRender::RenderShadowData &r_shadow_data) {
+	const uint64_t word = r_shadow_data.keeper_word ^ (p_light->static_version * 0x9E3779B97F4A7C15ULL) ^ (uint64_t(r_shadow_data.keeper_static) * 0xC2B2AE3D27D4EB4FULL);
+	const bool stand = RSG::light_storage->light_instance_positional_cache_keys(p_light->instance, p_shadow_atlas, p_pass, word);
+	if (stand) {
+		r_shadow_data.instances.clear();
+		r_shadow_data.static_cache = RendererLightStorage::SHADOW_CACHE_STANDS;
+	} else {
+		r_shadow_data.static_cache = RendererLightStorage::SHADOW_CACHE_CAPTURE;
+	}
+}
+
 bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, RID p_shadow_atlas, Scenario *p_scenario, float p_screen_mesh_lod_threshold, uint32_t p_visible_layers) {
 	InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
 
@@ -2678,10 +2715,11 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 							}
 						}
 
-						shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
+						_positional_caster_sort(p_scenario, instance, shadow_data); // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS)
 					}
 
 					RSG::mesh_storage->update_mesh_instances();
+					_positional_cache_word(light, p_shadow_atlas, i, shadow_data); // LONGSHOT patch #86
 
 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, i, 0);
 					shadow_data.light = light->instance;
@@ -2828,10 +2866,11 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 						RSG::mesh_storage->mesh_instance_check_for_update(instance->mesh_instance);
 					}
 				}
-				shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
+				_positional_caster_sort(p_scenario, instance, shadow_data); // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS)
 			}
 
 			RSG::mesh_storage->update_mesh_instances();
+			_positional_cache_word(light, p_shadow_atlas, 0, shadow_data); // LONGSHOT patch #86
 
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
@@ -2895,10 +2934,11 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					}
 				}
 
-				shadow_data.instances.push_back(static_cast<InstanceGeometryData *>(instance->base_data)->geometry_instance);
+				_positional_caster_sort(p_scenario, instance, shadow_data); // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS)
 			}
 
 			RSG::mesh_storage->update_mesh_instances();
+			_positional_cache_word(light, p_shadow_atlas, 0, shadow_data); // LONGSHOT patch #86
 
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
@@ -4068,6 +4108,8 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		render_shadow_data[i].instances.clear();
 		render_shadow_data[i].dynamic_instances.clear(); // LONGSHOT patch #65
 		render_shadow_data[i].static_cache = RendererLightStorage::SHADOW_CACHE_WHOLE;
+		render_shadow_data[i].keeper_word = 0; // LONGSHOT patch #86
+		render_shadow_data[i].keeper_static = 0;
 		render_shadow_data[i].strip_instances.clear(); // LONGSHOT patch #66
 		render_shadow_data[i].strip_count = 0;
 	}

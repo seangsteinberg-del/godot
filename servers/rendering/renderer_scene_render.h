@@ -295,6 +295,10 @@ public:
 		Vector2i scroll_shift;
 		int strip_count = 0;
 		Rect2i strip_rect[2];
+		// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): the static set's word - the static casters' identities folded as they are listed,
+		// and their count - settled against the light's slot after the cull
+		uint64_t keeper_word = 0;
+		uint32_t keeper_static = 0;
 	};
 
 	struct RenderSDFGIData {

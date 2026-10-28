@@ -451,6 +451,7 @@ private:
 				Vector2i blit_src;
 				Rect2i scissor;
 				bool capture = false;
+				RID atlas; // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): a positional light's atlas, whose twin the blit and the capture copy with; null for the sun's atlas
 			} cache;
 		};
 

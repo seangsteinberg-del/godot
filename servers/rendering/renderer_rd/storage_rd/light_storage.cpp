@@ -793,6 +793,45 @@ void LightStorage::directional_shadow_static_copy(const Rect2i &p_dst, const Vec
 	}
 }
 
+// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): the slot's twin against the pass's word - the same light, the same word, captured - and the
+// word recorded for the capture this frame makes (the pass that follows captures when the answer is no)
+bool LightStorage::light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) {
+	ShadowAtlas *atlas = shadow_atlas_owner.get_or_null(p_atlas);
+	ERR_FAIL_NULL_V(atlas, false);
+	ERR_FAIL_INDEX_V(p_pass, 2, false);
+	if (!atlas->shadow_owners.has(p_light_instance) || atlas->static_depth.is_null()) {
+		return false;
+	}
+	const uint32_t key = atlas->shadow_owners[p_light_instance];
+	const uint32_t quadrant = (key >> QUADRANT_SHIFT) & 0x3;
+	const uint32_t shadow = key & SHADOW_INDEX_MASK;
+	ERR_FAIL_INDEX_V((int)shadow, atlas->quadrants[quadrant].shadows.size(), false);
+	ShadowAtlas::Quadrant::Shadow &s = atlas->quadrants[quadrant].shadows.write[shadow];
+	const bool stand = s.kept_light == p_light_instance && s.kept_valid[p_pass] && s.kept_word[p_pass] == p_word;
+	if (s.kept_light != p_light_instance) {
+		s.kept_valid[0] = false;
+		s.kept_valid[1] = false;
+		s.kept_light = p_light_instance;
+	}
+	s.kept_word[p_pass] = p_word;
+	s.kept_valid[p_pass] = true;
+	return stand;
+}
+
+void LightStorage::shadow_atlas_static_copy(RID p_atlas, const Rect2i &p_rect, bool p_to_atlas) {
+	ShadowAtlas *atlas = shadow_atlas_owner.get_or_null(p_atlas);
+	ERR_FAIL_NULL(atlas);
+	ERR_FAIL_COND_MSG(atlas->depth.is_null() || atlas->static_depth.is_null(), "LONGSHOT patch #86: the shadow atlas and its static twin are made together (_update_shadow_atlas); one is missing.");
+	ERR_FAIL_COND(p_rect.size.width <= 0 || p_rect.size.height <= 0);
+	const Vector3 at(p_rect.position.x, p_rect.position.y, 0);
+	const Vector3 size(p_rect.size.width, p_rect.size.height, 1);
+	if (p_to_atlas) {
+		RD::get_singleton()->texture_copy(atlas->static_depth, atlas->depth, at, at, size, 0, 0, 0, 0);
+	} else {
+		RD::get_singleton()->texture_copy(atlas->depth, atlas->static_depth, at, at, size, 0, 0, 0, 0);
+	}
+}
+
 void LightStorage::light_instance_mark_visible(RID p_light_instance) {
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL(light_instance);
@@ -2532,9 +2571,12 @@ void LightStorage::_update_shadow_atlas(ShadowAtlas *shadow_atlas) {
 		tf.format = get_shadow_atlas_depth_format(shadow_atlas->use_16_bits);
 		tf.width = shadow_atlas->size;
 		tf.height = shadow_atlas->size;
-		tf.usage_bits = get_shadow_atlas_depth_usage_bits();
+		// LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): the atlas and its static twin copy between each other - a lamp's static map captured
+		// out of its slot and blitted back into it while its word stands
+		tf.usage_bits = get_shadow_atlas_depth_usage_bits() | RD::TEXTURE_USAGE_CAN_COPY_FROM_BIT | RD::TEXTURE_USAGE_CAN_COPY_TO_BIT;
 
 		shadow_atlas->depth = RD::get_singleton()->texture_create(tf, RD::TextureView());
+		shadow_atlas->static_depth = RD::get_singleton()->texture_create(tf, RD::TextureView());
 		Vector<RID> fb_tex;
 		fb_tex.push_back(shadow_atlas->depth);
 		shadow_atlas->fb = RD::get_singleton()->framebuffer_create(fb_tex);
@@ -2555,6 +2597,10 @@ void LightStorage::shadow_atlas_set_size(RID p_atlas, int p_size, bool p_16_bits
 	if (shadow_atlas->depth.is_valid()) {
 		RD::get_singleton()->free_rid(shadow_atlas->depth);
 		shadow_atlas->depth = RID();
+	}
+	if (shadow_atlas->static_depth.is_valid()) { // LONGSHOT patch #86: the twin goes with the atlas; the slots made again keep nothing
+		RD::get_singleton()->free_rid(shadow_atlas->static_depth);
+		shadow_atlas->static_depth = RID();
 	}
 	for (int i = 0; i < 4; i++) {
 		//clear subdivisions
@@ -2891,6 +2937,10 @@ bool LightStorage::shadow_atlas_update_light(RID p_atlas, RID p_light_instance, 
 }
 
 void LightStorage::_shadow_atlas_invalidate_shadow(ShadowAtlas::Quadrant::Shadow *p_shadow, RID p_atlas, ShadowAtlas *p_shadow_atlas, uint32_t p_quadrant, uint32_t p_shadow_idx) {
+	// LONGSHOT patch #86: the slot changes hands - its twin's kept map is nobody's
+	p_shadow->kept_light = RID();
+	p_shadow->kept_valid[0] = false;
+	p_shadow->kept_valid[1] = false;
 	if (p_shadow->owner.is_valid()) {
 		LightInstance *sli = light_instance_owner.get_or_null(p_shadow->owner);
 		uint32_t old_key = p_shadow_atlas->shadow_owners[p_shadow->owner];
