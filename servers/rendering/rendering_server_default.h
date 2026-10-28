@@ -427,7 +427,7 @@ public:
 
 	FUNCRIDSPLIT(multimesh)
 
-	FUNC6(multimesh_allocate_data, RID, int, RSE::MultimeshTransformFormat, bool, bool, bool)
+	FUNC7(multimesh_allocate_data, RID, int, RSE::MultimeshTransformFormat, bool, bool, bool, int) // LONGSHOT patch #85: the wide custom data's count
 	FUNC1RC(int, multimesh_get_instance_count, RID)
 
 	FUNC2(multimesh_set_mesh, RID, RID)

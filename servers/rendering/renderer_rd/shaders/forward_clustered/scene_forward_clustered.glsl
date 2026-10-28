@@ -225,6 +225,7 @@ uint multimesh_stride() {
 	uint stride = sc_multimesh_format_2d() ? 2 : 3;
 	stride += sc_multimesh_has_color() ? 1 : 0;
 	stride += sc_multimesh_has_custom_data() ? 1 : 0;
+	stride += sc_multimesh_custom_wide(); // LONGSHOT patch #85
 	return stride;
 }
 
@@ -242,6 +243,8 @@ void vertex_shader(vec3 vertex_input,
 #endif
 		out vec4 screen_pos) {
 	vec4 instance_custom = vec4(0.0);
+	// LONGSHOT patch #85 (THE INSTANCE'S WIDE CUSTOM DATA): the vec4 after the custom data, INSTANCE_CUSTOM1..INSTANCE_CUSTOM7 to the material
+	vec4 instance_custom_wide[7] = vec4[7](vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0), vec4(0.0));
 #if defined(COLOR_USED)
 	color_interp = color_attrib;
 #endif
@@ -338,6 +341,12 @@ void vertex_shader(vec3 vertex_input,
 
 		if (sc_multimesh_has_custom_data()) {
 			instance_custom = transforms.data[offset];
+			offset += 1;
+		}
+
+		// LONGSHOT patch #85: the wide custom data, a contiguous record after the custom's slot (the count a specialization constant: the loop unrolls)
+		for (uint k = 0u; k < sc_multimesh_custom_wide(); k++) {
+			instance_custom_wide[k] = transforms.data[offset + k];
 		}
 
 #endif

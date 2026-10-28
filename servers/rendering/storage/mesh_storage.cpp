@@ -45,7 +45,7 @@ void RendererMeshStorage::multimesh_free(RID p_rid) {
 	_multimesh_free(p_rid);
 }
 
-void RendererMeshStorage::multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect) {
+void RendererMeshStorage::multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect, int p_custom_wide) {
 	MultiMeshInterpolator *mmi = _multimesh_get_interpolator(p_multimesh);
 	if (mmi) {
 		mmi->_transform_format = p_transform_format;
@@ -55,7 +55,7 @@ void RendererMeshStorage::multimesh_allocate_data(RID p_multimesh, int p_instanc
 
 		mmi->_vf_size_xform = p_transform_format == RSE::MULTIMESH_TRANSFORM_2D ? 8 : 12;
 		mmi->_vf_size_color = p_use_colors ? 4 : 0;
-		mmi->_vf_size_data = p_use_custom_data ? 4 : 0;
+		mmi->_vf_size_data = (p_use_custom_data ? 4 : 0) + 4 * p_custom_wide; // LONGSHOT patch #85: the wide custom data rides as data (copied, never interpolated)
 
 		mmi->_stride = mmi->_vf_size_xform + mmi->_vf_size_color + mmi->_vf_size_data;
 
@@ -65,7 +65,7 @@ void RendererMeshStorage::multimesh_allocate_data(RID p_multimesh, int p_instanc
 		mmi->_data_interpolated.resize_initialized(size_in_floats);
 	}
 
-	_multimesh_allocate_data(p_multimesh, p_instances, p_transform_format, p_use_colors, p_use_custom_data, p_use_indirect);
+	_multimesh_allocate_data(p_multimesh, p_instances, p_transform_format, p_use_colors, p_use_custom_data, p_use_indirect, p_custom_wide);
 }
 
 int RendererMeshStorage::multimesh_get_instance_count(RID p_multimesh) const {

@@ -1587,9 +1587,10 @@ void MeshStorage::_multimesh_free(RID p_rid) {
 	multimesh_owner.free(p_rid);
 }
 
-void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect) {
+void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect, int p_custom_wide) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
+	ERR_FAIL_COND_MSG(p_custom_wide != 0, "LONGSHOT patch #85: the wide custom data is the clustered renderer's; the compatibility renderer has none.");
 
 	if (multimesh->instances == p_instances && multimesh->xform_format == p_transform_format && multimesh->uses_colors == p_use_colors && multimesh->uses_custom_data == p_use_custom_data) {
 		return;

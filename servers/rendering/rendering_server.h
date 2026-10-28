@@ -259,9 +259,12 @@ public:
 protected:
 #ifndef DISABLE_DEPRECATED
 	void _multimesh_allocate_data_bind_compat_99455(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data);
+	void _multimesh_allocate_data_bind_compat_ls85(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect); // LONGSHOT patch #85
 #endif
 public:
-	virtual void multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false) = 0;
+	// LONGSHOT patch #85 (THE INSTANCE'S WIDE CUSTOM DATA): p_custom_wide more vec4 an instance after the custom data (0-7), read by the
+	// clustered renderer's vertex prologue into INSTANCE_CUSTOM1..INSTANCE_CUSTOM7; the stride grows by four floats each
+	virtual void multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false, int p_custom_wide = 0) = 0;
 	virtual int multimesh_get_instance_count(RID p_multimesh) const = 0;
 
 	virtual void multimesh_set_mesh(RID p_multimesh, RID p_mesh) = 0;

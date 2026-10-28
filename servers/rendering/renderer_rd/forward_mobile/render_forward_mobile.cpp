@@ -3178,6 +3178,7 @@ void RenderForwardMobile::_geometry_instance_update(RenderGeometryInstance *p_ge
 		if (mesh_storage->multimesh_uses_custom_data(ginstance->data->base)) {
 			ginstance->base_flags |= INSTANCE_DATA_FLAG_MULTIMESH_HAS_CUSTOM_DATA;
 		}
+		ERR_FAIL_COND_MSG(mesh_storage->multimesh_custom_wide(ginstance->data->base) != 0, "LONGSHOT patch #85: the wide custom data is the clustered renderer's; the mobile renderer draws no such multimesh.");
 		if (mesh_storage->multimesh_uses_indirect(ginstance->data->base)) {
 			ginstance->base_flags |= INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT;
 		}

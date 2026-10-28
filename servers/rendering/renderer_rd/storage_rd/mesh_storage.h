@@ -238,6 +238,7 @@ private:
 		RSE::MultimeshTransformFormat xform_format = RSE::MULTIMESH_TRANSFORM_3D;
 		bool uses_colors = false;
 		bool uses_custom_data = false;
+		uint32_t custom_wide = 0; // LONGSHOT patch #85: the vec4 an instance after the custom data (0-7)
 		int visible_instances = -1;
 		AABB aabb;
 		AABB custom_aabb;
@@ -703,7 +704,7 @@ public:
 	virtual void _multimesh_initialize(RID p_multimesh) override;
 	virtual void _multimesh_free(RID p_rid) override;
 
-	virtual void _multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false) override;
+	virtual void _multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false, int p_custom_wide = 0) override;
 	virtual int _multimesh_get_instance_count(RID p_multimesh) const override;
 
 	virtual void _multimesh_set_mesh(RID p_multimesh, RID p_mesh) override;
@@ -764,6 +765,13 @@ public:
 		MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 		ERR_FAIL_NULL_V(multimesh, false);
 		return multimesh->uses_custom_data;
+	}
+
+	// LONGSHOT patch #85: the wide custom data's count (vec4 an instance after the custom data)
+	_FORCE_INLINE_ uint32_t multimesh_custom_wide(RID p_multimesh) const {
+		MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+		ERR_FAIL_NULL_V(multimesh, 0);
+		return multimesh->custom_wide;
 	}
 
 	_FORCE_INLINE_ uint32_t multimesh_get_instances_to_draw(RID p_multimesh) const {

@@ -1589,11 +1589,15 @@ void MeshStorage::_multimesh_free(RID p_rid) {
 	multimesh_owner.free(p_rid);
 }
 
-void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect) {
+void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors, bool p_use_custom_data, bool p_use_indirect, int p_custom_wide) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
+	// LONGSHOT patch #85 (THE INSTANCE'S WIDE CUSTOM DATA): up to seven vec4 after the custom data, 3D with custom data on (the prologue
+	// reads them after the custom's slot; the canvas has no such read)
+	ERR_FAIL_COND_MSG(p_custom_wide < 0 || p_custom_wide > 7, "LONGSHOT patch #85: the wide custom data takes 0 to 7 vec4 an instance.");
+	ERR_FAIL_COND_MSG(p_custom_wide > 0 && (!p_use_custom_data || p_transform_format == RSE::MULTIMESH_TRANSFORM_2D), "LONGSHOT patch #85: the wide custom data extends a 3D multimesh's custom data; it needs the custom data on and the 3D format.");
 
-	if (multimesh->instances == p_instances && multimesh->xform_format == p_transform_format && multimesh->uses_colors == p_use_colors && multimesh->uses_custom_data == p_use_custom_data) {
+	if (multimesh->instances == p_instances && multimesh->xform_format == p_transform_format && multimesh->uses_colors == p_use_colors && multimesh->uses_custom_data == p_use_custom_data && multimesh->custom_wide == uint32_t(p_custom_wide)) {
 		return;
 	}
 
@@ -1636,7 +1640,8 @@ void MeshStorage::_multimesh_allocate_data(RID p_multimesh, int p_instances, RSE
 	multimesh->color_offset_cache = p_transform_format == RSE::MULTIMESH_TRANSFORM_2D ? 8 : 12;
 	multimesh->uses_custom_data = p_use_custom_data;
 	multimesh->custom_data_offset_cache = multimesh->color_offset_cache + (p_use_colors ? 4 : 0);
-	multimesh->stride_cache = multimesh->custom_data_offset_cache + (p_use_custom_data ? 4 : 0);
+	multimesh->custom_wide = uint32_t(p_custom_wide);
+	multimesh->stride_cache = multimesh->custom_data_offset_cache + (p_use_custom_data ? 4 : 0) + 4 * uint32_t(p_custom_wide); // LONGSHOT patch #85
 	multimesh->buffer_set = false;
 
 	multimesh->indirect = p_use_indirect;

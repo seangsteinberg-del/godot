@@ -151,6 +151,11 @@ bool sc_use_lod_fade() {
 	return ((sc_packed_1() >> 6) & 1U) != 0;
 }
 
+// LONGSHOT patch #85: the multimesh's wide custom data count (vec4 an instance after the custom data)
+uint sc_multimesh_custom_wide() {
+	return (sc_packed_1() >> 7) & 7U;
+}
+
 float sc_luminance_multiplier() {
 	// Not used in clustered renderer but we share some code with the mobile renderer that requires this.
 	return 1.0;

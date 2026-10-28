@@ -2726,8 +2726,9 @@
 			<param index="3" name="color_format" type="bool" default="false" />
 			<param index="4" name="custom_data_format" type="bool" default="false" />
 			<param index="5" name="use_indirect" type="bool" default="false" />
+			<param index="6" name="custom_wide" type="int" default="0" />
 			<description>
-				Sets up the multimesh using the specified data. The number of instances is set by [param instances]. The format of the instance transforms is set by [param transform_format], which should be set according to whether the multimesh is meant to be rendered in 2D or 3D. If [param color_format] is [code]true[/code], each instance will have a color associated with it. If [param custom_data_format] is [code]true[/code], each instance will have a custom data vector associated with it. If [param use_indirect] is [code]true[/code], an indirect command buffer will be created for this multimesh, allowing the instance count to be modified directly on the GPU. See also [method multimesh_get_command_buffer_rd_rid].
+				Sets up the multimesh using the specified data. LONGSHOT patch #85: [param custom_wide] (0 to 7) adds that many more vec4 per instance after the custom data, read in the vertex function as [code]INSTANCE_CUSTOM1[/code] to [code]INSTANCE_CUSTOM7[/code] (the Forward+ renderer only; it needs [param custom_data_format] on and the 3D format). The number of instances is set by [param instances]. The format of the instance transforms is set by [param transform_format], which should be set according to whether the multimesh is meant to be rendered in 2D or 3D. If [param color_format] is [code]true[/code], each instance will have a color associated with it. If [param custom_data_format] is [code]true[/code], each instance will have a custom data vector associated with it. If [param use_indirect] is [code]true[/code], an indirect command buffer will be created for this multimesh, allowing the instance count to be modified directly on the GPU. See also [method multimesh_get_command_buffer_rd_rid].
 			</description>
 		</method>
 		<method name="multimesh_create">

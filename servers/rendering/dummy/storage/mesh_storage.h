@@ -184,7 +184,7 @@ public:
 	virtual void _multimesh_initialize(RID p_rid) override;
 	virtual void _multimesh_free(RID p_rid) override;
 
-	virtual void _multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false) override {}
+	virtual void _multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false, int p_custom_wide = 0) override {}
 	virtual int _multimesh_get_instance_count(RID p_multimesh) const override { return 0; }
 
 	virtual void _multimesh_set_mesh(RID p_multimesh, RID p_mesh) override {}

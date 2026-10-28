@@ -590,6 +590,7 @@ private:
 		RID transforms_uniform_set;
 		uint32_t instance_count = 0;
 		uint32_t trail_steps = 1;
+		uint32_t multimesh_custom_wide = 0; // LONGSHOT patch #85: the multimesh's wide custom data count, into the pipeline specialization
 		bool can_sdfgi = false;
 		bool using_projectors = false;
 		bool using_softshadows = false;

@@ -784,6 +784,9 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		actions.renames["EMISSION"] = "emission";
 		actions.renames["POINT_COORD"] = "point_coord";
 		actions.renames["INSTANCE_CUSTOM"] = "instance_custom";
+		for (int k = 1; k <= 7; k++) { // LONGSHOT patch #85: the wide custom data's built-ins
+			actions.renames["INSTANCE_CUSTOM" + itos(k)] = "instance_custom_wide[" + itos(k - 1) + "]";
+		}
 		actions.renames["SCREEN_UV"] = "screen_uv";
 		actions.renames["DEPTH"] = "gl_FragDepth";
 		actions.renames["FOG"] = "fog";

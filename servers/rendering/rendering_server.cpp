@@ -2500,7 +2500,7 @@ void RenderingServer::_bind_methods() {
 	/* MULTIMESH API */
 
 	ClassDB::bind_method(D_METHOD("multimesh_create"), &RenderingServer::multimesh_create);
-	ClassDB::bind_method(D_METHOD("multimesh_allocate_data", "multimesh", "instances", "transform_format", "color_format", "custom_data_format", "use_indirect"), &RenderingServer::multimesh_allocate_data, DEFVAL(false), DEFVAL(false), DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("multimesh_allocate_data", "multimesh", "instances", "transform_format", "color_format", "custom_data_format", "use_indirect", "custom_wide"), &RenderingServer::multimesh_allocate_data, DEFVAL(false), DEFVAL(false), DEFVAL(false), DEFVAL(0)); // LONGSHOT patch #85
 	ClassDB::bind_method(D_METHOD("multimesh_get_instance_count", "multimesh"), &RenderingServer::multimesh_get_instance_count);
 	ClassDB::bind_method(D_METHOD("multimesh_set_mesh", "multimesh", "mesh"), &RenderingServer::multimesh_set_mesh);
 	ClassDB::bind_method(D_METHOD("multimesh_instance_set_transform", "multimesh", "index", "transform"), &RenderingServer::multimesh_instance_set_transform);

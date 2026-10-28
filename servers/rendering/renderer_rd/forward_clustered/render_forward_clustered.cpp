@@ -423,6 +423,7 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 		pipeline_specialization.multimesh_format_2d = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_FORMAT_2D);
 		pipeline_specialization.multimesh_has_color = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_COLOR);
 		pipeline_specialization.multimesh_has_custom_data = bool(surf->owner->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_HAS_CUSTOM_DATA);
+		pipeline_specialization.multimesh_custom_wide = surf->owner->multimesh_custom_wide; // LONGSHOT patch #85
 		pipeline_specialization.use_lod_fade = element_info.lod_fade != 0; // LONGSHOT patch #8
 
 		if constexpr (p_pass_mode == PASS_MODE_COLOR) {
@@ -4635,6 +4636,7 @@ void RenderForwardClustered::_geometry_instance_update(RenderGeometryInstance *p
 	//Fill push constant
 
 	ginstance->base_flags = 0;
+	ginstance->multimesh_custom_wide = 0; // LONGSHOT patch #85
 
 	bool store_transform = true;
 	if (ginstance->data->base_type == RSE::INSTANCE_MULTIMESH) {
@@ -4649,6 +4651,7 @@ void RenderForwardClustered::_geometry_instance_update(RenderGeometryInstance *p
 		if (mesh_storage->multimesh_uses_custom_data(ginstance->data->base)) {
 			ginstance->base_flags |= INSTANCE_DATA_FLAG_MULTIMESH_HAS_CUSTOM_DATA;
 		}
+		ginstance->multimesh_custom_wide = mesh_storage->multimesh_custom_wide(ginstance->data->base); // LONGSHOT patch #85
 		if (mesh_storage->multimesh_uses_indirect(ginstance->data->base)) {
 			ginstance->base_flags |= INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT;
 		}

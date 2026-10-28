@@ -127,7 +127,7 @@ public:
 	virtual void multimesh_initialize(RID p_rid);
 	virtual void multimesh_free(RID p_rid);
 
-	virtual void multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false);
+	virtual void multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false, int p_custom_wide = 0);
 
 	virtual int multimesh_get_instance_count(RID p_multimesh) const;
 
@@ -170,7 +170,7 @@ public:
 	virtual void _multimesh_initialize(RID p_rid) = 0;
 	virtual void _multimesh_free(RID p_rid) = 0;
 
-	virtual void _multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false) = 0;
+	virtual void _multimesh_allocate_data(RID p_multimesh, int p_instances, RSE::MultimeshTransformFormat p_transform_format, bool p_use_colors = false, bool p_use_custom_data = false, bool p_use_indirect = false, int p_custom_wide = 0) = 0;
 
 	virtual int _multimesh_get_instance_count(RID p_multimesh) const = 0;
 

@@ -100,6 +100,10 @@ ShaderTypes::ShaderTypes() {
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["Z_CLIP_SCALE"] = ShaderLanguage::TYPE_FLOAT;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["INSTANCE_ID"] = constt(ShaderLanguage::TYPE_INT);
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["INSTANCE_CUSTOM"] = constt(ShaderLanguage::TYPE_VEC4);
+	// LONGSHOT patch #85 (THE INSTANCE'S WIDE CUSTOM DATA): the multimesh's vec4 after the custom data, as many as it was allocated with
+	for (int k = 1; k <= 7; k++) {
+		shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["INSTANCE_CUSTOM" + itos(k)] = constt(ShaderLanguage::TYPE_VEC4);
+	}
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["VERTEX_ID"] = constt(ShaderLanguage::TYPE_INT);
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["ROUGHNESS"] = ShaderLanguage::TYPE_FLOAT;
 	shader_modes[RSE::SHADER_SPATIAL].functions["vertex"].built_ins["BONE_INDICES"] = constt(ShaderLanguage::TYPE_UVEC4);

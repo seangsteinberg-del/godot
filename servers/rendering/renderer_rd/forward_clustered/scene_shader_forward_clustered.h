@@ -129,6 +129,7 @@ public:
 				uint32_t fog_use_legacy_blending : 1;
 				uint32_t cluster_has_area_light : 1;
 				uint32_t use_lod_fade : 1; // LONGSHOT patch #8: this draw is one side of a dithered level fade
+				uint32_t multimesh_custom_wide : 3; // LONGSHOT patch #85: the wide custom data's count (bits 7-9; sc_multimesh_custom_wide)
 			};
 		};
 
