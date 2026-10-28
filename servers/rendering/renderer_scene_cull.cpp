@@ -1743,7 +1743,6 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 
 		RSG::light_storage->light_instance_set_transform(light->instance, *instance_xform);
 		RSG::light_storage->light_instance_set_aabb(light->instance, instance_xform->xform(p_instance->aabb));
-		light->static_version++; // LONGSHOT patch #86: the kept maps are of the light's old place
 		light->make_shadow_dirty();
 
 		RSE::LightBakeMode bake_mode = RSG::light_storage->light_get_bake_mode(p_instance->base);
@@ -2630,12 +2629,38 @@ void RendererSceneCull::_positional_caster_sort(Scenario *p_scenario, Instance *
 	}
 }
 
-// the pass's word (the static set's, the light's own version, the count) settled against the light's slot: the kept map stands - blitted
-// into the slot, the movers over it - or the static casters are drawn and captured, the movers over them
-void RendererSceneCull::_positional_cache_word(InstanceLightData *p_light, RID p_shadow_atlas, int p_pass, RendererSceneRender::RenderShadowData &r_shadow_data) {
-	const uint64_t word = r_shadow_data.keeper_word ^ (p_light->static_version * 0x9E3779B97F4A7C15ULL) ^ (uint64_t(r_shadow_data.keeper_static) * 0xC2B2AE3D27D4EB4FULL);
-	const bool stand = RSG::light_storage->light_instance_positional_cache_keys(p_light->instance, p_shadow_atlas, p_pass, word);
-	if (stand) {
+// the pass's word - the static set's, the light's SHAPE (its base transform, its range, its spot angle, its area size: what shapes its map;
+// never a version moved by every update of its instance - a parameter written each frame moved it every frame and no map stood), the
+// count - settled against the light's slot: the kept map stands - blitted into the slot, the movers over it - or the static casters are
+// drawn and captured, the movers over them. A recapture is said aloud, two dozen lines at most: the keeper's own voice
+void RendererSceneCull::_positional_cache_word(Instance *p_instance, InstanceLightData *p_light, RID p_shadow_atlas, int p_pass, RendererSceneRender::RenderShadowData &r_shadow_data) {
+	uint64_t shape = 0x9E3779B97F4A7C15ULL;
+	{
+		const Transform3D &xf = p_instance->transform;
+		float f[16] = { float(xf.basis.rows[0].x), float(xf.basis.rows[0].y), float(xf.basis.rows[0].z), float(xf.basis.rows[1].x), float(xf.basis.rows[1].y), float(xf.basis.rows[1].z),
+			float(xf.basis.rows[2].x), float(xf.basis.rows[2].y), float(xf.basis.rows[2].z), float(xf.origin.x), float(xf.origin.y), float(xf.origin.z),
+			RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_RANGE), RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SPOT_ANGLE), 0.0f, 0.0f };
+		if (RSG::light_storage->light_get_type(p_instance->base) == RSE::LIGHT_AREA) {
+			const Vector2 sz = RSG::light_storage->light_area_get_size(p_instance->base);
+			f[14] = float(sz.x);
+			f[15] = float(sz.y);
+		}
+		for (int i = 0; i < 16; i++) {
+			uint32_t bits;
+			memcpy(&bits, &f[i], 4);
+			shape = (shape ^ uint64_t(bits)) * 0x100000001B3ULL;
+		}
+	}
+	const uint64_t word = r_shadow_data.keeper_word ^ shape ^ (uint64_t(r_shadow_data.keeper_static) * 0xC2B2AE3D27D4EB4FULL);
+	const int keep = RSG::light_storage->light_instance_positional_cache_keys(p_light->instance, p_shadow_atlas, p_pass, word);
+	if (keep == RendererLightStorage::KEEP_MOVED) {
+		static int said = 0;
+		if (said < 24) {
+			said++;
+			print_line(vformat("[keeper] the light %d (pass %d) recaptures its map: the static set %d casters, the set's word %016llx, the light's shape %016llx (THE KEEPER FOR THE LAMPS, fork #86)", int64_t(p_light->instance.get_id()), p_pass, int(r_shadow_data.keeper_static), uint64_t(r_shadow_data.keeper_word), shape));
+		}
+	}
+	if (keep == RendererLightStorage::KEEP_STANDS) {
 		r_shadow_data.instances.clear();
 		r_shadow_data.static_cache = RendererLightStorage::SHADOW_CACHE_STANDS;
 	} else {
@@ -2719,7 +2744,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 					}
 
 					RSG::mesh_storage->update_mesh_instances();
-					_positional_cache_word(light, p_shadow_atlas, i, shadow_data); // LONGSHOT patch #86
+					_positional_cache_word(p_instance, light, p_shadow_atlas, i, shadow_data); // LONGSHOT patch #86
 
 					RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, i, 0);
 					shadow_data.light = light->instance;
@@ -2870,7 +2895,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			}
 
 			RSG::mesh_storage->update_mesh_instances();
-			_positional_cache_word(light, p_shadow_atlas, 0, shadow_data); // LONGSHOT patch #86
+			_positional_cache_word(p_instance, light, p_shadow_atlas, 0, shadow_data); // LONGSHOT patch #86
 
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, cm, light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;
@@ -2938,7 +2963,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 			}
 
 			RSG::mesh_storage->update_mesh_instances();
-			_positional_cache_word(light, p_shadow_atlas, 0, shadow_data); // LONGSHOT patch #86
+			_positional_cache_word(p_instance, light, p_shadow_atlas, 0, shadow_data); // LONGSHOT patch #86
 
 			RSG::light_storage->light_instance_set_shadow_transform(light->instance, Projection(), light_transform, radius, 0, 0, 0);
 			shadow_data.light = light->instance;

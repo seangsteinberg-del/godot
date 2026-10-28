@@ -666,7 +666,7 @@ public:
 	virtual int light_instance_directional_cache_settle(RID p_light_instance, int p_cascade, uint64_t p_owner, uint64_t p_casters_version, real_t p_casters_reach) override;
 	virtual bool light_instance_directional_cache_keeper(RID p_light_instance, uint64_t p_owner) override; // LONGSHOT patch #75
 	bool light_instance_directional_cache_keys(RID p_light_instance, int p_cascade, const Rect2i &p_rect, int p_viewport_width); // the kept map's render-side keys (its rect, the atlas, the viewport's width): true when they stand; set to this frame's either way
-	virtual bool light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) override; // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS)
+	virtual int light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) override; // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS)
 	void shadow_atlas_static_copy(RID p_atlas, const Rect2i &p_rect, bool p_to_atlas); // LONGSHOT patch #86: p_rect copied from the atlas's twin into the atlas (p_to_atlas) or captured out of it
 	void directional_shadow_static_copy(const Rect2i &p_dst, const Vector2i &p_src_offset, bool p_to_atlas); // p_dst copied from the static twin (read at p_dst moved by p_src_offset) into the atlas, or out of the atlas into the twin at the same place
 	virtual void light_instance_mark_visible(RID p_light_instance) override;

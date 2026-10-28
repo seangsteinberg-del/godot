@@ -795,19 +795,20 @@ void LightStorage::directional_shadow_static_copy(const Rect2i &p_dst, const Vec
 
 // LONGSHOT patch #86 (THE KEEPER FOR THE LAMPS): the slot's twin against the pass's word - the same light, the same word, captured - and the
 // word recorded for the capture this frame makes (the pass that follows captures when the answer is no)
-bool LightStorage::light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) {
+int LightStorage::light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) {
 	ShadowAtlas *atlas = shadow_atlas_owner.get_or_null(p_atlas);
-	ERR_FAIL_NULL_V(atlas, false);
-	ERR_FAIL_INDEX_V(p_pass, 2, false);
+	ERR_FAIL_NULL_V(atlas, KEEP_NONE);
+	ERR_FAIL_INDEX_V(p_pass, 2, KEEP_NONE);
 	if (!atlas->shadow_owners.has(p_light_instance) || atlas->static_depth.is_null()) {
-		return false;
+		return KEEP_NONE;
 	}
 	const uint32_t key = atlas->shadow_owners[p_light_instance];
 	const uint32_t quadrant = (key >> QUADRANT_SHIFT) & 0x3;
 	const uint32_t shadow = key & SHADOW_INDEX_MASK;
-	ERR_FAIL_INDEX_V((int)shadow, atlas->quadrants[quadrant].shadows.size(), false);
+	ERR_FAIL_INDEX_V((int)shadow, atlas->quadrants[quadrant].shadows.size(), KEEP_NONE);
 	ShadowAtlas::Quadrant::Shadow &s = atlas->quadrants[quadrant].shadows.write[shadow];
-	const bool stand = s.kept_light == p_light_instance && s.kept_valid[p_pass] && s.kept_word[p_pass] == p_word;
+	const bool held = s.kept_light == p_light_instance && s.kept_valid[p_pass];
+	const int answer = held ? (s.kept_word[p_pass] == p_word ? KEEP_STANDS : KEEP_MOVED) : KEEP_NONE;
 	if (s.kept_light != p_light_instance) {
 		s.kept_valid[0] = false;
 		s.kept_valid[1] = false;
@@ -815,7 +816,7 @@ bool LightStorage::light_instance_positional_cache_keys(RID p_light_instance, RI
 	}
 	s.kept_word[p_pass] = p_word;
 	s.kept_valid[p_pass] = true;
-	return stand;
+	return answer;
 }
 
 void LightStorage::shadow_atlas_static_copy(RID p_atlas, const Rect2i &p_rect, bool p_to_atlas) {

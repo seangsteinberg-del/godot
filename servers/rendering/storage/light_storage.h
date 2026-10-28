@@ -139,7 +139,14 @@ public:
 	// pass (an omni's two halves) and the static set's word - a hash of the light's own version and the static casters the pass lists;
 	// the storage answers whether the slot's twin holds that word for this light (the same light, the same word, captured) and records
 	// the word for the capture this frame makes. A storage keeping no maps answers false.
-	virtual bool light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) { return false; }
+	// The answer: KEEP_NONE (no map kept: a storage keeping none, the light without a slot, a slot never captured for it), KEEP_STANDS (the
+	// slot's twin holds this word for this light), KEEP_MOVED (it held another word: captured afresh)
+	enum PositionalKeep {
+		KEEP_NONE,
+		KEEP_STANDS,
+		KEEP_MOVED,
+	};
+	virtual int light_instance_positional_cache_keys(RID p_light_instance, RID p_atlas, int p_pass, uint64_t p_word) { return KEEP_NONE; }
 	virtual void light_instance_mark_visible(RID p_light_instance) = 0;
 	virtual bool light_instances_can_render_shadow_cube() const {
 		return true;
