@@ -2653,11 +2653,22 @@ void RendererSceneCull::_positional_cache_word(Instance *p_instance, InstanceLig
 	}
 	const uint64_t word = r_shadow_data.keeper_word ^ shape ^ (uint64_t(r_shadow_data.keeper_static) * 0xC2B2AE3D27D4EB4FULL);
 	const int keep = RSG::light_storage->light_instance_positional_cache_keys(p_light->instance, p_shadow_atlas, p_pass, word);
-	if (keep == RendererLightStorage::KEEP_MOVED) {
-		static int said = 0;
-		if (said < 24) {
-			said++;
-			print_line(vformat("[keeper] the light %d (pass %d) recaptures its map: the static set %d casters, the set's word %016llx, the light's shape %016llx (THE KEEPER FOR THE LAMPS, fork #86)", int64_t(p_light->instance.get_id()), p_pass, int(r_shadow_data.keeper_static), uint64_t(r_shadow_data.keeper_word), shape));
+	{
+		// THE KEEPER'S VOICE: its first two dozen culls of any positional light - the answer, the static set's count and the movers' - and
+		// every recapture after (two dozen of those too): terrain100's stand drew every caster with no recapture said - the kept maps stood empty
+		static int said_first = 0;
+		static int said_moved = 0;
+		const bool first = said_first < 24;
+		const bool moved = keep == RendererLightStorage::KEEP_MOVED && said_moved < 24;
+		if (first || moved) {
+			if (first) {
+				said_first++;
+			} else {
+				said_moved++;
+			}
+			print_line(vformat("[keeper] the light %d (pass %d): %s - the static set %d casters, the movers %d, the set's word %016llx, the light's shape %016llx (THE KEEPER FOR THE LAMPS, fork #86)",
+					int64_t(p_light->instance.get_id()), p_pass, keep == RendererLightStorage::KEEP_STANDS ? "the kept map stands" : (keep == RendererLightStorage::KEEP_MOVED ? "RECAPTURED (the word moved)" : "captured (no map kept)"),
+					int(r_shadow_data.keeper_static), int(r_shadow_data.dynamic_instances.size()), uint64_t(r_shadow_data.keeper_word), shape));
 		}
 	}
 	if (keep == RendererLightStorage::KEEP_STANDS) {
