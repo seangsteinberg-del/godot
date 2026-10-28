@@ -880,6 +880,15 @@ void main() {
 #define SHADER_IS_SRGB false
 #define SHADER_SPACE_FAR 0.0
 
+// LONGSHOT (patch #82, 10-28): THE PRE-PASS IS NAMED TO THE SHADER - a material's fragment can answer the depth pre-pass (the depth, and
+// the normal-roughness buffer the screen-space effects read) with a cheaper surface than the one it shades: PREPASS in the shader
+// language is true in every depth pass (the pre-pass, the shadow maps) and false in the shaded pass
+#ifdef MODE_RENDER_DEPTH
+const bool ls_prepass = true;
+#else
+const bool ls_prepass = false;
+#endif
+
 #ifdef USE_MULTIVIEW
 #define OUTPUT_IS_MULTIVIEW true
 #else

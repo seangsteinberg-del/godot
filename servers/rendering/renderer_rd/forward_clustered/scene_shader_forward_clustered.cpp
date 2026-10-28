@@ -756,6 +756,7 @@ void SceneShaderForwardClustered::init(const String p_defines) {
 		actions.renames["VIEWPORT_SIZE"] = "read_viewport_size";
 
 		actions.renames["FRAGCOORD"] = "gl_FragCoord";
+		actions.renames["PREPASS"] = "ls_prepass";   // LONGSHOT patch #82: the depth pre-pass named to the fragment
 		actions.renames["FRONT_FACING"] = "gl_FrontFacing";
 		actions.renames["NORMAL_MAP"] = "normal_map";
 		actions.renames["NORMAL_MAP_DEPTH"] = "normal_map_depth";
