@@ -2656,10 +2656,14 @@ void RendererSceneCull::_positional_cache_word(Instance *p_instance, InstanceLig
 	{
 		// THE KEEPER'S VOICE: its first two dozen culls of any positional light - the answer, the static set's count and the movers' - and
 		// every recapture after (two dozen of those too): terrain100's stand drew every caster with no recapture said - the kept maps stood empty
+		// #86e: the recaptures are said from the fourth frame's culls on (every lamp's first recapture fills an empty map: expected) -
+		// four dozen of them; silence after the first two dozen culls means the kept maps stand, a flood that the word moves every frame
 		static int said_first = 0;
 		static int said_moved = 0;
+		static int culls = 0;
+		culls++;
 		const bool first = said_first < 24;
-		const bool moved = keep == RendererLightStorage::KEEP_MOVED && said_moved < 24;
+		const bool moved = keep == RendererLightStorage::KEEP_MOVED && said_moved < 48 && culls > 72;
 		if (first || moved) {
 			if (first) {
 				said_first++;
