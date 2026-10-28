@@ -51,6 +51,7 @@ LightStorage::LightStorage() {
 	TextureStorage *texture_storage = TextureStorage::get_singleton();
 
 	directional_shadow.size = GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/size");
+	GLOBAL_DEF("longshot/shadows/lamps_keeper", true); // LONGSHOT patch #86f: the lamps' keeper (patch #86) held on or off for a run, read live
 	directional_shadow.use_16_bits = GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/16_bits");
 
 	using_lightmap_array = true; // high end
@@ -801,6 +802,9 @@ int LightStorage::light_instance_positional_cache_keys(RID p_light_instance, RID
 	ERR_FAIL_INDEX_V(p_pass, 2, KEEP_NONE);
 	if (!atlas->shadow_owners.has(p_light_instance) || atlas->static_depth.is_null()) {
 		return KEEP_NONE;
+	}
+	if (!GLOBAL_GET_CACHED(bool, "longshot/shadows/lamps_keeper")) {
+		return KEEP_NONE; // LONGSHOT patch #86f: the keeper held off for the run - every cull captures, nothing is kept
 	}
 	const uint32_t key = atlas->shadow_owners[p_light_instance];
 	const uint32_t quadrant = (key >> QUADRANT_SHIFT) & 0x3;
