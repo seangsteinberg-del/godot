@@ -2666,9 +2666,9 @@ void RendererSceneCull::_positional_cache_word(Instance *p_instance, InstanceLig
 			} else {
 				said_moved++;
 			}
-			print_line(vformat("[keeper] the light %d (pass %d): %s - the static set %d casters, the movers %d, the set's word %016llx, the light's shape %016llx (THE KEEPER FOR THE LAMPS, fork #86)",
+			print_line(vformat("[keeper] the light %d (pass %d): %s - the static set %d casters, the movers %d, the set's word %s, the light's shape %s (THE KEEPER FOR THE LAMPS, fork #86)",
 					int64_t(p_light->instance.get_id()), p_pass, keep == RendererLightStorage::KEEP_STANDS ? "the kept map stands" : (keep == RendererLightStorage::KEEP_MOVED ? "RECAPTURED (the word moved)" : "captured (no map kept)"),
-					int(r_shadow_data.keeper_static), int(r_shadow_data.dynamic_instances.size()), uint64_t(r_shadow_data.keeper_word), shape));
+					int(r_shadow_data.keeper_static), int(r_shadow_data.dynamic_instances.size()), String::num_uint64(r_shadow_data.keeper_word, 16), String::num_uint64(shape, 16)));
 		}
 	}
 	if (keep == RendererLightStorage::KEEP_STANDS) {
