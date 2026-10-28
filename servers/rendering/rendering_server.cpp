@@ -97,6 +97,16 @@ Dictionary RenderingServer::_get_frame_profile_bind() {
 	return d;
 }
 
+// LONGSHOT patch #84 THE WHOLE EVERY FRAME (10-28, the codebase correction lane): the frame's whole device time alone (the last
+// timestamp's gpu milliseconds from the frame's first - what the ledger read as the last entry of gpu_msec); nought with no profile
+double RenderingServer::_get_frame_profile_total_bind() {
+	Vector<RenderingServerTypes::FrameProfileArea> profile = get_frame_profile();
+	if (profile.size() < 2) {
+		return 0.0;
+	}
+	return profile[profile.size() - 1].gpu_msec;
+}
+
 static PackedInt64Array to_int_array(const Vector<ObjectID> &ids) {
 	PackedInt64Array a;
 	a.resize(ids.size());
@@ -3553,6 +3563,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_frame_profiling_enabled", "enable"), &RenderingServer::set_frame_profiling_enabled);
 	ClassDB::bind_method(D_METHOD("get_frame_profile"), &RenderingServer::_get_frame_profile_bind);
 	ClassDB::bind_method(D_METHOD("get_frame_profile_frame"), &RenderingServer::get_frame_profile_frame);
+	ClassDB::bind_method(D_METHOD("get_frame_profile_total_msec"), &RenderingServer::_get_frame_profile_total_bind);   // LONGSHOT patch #84
 	ClassDB::bind_method(D_METHOD("texture_debug_usage"), &RenderingServer::_texture_debug_usage_bind);
 	ClassDB::bind_method(D_METHOD("get_video_adapter_name"), &RenderingServer::get_video_adapter_name);
 	ClassDB::bind_method(D_METHOD("get_video_adapter_vendor"), &RenderingServer::get_video_adapter_vendor);

@@ -154,6 +154,10 @@ public:
 	// frame's start) as scripts read it - three packed arrays, never a dictionary a pass (three hundred passes a frame) - the game's own
 	// play log names the frame's costs by pass
 	Dictionary _get_frame_profile_bind();
+	// LONGSHOT patch #84 THE WHOLE EVERY FRAME (10-28, the codebase correction lane): the frame's whole device time alone - the last
+	// captured timestamp's milliseconds from the frame's first - for a ledger that reads the passes every fifth frame and the whole
+	// every frame (the three arrays cost forty String copies a frame); nought before the first profiled frame
+	double _get_frame_profile_total_bind();
 
 	virtual void texture_set_force_redraw_if_visible(RID p_texture, bool p_enable) = 0;
 
