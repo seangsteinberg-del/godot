@@ -825,35 +825,36 @@ vec3 toned_at(vec2 uv, float exposure) {
 	return apply_tonemapping(c);
 }
 
+// THE SHARPENING BY EACH CHANNEL (PROJECT LONGSHOT, the re-entry lane, 10-29): each channel's amount limited by its own neighbourhood
+// (AMD's full CAS: its minimum and maximum, its headroom to black and to white) - the limiter read from the green alone and laid on all
+// three let a channel with more contrast than green's pass below its own neighbours: at a bright magenta edge - a re-entry sheath's limb,
+// (255, 172, 255) beside a sky of (20, 52, 120) - the dark side's red undershot below black and clipped, a pixel's teal line outside every
+// sheath's limb (its red at exactly 0, green and blue unmoved: the re-entry lane's qa/r29a)
 vec3 sharpen_toned(vec3 col, vec2 uv, float exposure) {
 	vec2 px = params.pixel_size;
-	float max_g = col.y;
-	float min_g = col.y;
+	vec3 mx = col;
+	vec3 mn = col;
 	vec3 colw = vec3(0.0);
 	vec3 c1;
 	c1 = toned_at(uv + vec2(0.0, -px.y), exposure);
-	max_g = max(max_g, c1.y);
-	min_g = min(min_g, c1.y);
+	mx = max(mx, c1);
+	mn = min(mn, c1);
 	colw = c1;
 	c1 = toned_at(uv + vec2(px.x, 0.0), exposure);
-	max_g = max(max_g, c1.y);
-	min_g = min(min_g, c1.y);
+	mx = max(mx, c1);
+	mn = min(mn, c1);
 	colw += c1;
 	c1 = toned_at(uv + vec2(0.0, px.y), exposure);
-	max_g = max(max_g, c1.y);
-	min_g = min(min_g, c1.y);
+	mx = max(mx, c1);
+	mn = min(mn, c1);
 	colw += c1;
 	c1 = toned_at(uv + vec2(-px.x, 0.0), exposure);
-	max_g = max(max_g, c1.y);
-	min_g = min(min_g, c1.y);
+	mx = max(mx, c1);
+	mn = min(mn, c1);
 	colw += c1;
-	float d_min_g = min_g;
-	float d_max_g = params.output_max_value - max_g;
-	max_g = max(max_g, 1.0e-4);
-	float A = (d_max_g < d_min_g) ? d_max_g / max_g : d_min_g / max_g;
-	A = sqrt(max(0.0, A));
+	vec3 A = sqrt(max(vec3(0.0), min(mn, vec3(params.output_max_value) - mx) / max(mx, vec3(1.0e-4))));
 	A *= mix(-0.125, -0.2, params.sharpness);
-	return (col + colw * A) / (1.0 + 4.0 * A);
+	return (col + colw * A) / (vec3(1.0) + 4.0 * A);
 }
 
 void main() {
