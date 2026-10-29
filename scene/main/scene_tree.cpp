@@ -30,6 +30,8 @@
 
 #include "scene_tree.h"
 
+#include "core/string/print_string.h"
+
 STATIC_ASSERT_INCOMPLETE_TYPE(class, RenderingServer);
 
 #include "core/config/engine.h"
@@ -1240,7 +1242,19 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 			}
 		}
 		if (ledger) {
-			_process_ledger_add(ledger_key, p_physics ? 1 : 0, OS::get_singleton()->get_ticks_usec() - t_node);
+			const uint64_t span = OS::get_singleton()->get_ticks_usec() - t_node;
+			_process_ledger_add(ledger_key, p_physics ? 1 : 0, span);
+			// [patch 34 probe, 10-29, temporary] THE TERRAIN'S GAP: a PlanetTerrain's process span over 400 us said once a second with the
+			// node's kinds - the stand reads this key at 0.79 ms a frame against the handler's own clock of 0.14, and by reading nothing lies
+			// between; the probe places it. Taken out once read.
+			if (!p_physics && span > 400 && String(ledger_key).ends_with(":PlanetTerrain")) {
+				static uint64_t probe_said_ms = 0;
+				const uint64_t now_ms = OS::get_singleton()->get_ticks_msec();
+				if (now_ms - probe_said_ms > 1000) {
+					probe_said_ms = now_ms;
+					print_line(vformat("[ledger probe] %s (%s, %s): the span %d us; internal %s, processing %s, a script %s, children %d", n->get_name(), n->get_class(), String(ledger_key), int(span), n->is_processing_internal() ? "yes" : "no", n->is_processing() ? "yes" : "no", n->get_script_instance() ? "yes" : "no", n->get_child_count()));
+				}
+			}
 		}
 	}
 

@@ -2316,6 +2316,12 @@ bool EditorFileSystem::_should_reload_script(const String &p_path) {
 }
 
 void EditorFileSystem::_process_update_pending() {
+	// [patch 87 amended] THE REFUSED IMPORT FAILS (PROJECT LONGSHOT): a refused import is tried again by the next scan, and in the cmdline
+	// import the second attempt's pending update ran after the editor's teardown (is_cmdline_mode on no singleton, a crash at exit).
+	// No editor, nothing pending to process.
+	if (EditorNode::get_singleton() == nullptr) {
+		return;
+	}
 	_update_script_classes();
 	// Parse documentation second, as it requires the class names to be loaded
 	// because _update_script_documentation loads the scripts completely.
