@@ -2553,7 +2553,11 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 				params.color = rb->get_internal_texture(v);
 				params.depth = rb->get_depth_texture(v);
 				params.velocity = rb->get_velocity_buffer(false, v);
-				params.reactive = rb->get_internal_texture_reactive(v);
+				// LONGSHOT patch (THE SETTLED GAS STANDS FOR FSR 2): a layer settled this frame by its own history (patch #25's: the
+				// exhaust's gas, resolved on the pixels' centres by its own motion) is FSR 2's reactive mask - its opacity the share of the
+				// pixel taken as it stands, as the TAA keeps it - never accumulated a second time on the camera's motion, which smeared the
+				// gas into trails behind every moving plume and fire; none, the colour's alpha as before
+				params.reactive = rb->has_longshot_settled() ? rb->get_longshot_settled_alpha() : rb->get_internal_texture_reactive(v);
 				params.exposure = exposure;
 				params.output = rb->get_upscaled_texture(v);
 				params.z_near = p_render_data->scene_data->z_near;

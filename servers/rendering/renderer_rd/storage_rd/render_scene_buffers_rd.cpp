@@ -153,6 +153,27 @@ bool RenderSceneBuffersRD::has_longshot_settled() const {
 			RD::get_singleton()->texture_is_valid(longshot_settled);
 }
 
+// LONGSHOT patch (THE SETTLED GAS STANDS FOR FSR 2): the settled image's opacity in every channel - a view of it made once an image (a
+// resize hands a new image: a new view, the old one freed here, or already gone with its image - a shared view is its image's)
+RID RenderSceneBuffersRD::get_longshot_settled_alpha() {
+	RD *rd = RD::get_singleton();
+	const bool live = longshot_settled_alpha.is_valid() && rd->texture_is_valid(longshot_settled_alpha);
+	if (live && longshot_settled_alpha_of == longshot_settled) {
+		return longshot_settled_alpha;
+	}
+	if (live) {
+		rd->free_rid(longshot_settled_alpha);
+	}
+	RD::TextureView alpha_only;
+	alpha_only.swizzle_r = RD::TEXTURE_SWIZZLE_A;
+	alpha_only.swizzle_g = RD::TEXTURE_SWIZZLE_A;
+	alpha_only.swizzle_b = RD::TEXTURE_SWIZZLE_A;
+	alpha_only.swizzle_a = RD::TEXTURE_SWIZZLE_A;
+	longshot_settled_alpha = rd->texture_create_shared(alpha_only, longshot_settled);
+	longshot_settled_alpha_of = longshot_settled;
+	return longshot_settled_alpha;
+}
+
 void RenderSceneBuffersRD::update_sizes(NamedTexture &p_named_texture) {
 	ERR_FAIL_COND(p_named_texture.texture.is_null());
 
@@ -214,6 +235,13 @@ void RenderSceneBuffersRD::cleanup() {
 			weight_buffer.weight = RID();
 		}
 	}
+
+	// LONGSHOT patch (THE SETTLED GAS STANDS FOR FSR 2): the settled image's view (gone already if its image went first)
+	if (longshot_settled_alpha.is_valid() && RD::get_singleton()->texture_is_valid(longshot_settled_alpha)) {
+		RD::get_singleton()->free_rid(longshot_settled_alpha);
+	}
+	longshot_settled_alpha = RID();
+	longshot_settled_alpha_of = RID();
 
 #ifdef METAL_ENABLED
 	if (mfx_spatial_context) {
