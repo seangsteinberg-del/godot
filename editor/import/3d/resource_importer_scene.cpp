@@ -3439,7 +3439,11 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 			EditorNode::add_io_error(
 					TTR("Error running post-import script:") + " " + post_import_script_path + "\n" +
 					TTR("Did you return a Node-derived object in the `_post_import()` method?"));
-			return err;
+			// [patch 87] THE REFUSED IMPORT FAILS (PROJECT LONGSHOT): `err` is OK here, so a script that refused the scene stood as a
+			// successful import - its checksum written, the earlier import's scene kept at the recipe's path and loaded as if nothing
+			// had failed, and no later scan trying it again. Failing it (as the broken-script branch above does) writes the recipe
+			// `valid=false` with no path: the asset is missing until it is mended, and every scan imports it again.
+			return ERR_CANT_CREATE;
 		}
 	}
 
