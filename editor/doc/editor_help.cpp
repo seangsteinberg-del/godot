@@ -3098,7 +3098,10 @@ void EditorHelp::load_script_doc_cache() {
 		return;
 	}
 
-	if (EditorNode::is_cmdline_mode()) {
+	// [patch 87 amended] THE REFUSED IMPORT FAILS (PROJECT LONGSHOT): a refused import's second attempt updates the script classes, which
+	// queues this load as a deferred static call; in the cmdline import the editor quits first and the call fires during the teardown.
+	// No editor, no cache to load.
+	if (EditorNode::get_singleton() == nullptr || EditorNode::is_cmdline_mode()) {
 		return;
 	}
 
