@@ -469,14 +469,22 @@ void ResourceImporterTexture::_save_ctex(const Ref<Image> &p_image, const String
 	// are unchanged (the detection keeps a channel one byte uses; the loader brings the packed data back to this format, the file's
 	// header), and a sampler reads the same value in every channel it read before (the swizzles of the grey formats). Red-only and
 	// red-green forms are not taken: they have no sRGB view (detect_used_channels' own rule for an sRGB source).
-	if ((p_compress_mode == COMPRESS_LOSSLESS || p_compress_mode == COMPRESS_VRAM_UNCOMPRESSED) && (image->get_format() == Image::FORMAT_RGB8 || image->get_format() == Image::FORMAT_RGBA8)) {
+	// THE HALF PICTURE KEEPS ITS CHANNELS TOO (10-30, the codebase correction lane; patch #59 amended): a half or float source (an EXR)
+	// with one grey channel in use is kept as RH or RF - two or four bytes a texel where the file held eight or sixteen, the texels
+	// unchanged (seven interface decals shipped RGBAH with one grey channel); grey over alpha has no two-channel float form and stays whole
+	const bool squeezable_8 = image->get_format() == Image::FORMAT_RGB8 || image->get_format() == Image::FORMAT_RGBA8;
+	const bool squeezable_h = image->get_format() == Image::FORMAT_RGBH || image->get_format() == Image::FORMAT_RGBAH;
+	const bool squeezable_f = image->get_format() == Image::FORMAT_RGBF || image->get_format() == Image::FORMAT_RGBAF;
+	if ((p_compress_mode == COMPRESS_LOSSLESS || p_compress_mode == COMPRESS_VRAM_UNCOMPRESSED) && (squeezable_8 || squeezable_h || squeezable_f)) {
 		const Image::Format was = image->get_format();
 		switch (image->detect_used_channels(Image::COMPRESS_SOURCE_SRGB)) {
 			case Image::USED_CHANNELS_L:
-				image->convert(Image::FORMAT_L8);
+				image->convert(squeezable_8 ? Image::FORMAT_L8 : (squeezable_h ? Image::FORMAT_RH : Image::FORMAT_RF));
 				break;
 			case Image::USED_CHANNELS_LA:
-				image->convert(Image::FORMAT_LA8);
+				if (squeezable_8) {
+					image->convert(Image::FORMAT_LA8);
+				}
 				break;
 			default:
 				break;
