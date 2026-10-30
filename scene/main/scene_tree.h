@@ -132,6 +132,15 @@ private:
 	HashMap<StringName, uint64_t> process_ledger_frame[3];
 	void _process_ledger_frame_take();
 	StringName _process_ledger_key(Node *p_node) const;
+
+public:
+	// [patch 34 probe, third form, temporary] THE DISPATCH MEASURED: the span's start as the process group takes it, and what the node's
+	// own handler reports back - its time, and the time from the span's start to its entry (PlanetTerrain writes them)
+	static uint64_t probe_t_node;
+	static uint64_t probe_handler_us;
+	static uint64_t probe_before_us;
+
+private:
 	void _process_ledger_add(const StringName &p_key, int p_slot, uint64_t p_usec);
 	LocalVector<ProcessGroup *> local_process_group_cache; // Used when processing to group what needs to
 	uint64_t process_last_pass = 1;

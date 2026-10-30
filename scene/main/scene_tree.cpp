@@ -1226,6 +1226,7 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 		const bool ledger = process_ledger_on;
 		const StringName ledger_key = ledger ? _process_ledger_key(n) : StringName();
 		const uint64_t t_node = ledger ? OS::get_singleton()->get_ticks_usec() : 0;
+		probe_t_node = t_node; // [patch 34 probe, third form]
 		if (p_physics) {
 			if (n->is_physics_processing_internal()) {
 				n->notification(Node::NOTIFICATION_INTERNAL_PHYSICS_PROCESS);
@@ -1259,8 +1260,11 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 				}
 				const uint64_t now_ms = OS::get_singleton()->get_ticks_msec();
 				if (now_ms - probe_said_ms > 1000) {
-					print_line(vformat("[ledger probe] %s (%s): over %d ms %d calls (%d physics), the spans' sum %d us (%.3f ms a call), the longest %d us; internal %s, a script %s, children %d", n->get_name(), String(ledger_key), int(now_ms - probe_said_ms), int(probe_n), int(probe_phys), int(probe_sum), probe_n > 0 ? double(probe_sum) / double(probe_n) * 1e-3 : 0.0, int(probe_max), n->is_processing_internal() ? "yes" : "no", n->get_script_instance() ? "yes" : "no", n->get_child_count()));
+					const int64_t after_us = int64_t(probe_sum) - int64_t(probe_handler_us) - int64_t(probe_before_us);
+					print_line(vformat("[ledger probe] %s (%s): over %d ms %d calls (%d physics), the spans' sum %d us (%.3f ms a call), the longest %d us; the handlers' own %d us, before the handler %d us, after it %d us; internal %s, a script %s, children %d", n->get_name(), String(ledger_key), int(now_ms - probe_said_ms), int(probe_n), int(probe_phys), int(probe_sum), probe_n > 0 ? double(probe_sum) / double(probe_n) * 1e-3 : 0.0, int(probe_max), int(probe_handler_us), int(probe_before_us), int(after_us), n->is_processing_internal() ? "yes" : "no", n->get_script_instance() ? "yes" : "no", n->get_child_count()));
 					probe_said_ms = now_ms;
+					probe_handler_us = 0;
+					probe_before_us = 0;
 					probe_sum = 0;
 					probe_max = 0;
 					probe_n = 0;
@@ -1292,6 +1296,10 @@ static bool _ledger_script_path(Node *p_node, String &r_path) {
 // THE DRAW UNDER ITS PANEL (longshot patch #39, 10-19): a node without a script is keyed under its nearest scripted ancestor -
 // "<that script's path>:<class>" - so a console's script-less children (its TextureRects, Labels, Panels) are summed under the
 // instrument that owns them instead of one anonymous class row (4.5 ms a frame of 'Control' in the lunar chase, no name to it).
+uint64_t SceneTree::probe_t_node = 0; // [patch 34 probe, third form]
+uint64_t SceneTree::probe_handler_us = 0;
+uint64_t SceneTree::probe_before_us = 0;
+
 StringName SceneTree::_process_ledger_key(Node *p_node) const {
 	String own;
 	if (_ledger_script_path(p_node, own)) {
