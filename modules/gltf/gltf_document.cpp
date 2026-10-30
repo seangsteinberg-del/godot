@@ -2213,9 +2213,16 @@ void GLTFDocument::_parse_image_save_image(Ref<GLTFState> p_state, const Vector<
 			String file_path;
 			// If resource_uri is within res:// folder but outside of .godot/imported folder, use it.
 			if (!p_resource_uri.is_empty() && !p_resource_uri.begins_with("res://.godot/imported") && !p_resource_uri.begins_with("res://..")) {
+				// (a picture of the model's own by its uri: this branch is reached only when its load failed - it is written when
+				// missing and imported now either way, with the md5 record upstream keeps for a picture it wrote)
 				file_path = p_resource_uri;
 				must_import = true;
 				must_write = !FileAccess::exists(file_path);
+				if (must_write) {
+					unsigned char md5_hash[16];
+					CryptoCore::md5(img_data.ptr(), img_data.size(), md5_hash);
+					generator_parameters["md5"] = String::hex_encode_buffer(md5_hash, 16);
+				}
 			} else {
 				// Texture data has to be written to the res:// folder and imported.
 				// THE SAME PICTURE EXTRACTS ONCE (Longshot patch #52, 10-22): the file is named by the picture's own bytes, so every model that embeds the
@@ -2224,33 +2231,24 @@ void GLTFDocument::_parse_image_save_image(Ref<GLTFState> p_state, const Vector<
 				// the import record's md5 below then finds the file written and skips the write and the import
 				unsigned char content_hash[16];
 				CryptoCore::md5(img_data.ptr(), img_data.size(), content_hash);
-				file_path = p_state->get_extract_path().path_join("sharedpicture_" + String::hex_encode_buffer(content_hash, 16));
+				const String content_md5 = String::hex_encode_buffer(content_hash, 16);
+				file_path = p_state->get_extract_path().path_join("sharedpicture_" + content_md5);
 				file_path += p_file_extension.is_empty() ? ".png" : p_file_extension;
-				if (FileAccess::exists(file_path + ".import")) {
-					Ref<ConfigFile> config;
-					config.instantiate();
-					config->load(file_path + ".import");
-					if (config->has_section_key("remap", "generator_parameters")) {
-						generator_parameters = (Dictionary)config->get_value("remap", "generator_parameters");
-					}
-					if (!generator_parameters.has("md5")) {
-						must_write = false; // Didn't come from a gltf document; don't overwrite.
-						must_import = false; // And don't import.
-					}
+				// THE PICTURE ON DISK IS THE PICTURE (LONGSHOT patch #89, 10-30): upstream wrote and re-imported by the md5 in the
+				// picture's import record - a record a plain re-import of the picture keeps, but so does a committed recipe whose
+				// picture was never committed (the pictures are generated) - so a tree carrying recipes without pictures wrote no
+				// picture and embedded every texture uncompressed, and two models of one batch each wrote a picture whose record
+				// the first's import had not yet laid down. The file decides: the name IS the bytes, so a picture missing (or, for
+				// original bytes, of another size: a write cut short) is written; a picture written, or one without its recipe,
+				// is imported now so the load below finds it; a picture with its recipe is neither.
+				const bool original_bytes = !p_file_extension.is_empty();
+				must_write = !FileAccess::exists(file_path) || (original_bytes && FileAccess::get_size(file_path) != int64_t(p_bytes.size()));
+				must_import = must_write || !FileAccess::exists(file_path + ".import");
+				if (must_import) {
+					generator_parameters["md5"] = content_md5;
 				}
 			}
 
-			if (must_write) {
-				String existing_md5 = generator_parameters["md5"];
-				unsigned char md5_hash[16];
-				CryptoCore::md5(img_data.ptr(), img_data.size(), md5_hash);
-				String new_md5 = String::hex_encode_buffer(md5_hash, 16);
-				generator_parameters["md5"] = new_md5;
-				if (new_md5 == existing_md5) {
-					must_write = false;
-					must_import = false;
-				}
-			}
 			if (must_write) {
 				Error err = OK;
 				if (p_file_extension.is_empty()) {

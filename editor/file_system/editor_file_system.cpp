@@ -1001,12 +1001,39 @@ bool EditorFileSystem::_update_scan_actions() {
 				bool need_reimport = _test_for_reimport(full_path, ia.dir->files[idx]->import_md5);
 				if (need_reimport) {
 					// Must reimport.
-					reimports.push_back(full_path);
+					if (!reimports.has(full_path)) {
+						reimports.push_back(full_path);
+					}
+					// A DEPENDENCY RE-IMPORTS ONCE, AND ONLY WHEN IT MUST (LONGSHOT patch #89, 10-30): upstream queued every importable
+					// dependency of a file that re-imports - as many times as files depend on it, and whether or not its own import
+					// stood - so 220 part models re-importing under a new import script queued 8,389 imports, 6,000 of them the same
+					// pictures again (the most shared one 134 times, a BC7 encode each), and no gate's import ended inside its hour.
+					// A dependency is queued once, by its path (a dependency is named by its uid when it has one), after its own test
+					// finds its import stale; the batch imports pictures before the scenes that use them, so a stale one still stands
+					// ready when its scene imports.
 					Vector<String> dependencies = _get_dependencies(full_path);
 					for (const String &dep : dependencies) {
-						const String &dependency_path = dep.contains("::") ? dep.get_slice("::", 0) : dep;
-						if (_can_import_file(dep)) {
-							reimports.push_back(dependency_path);
+						if (!_can_import_file(dep)) {
+							continue;
+						}
+						String dep_path = dep.contains("::") ? dep.get_slice("::", 0) : dep;
+						const ResourceUID::ID dep_uid = ResourceUID::get_singleton()->text_to_id(dep_path);
+						if (dep_uid != ResourceUID::INVALID_ID) {
+							if (!ResourceUID::get_singleton()->has_id(dep_uid)) {
+								continue;
+							}
+							dep_path = ResourceUID::get_singleton()->get_id_path(dep_uid);
+						}
+						if (reimports.has(dep_path)) {
+							continue;
+						}
+						EditorFileSystemDirectory *dep_dir = nullptr;
+						int dep_idx = -1;
+						if (!_find_file(dep_path, &dep_dir, dep_idx)) {
+							continue;
+						}
+						if (_test_for_reimport(dep_path, dep_dir->files[dep_idx]->import_md5)) {
+							reimports.push_back(dep_path);
 						}
 					}
 				} else {
@@ -3289,6 +3316,7 @@ void EditorFileSystem::reimport_files(const Vector<String> &p_files) {
 	Vector<ImportFile> reimport_files;
 
 	HashSet<String> groups_to_reimport;
+	HashSet<String> queued; // (LONGSHOT patch #89: a file asked for twice imports once)
 
 	for (int i = 0; i < p_files.size(); i++) {
 		ep->step(TTR("Preparing files to reimport..."), i, false);
@@ -3299,6 +3327,10 @@ void EditorFileSystem::reimport_files(const Vector<String> &p_files) {
 		if (uid != ResourceUID::INVALID_ID && ResourceUID::get_singleton()->has_id(uid)) {
 			file = ResourceUID::get_singleton()->get_id_path(uid);
 		}
+		if (queued.has(file)) {
+			continue;
+		}
+		queued.insert(file);
 
 		String group_file = ResourceFormatImporter::get_singleton()->get_import_group_file(file);
 
