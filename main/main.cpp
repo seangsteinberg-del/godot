@@ -220,6 +220,8 @@ static String locale;
 static String log_file;
 static bool show_help = false;
 static uint64_t quit_after = 0;
+static bool longshot_script_run = false; // LONGSHOT patch #90 THE RUN THAT HEARD A SCRIPT ERROR ENDS: a --script run (a smoke, a look, a probe)
+static bool longshot_end_on_script_error = false; // ... ends with exit code 2 at the first script error (longshot/tests/end_on_script_error)
 static ProcessID editor_pid = 0;
 #ifdef TOOLS_ENABLED
 static bool found_project = false;
@@ -2265,6 +2267,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			GLOBAL_DEF(PropertyInfo(Variant::INT, "application/run/low_processor_mode_sleep_usec", PROPERTY_HINT_RANGE, "0,33200,1,or_greater"), 6900)); // Roughly 144 FPS
 
 	GLOBAL_DEF("application/run/delta_smoothing", true);
+	longshot_end_on_script_error = bool(GLOBAL_DEF("longshot/tests/end_on_script_error", true)); // LONGSHOT patch #90
 	if (!delta_smoothing_override) {
 		OS::get_singleton()->set_delta_smoothing(GLOBAL_GET("application/run/delta_smoothing"));
 	}
@@ -4368,6 +4371,7 @@ int Main::start() {
 	}
 
 	if (!script.is_empty()) {
+		longshot_script_run = true; // LONGSHOT patch #90: a --script run - a smoke, a look, a probe - never a play session
 		Ref<Script> script_res = ResourceLoader::load(script);
 		ERR_FAIL_COND_V_MSG(script_res.is_null(), EXIT_FAILURE, "Can't load script: " + script);
 
@@ -5156,6 +5160,16 @@ bool Main::iteration() {
 #ifdef TOOLS_ENABLED
 	bool quit_after_timeout = false;
 #endif
+	// LONGSHOT patch #90 THE RUN THAT HEARD A SCRIPT ERROR ENDS (10-30, the codebase correction lane): a --script run - a smoke, a look, a
+	// probe - ends with exit code 2 at the first script error when longshot/tests/end_on_script_error stands (the project's default): a
+	// smoke whose coroutine died on one sat at the gate's cap, 180 s each, six in one sweep, and a run with a script error in its log passed
+	// as green unless its exit code said otherwise; a play session is never a script run and never ends here
+	if (longshot_script_run && longshot_end_on_script_error && Engine::get_singleton()->get_script_errors() > 0) {
+		print_line(vformat("the run heard %d script error(s): it ends with exit code 2 (longshot/tests/end_on_script_error)", int64_t(Engine::get_singleton()->get_script_errors())));
+		OS::get_singleton()->set_exit_code(2);
+		longshot_script_run = false; // (said once)
+		exit = true;
+	}
 	if ((quit_after > 0) && (Engine::get_singleton()->_process_frames >= quit_after)) {
 #ifdef TOOLS_ENABLED
 		quit_after_timeout = true;

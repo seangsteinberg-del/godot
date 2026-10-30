@@ -57,6 +57,7 @@ private:
 	friend class Main;
 
 	uint64_t frames_drawn = 0;
+	uint64_t script_errors = 0; // LONGSHOT patch #90 THE RUN THAT HEARD A SCRIPT ERROR ENDS: the script errors printed (ERR_HANDLER_SCRIPT)
 	uint32_t _frame_delay = 0;
 	uint64_t _frame_ticks = 0;
 	double _process_step = 0;
@@ -134,6 +135,8 @@ public:
 	virtual double get_frames_per_second() const { return _fps; }
 
 	uint64_t get_frames_drawn();
+	void script_error_heard() { script_errors++; } // LONGSHOT patch #90: told by the error print, read by Main for a --script run
+	uint64_t get_script_errors() const { return script_errors; }
 
 	uint64_t get_physics_frames() const { return _physics_frames; }
 	uint64_t get_process_frames() const { return _process_frames; }

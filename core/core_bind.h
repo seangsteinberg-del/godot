@@ -592,6 +592,7 @@ public:
 	uint64_t get_process_frames() const;
 
 	int get_frames_drawn();
+	uint64_t get_script_error_count(); // LONGSHOT patch #90: the script errors the run has printed
 
 	void set_time_scale(double p_scale);
 	double get_time_scale();

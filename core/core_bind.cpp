@@ -1951,6 +1951,10 @@ int Engine::get_frames_drawn() {
 	return ::Engine::get_singleton()->get_frames_drawn();
 }
 
+uint64_t Engine::get_script_error_count() { // LONGSHOT patch #90
+	return ::Engine::get_singleton()->get_script_errors();
+}
+
 MainLoop *Engine::get_main_loop() const {
 	// Needs to remain in OS, since it's actually OS that interacts with it, but it's better exposed here
 	return ::OS::get_singleton()->get_main_loop();
@@ -2111,6 +2115,7 @@ void Engine::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_time_scale"), &Engine::get_time_scale);
 
 	ClassDB::bind_method(D_METHOD("get_frames_drawn"), &Engine::get_frames_drawn);
+	ClassDB::bind_method(D_METHOD("get_script_error_count"), &Engine::get_script_error_count); // LONGSHOT patch #90
 	ClassDB::bind_method(D_METHOD("get_frames_per_second"), &Engine::get_frames_per_second);
 	ClassDB::bind_method(D_METHOD("get_physics_frames"), &Engine::get_physics_frames);
 	ClassDB::bind_method(D_METHOD("get_process_frames"), &Engine::get_process_frames);

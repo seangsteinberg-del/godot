@@ -30,6 +30,7 @@
 
 #include "error_macros.h"
 
+#include "core/config/engine.h" // LONGSHOT patch #90: the script errors counted
 #include "core/core_globals.h"
 #include "core/io/logger.h"
 #include "core/object/object_id.h"
@@ -107,6 +108,9 @@ void _err_print_error(const char *p_function, const char *p_file, int p_line, co
 
 // Main error printing function.
 void _err_print_error(const char *p_function, const char *p_file, int p_line, const char *p_error, const char *p_message, bool p_editor_notify, ErrorHandlerType p_type) {
+	if (p_type == ERR_HANDLER_SCRIPT && Engine::get_singleton() != nullptr) {
+		Engine::get_singleton()->script_error_heard(); // LONGSHOT patch #90 THE RUN THAT HEARD A SCRIPT ERROR ENDS: counted here, read by Main
+	}
 	if (!CoreGlobals::print_ready) {
 		const char *err_details = (p_message && *p_message) ? p_message : p_error;
 		_err_print_fallback(p_function, p_file, p_line, err_details, p_type, false);
