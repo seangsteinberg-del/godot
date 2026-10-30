@@ -169,6 +169,10 @@ class RendererCanvasRenderRD : public RendererCanvasRender {
 		void _clear_vertex_input_mask_cache();
 		void _create_pipeline(PipelineKey p_pipeline_key);
 		virtual void set_code(const String &p_Code);
+		virtual void set_path_hint(const String &p_hint) override { // THE HITCH NAMES ITS PIPELINES (longshot patch #88): the map carries the shader's name
+			RendererRD::MaterialStorage::ShaderData::set_path_hint(p_hint);
+			pipeline_hash_map.set_name(p_hint);
+		}
 		virtual bool is_animated() const;
 		virtual bool casts_shadows() const;
 		virtual RenderingServerTypes::ShaderNativeSourceCode get_native_source_code() const;

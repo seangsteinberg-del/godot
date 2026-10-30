@@ -1190,6 +1190,7 @@ public:
 #endif
 
 	virtual uint64_t get_rendering_info(RSE::RenderingInfo p_info) override;
+	virtual PackedStringArray get_pipeline_compilations_recent() override; // THE HITCH NAMES ITS PIPELINES (#88)
 	virtual RenderingDeviceEnums::DeviceType get_video_adapter_type() const override;
 
 	virtual void set_frame_profiling_enabled(bool p_enable) override;

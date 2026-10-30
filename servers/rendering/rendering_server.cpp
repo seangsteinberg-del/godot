@@ -3558,6 +3558,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("request_frame_drawn_callback", "callable"), &RenderingServer::request_frame_drawn_callback);
 	ClassDB::bind_method(D_METHOD("has_changed"), &RenderingServer::has_changed);
 	ClassDB::bind_method(D_METHOD("get_rendering_info", "info"), &RenderingServer::get_rendering_info);
+	ClassDB::bind_method(D_METHOD("get_pipeline_compilations_recent"), &RenderingServer::get_pipeline_compilations_recent); // THE HITCH NAMES ITS PIPELINES (#88)
 	// LONGSHOT patch #26 THE FRAME'S LEDGER AND THE TEXTURES' OWNERS: the per-pass frame profile and the per-texture census, which only
 	// the editor's debugger could read, for the game's own ledger (scripts/seat_swap.gd)
 	ClassDB::bind_method(D_METHOD("set_frame_profiling_enabled", "enable"), &RenderingServer::set_frame_profiling_enabled);

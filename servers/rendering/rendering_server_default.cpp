@@ -32,6 +32,7 @@
 
 #include "core/object/callable_mp.h"
 #include "core/os/os.h"
+#include "servers/rendering/pipeline_compilation_ledger.h" // THE HITCH NAMES ITS PIPELINES (longshot patch #88)
 #include "core/profiling/profiling.h"
 #include "servers/display/display_server.h"
 #include "servers/rendering/renderer_canvas_cull.h"
@@ -323,6 +324,11 @@ uint64_t RenderingServerDefault::get_rendering_info(RSE::RenderingInfo p_info) {
 		return RSG::canvas_render->get_pipeline_compilations(RSE::PIPELINE_SOURCE_SPECIALIZATION) + RSG::scene->get_pipeline_compilations(RSE::PIPELINE_SOURCE_SPECIALIZATION);
 	}
 	return RSG::utilities->get_rendering_info(p_info);
+}
+
+// THE HITCH NAMES ITS PIPELINES (longshot patch #88): the ledger's list since the last call, cleared
+PackedStringArray RenderingServerDefault::get_pipeline_compilations_recent() {
+	return PipelineCompilationLedger::take();
 }
 
 RenderingDeviceEnums::DeviceType RenderingServerDefault::get_video_adapter_type() const {

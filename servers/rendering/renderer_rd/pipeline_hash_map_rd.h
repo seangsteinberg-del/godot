@@ -40,6 +40,7 @@
 #include "core/templates/vector.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server_enums.h"
+#include "servers/rendering/pipeline_compilation_ledger.h" // THE HITCH NAMES ITS PIPELINES (longshot patch #88)
 
 #define PRINT_PIPELINE_COMPILATION_KEYS 0
 
@@ -56,6 +57,7 @@ private:
 	RBSet<uint32_t> compilation_set;
 	HashMap<uint32_t, WorkerThreadPool::TaskID> compilation_tasks;
 	Mutex local_mutex;
+	String name; // THE HITCH NAMES ITS PIPELINES (#88): the shader's path or hint, noted with every compile
 
 	bool _add_new_pipelines_to_map() {
 		thread_local Vector<uint32_t> hashes_added;
@@ -123,6 +125,7 @@ public:
 			MutexLock compilations_lock(*compilations_mutex);
 			compilations[p_source]++;
 		}
+		PipelineCompilationLedger::note(name, int(p_source)); // THE HITCH NAMES ITS PIPELINES (#88)
 
 #if PRINT_PIPELINE_COMPILATION_KEYS
 		String source_name = "UNKNOWN";
@@ -224,6 +227,8 @@ public:
 	}
 
 	// Set the external pipeline compilations array to increase the counters on every time a pipeline is compiled.
+	void set_name(const String &p_name) { name = p_name; } // THE HITCH NAMES ITS PIPELINES (#88)
+
 	void set_compilations(uint32_t *p_compilations, Mutex *p_compilations_mutex) {
 		compilations = p_compilations;
 		compilations_mutex = p_compilations_mutex;
