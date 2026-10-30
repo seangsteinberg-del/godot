@@ -1247,12 +1247,24 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 			// [patch 34 probe, 10-29, temporary] THE TERRAIN'S GAP: a PlanetTerrain's process span over 400 us said once a second with the
 			// node's kinds - the stand reads this key at 0.79 ms a frame against the handler's own clock of 0.14, and by reading nothing lies
 			// between; the probe places it. Taken out once read.
-			if (!p_physics && span > 400 && String(ledger_key).ends_with(":PlanetTerrain")) {
-				static uint64_t probe_said_ms = 0;
+			// (the second form: the first fired twice in 145 s on spans over 400 us while the row stood at 0.54 ms a frame - the sum, not the
+			// spans, is long; so every call of the key is counted, summed and its longest kept, and said once a second with the slot)
+			if (String(ledger_key).ends_with(":PlanetTerrain")) {
+				static uint64_t probe_said_ms = 0, probe_sum = 0, probe_max = 0, probe_n = 0, probe_phys = 0;
+				probe_sum += span;
+				probe_n += 1;
+				probe_phys += p_physics ? 1 : 0;
+				if (span > probe_max) {
+					probe_max = span;
+				}
 				const uint64_t now_ms = OS::get_singleton()->get_ticks_msec();
 				if (now_ms - probe_said_ms > 1000) {
+					print_line(vformat("[ledger probe] %s (%s): over %d ms %d calls (%d physics), the spans' sum %d us (%.3f ms a call), the longest %d us; internal %s, a script %s, children %d", n->get_name(), String(ledger_key), int(now_ms - probe_said_ms), int(probe_n), int(probe_phys), int(probe_sum), probe_n > 0 ? double(probe_sum) / double(probe_n) * 1e-3 : 0.0, int(probe_max), n->is_processing_internal() ? "yes" : "no", n->get_script_instance() ? "yes" : "no", n->get_child_count()));
 					probe_said_ms = now_ms;
-					print_line(vformat("[ledger probe] %s (%s, %s): the span %d us; internal %s, processing %s, a script %s, children %d", n->get_name(), n->get_class(), String(ledger_key), int(span), n->is_processing_internal() ? "yes" : "no", n->is_processing() ? "yes" : "no", n->get_script_instance() ? "yes" : "no", n->get_child_count()));
+					probe_sum = 0;
+					probe_max = 0;
+					probe_n = 0;
+					probe_phys = 0;
 				}
 			}
 		}
