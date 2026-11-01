@@ -188,18 +188,24 @@ class CommandQueueMT {
 			CommandBase *cmd_local = reinterpret_cast<CommandBase *>(cmd_local_mem);
 			memcpy(cmd_local_mem, (char *)cmd_original, size);
 
+			// THE ARGUMENTS DIE UNLOCKED (LONGSHOT patch #91, 11-01, the codebase correction lane): a command's arguments are user code as much
+			// as its call. The last reference to a Ref<Image> dies here and runs ~Resource, which takes the resource cache's lock; a loader
+			// thread holds that lock across set_path -> texture_set_path -> push, which waits for this queue's lock. Upstream ran the
+			// destructor under the lock, and the first start deadlocked three boots a gate (gate144: fab_engine_plate, orbit_target,
+			// fab_recovery_cans - the threads' stacks named it to the line). The call already ran unlocked; the destructor runs beside it,
+			// its sync flag read first. The lock guards the queue's memory alone, never a line of anyone else's code.
+			const bool was_sync = cmd_local->sync;
 			lock.temp_unlock();
 			cmd_local->call();
+			cmd_local->~CommandBase();
 			lock.temp_relock();
 
-			if (unlikely(cmd_local->sync)) {
+			if (unlikely(was_sync)) {
 				sync_head++;
 				lock.temp_unlock(); // Give an opportunity to awaiters right away.
 				sync_cond_var.notify_all();
 				lock.temp_relock();
 			}
-
-			cmd_local->~CommandBase();
 
 			flush_read_ptr += size;
 		}
