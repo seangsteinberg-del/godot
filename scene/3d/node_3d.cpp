@@ -623,11 +623,12 @@ Transform3D Node3D::get_global_transform_interpolated() {
 			Transform3D local_interp;
 
 			// Backwards through the list is forwards through the chain through the tree.
-			// (Each node as SceneTreeFTI's pass takes it, so the value is the one the frame draws.)
+			// (Each node as SceneTreeFTI's pass takes it, so the value is the one the frame draws: a node with a reset pending - one
+			// entered the tree this frame - is pumped to its current xform before that pass interpolates it.)
 			for (int32_t n = num_parents - 1; n >= 0; n--) {
 				s = parents[n];
 
-				if (s->is_physics_interpolated() && s->data.fti_on_tick_xform_list) {
+				if (s->is_physics_interpolated() && s->data.fti_on_tick_xform_list && !s->_is_physics_interpolation_reset_requested()) {
 					// Make sure to call `get_transform()` rather than using local_transform directly, because
 					// local_transform may be dirty and need updating from rotation / scale.
 					TransformInterpolator::interpolate_transform_3d(s->data.local_transform_prev, s->get_transform(), local_interp, interpolation_fraction);
