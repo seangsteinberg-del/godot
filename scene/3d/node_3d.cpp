@@ -542,10 +542,18 @@ Transform3D Node3D::get_global_transform_interpolated() {
 		// Note that with SceneTreeFTI, we may want to calculate interpolated transform for a node
 		// with physics interpolation set to OFF, if it has a parent that is ON.
 
+		// THE DRAWN XFORM, NOW (longshot patch #89): SceneTreeFTI's pass at the frame's start caches the interpolated xform; a node
+		// moved after it (in a process callback, or by a skeleton modifier setting an attachment) keeps that cache until the frame's
+		// last pass - and the skeleton's modifiers run between the two (Skeleton3D's deferred update, in the queue's flush after
+		// process) and read their targets here: an IK's hand reached where its grip stood before the stick moved it. A node moved since
+		// the pass (its interpolated dirty bit, set on it and every descendant by the move, cleared by the passes) is computed on
+		// demand, as the frame's last pass will draw it.
+		const bool moved = _test_dirty_bits(DIRTY_GLOBAL_INTERPOLATED_TRANSFORM);
+
 		// Cheap case.
 		// We already pre-cache the visible_in_tree for VisualInstances, but NOT for Node3Ds, so we have to
 		// deal with non-VIs the slow way.
-		if (Object::cast_to<VisualInstance3D>(this) && _is_vi_visible() && data.fti_global_xform_interp_set) {
+		if (!moved && Object::cast_to<VisualInstance3D>(this) && _is_vi_visible() && data.fti_global_xform_interp_set) {
 			return data.global_transform_interpolated;
 		}
 
@@ -570,10 +578,10 @@ Transform3D Node3D::get_global_transform_interpolated() {
 		}
 
 		// Simplest case, we can return the interpolated xform calculated by SceneTreeFTI.
-		if (visible_in_tree) {
+		if (visible_in_tree && !moved) {
 			return data.fti_global_xform_interp_set ? data.global_transform_interpolated : get_global_transform();
-		} else if (visible_parent) {
-			// INVISIBLE case. Not visible, but there is a visible ancestor somewhere in the chain.
+		} else if (visible_in_tree || visible_parent) {
+			// INVISIBLE case (not visible, but there is a visible ancestor somewhere in the chain), or MOVED since the pass (#89).
 			if (_get_scene_tree_depth() < 1) {
 				// This should not happen unless there a problem has been introduced in the scene tree depth code.
 				// Print a non-spammy error and return something reasonable.
@@ -581,35 +589,45 @@ Transform3D Node3D::get_global_transform_interpolated() {
 				return get_global_transform();
 			}
 
-			// The interpolated xform is not already calculated for invisible nodes, but we can calculate this
-			// manually on demand if there is a visible parent.
-			// First create the chain (backwards), from the node up to first visible parent.
+			// The interpolated xform is not already calculated for invisible nodes, nor current for a node moved since the pass,
+			// but we can calculate this manually on demand from the nearest ancestor whose interpolated xform the pass left
+			// current: visible in tree (a hidden branch is never traversed) and not moved since (#89). A chain that meets a top
+			// level or the tree's first Node3D first starts from that node's own xform.
+			// First create the chain (backwards), from the node up to that ancestor.
 			const Node3D **parents = (const Node3D **)alloca((sizeof(const Node3D *) * _get_scene_tree_depth()));
 			int32_t num_parents = 0;
+			const Node3D *visible_from = visible_in_tree ? this : visible_parent;
+			bool hidden = !visible_in_tree;
+			Transform3D xform;
 
 			s = this;
 			while (s) {
-				if (s == visible_parent) {
-					// Finished.
+				if (s == visible_from) {
+					hidden = false;
+				}
+				if (!hidden && !s->_test_dirty_bits(DIRTY_GLOBAL_INTERPOLATED_TRANSFORM)) {
+					// Finished: seed the xform with this ancestor's.
+					xform = s->data.fti_global_xform_interp_set ? s->data.global_transform_interpolated : s->get_global_transform();
 					break;
 				}
 
 				parents[num_parents++] = s;
+				if (s->data.top_level) {
+					break;
+				}
 				s = s->data.parent;
 			}
 
 			// Now calculate the interpolated chain forwards.
 			float interpolation_fraction = Engine::get_singleton()->get_physics_interpolation_fraction();
-
-			// Seed the xform with the visible parent.
-			Transform3D xform = visible_parent->data.fti_global_xform_interp_set ? visible_parent->data.global_transform_interpolated : visible_parent->get_global_transform();
 			Transform3D local_interp;
 
 			// Backwards through the list is forwards through the chain through the tree.
+			// (Each node as SceneTreeFTI's pass takes it, so the value is the one the frame draws.)
 			for (int32_t n = num_parents - 1; n >= 0; n--) {
 				s = parents[n];
 
-				if (s->is_physics_interpolated()) {
+				if (s->is_physics_interpolated() && s->data.fti_on_tick_xform_list) {
 					// Make sure to call `get_transform()` rather than using local_transform directly, because
 					// local_transform may be dirty and need updating from rotation / scale.
 					TransformInterpolator::interpolate_transform_3d(s->data.local_transform_prev, s->get_transform(), local_interp, interpolation_fraction);
@@ -617,6 +635,10 @@ Transform3D Node3D::get_global_transform_interpolated() {
 					local_interp = s->get_transform();
 				}
 				xform *= local_interp;
+
+				if (s->data.disable_scale) {
+					xform.basis.orthonormalize();
+				}
 			}
 
 			// We could save this in case of multiple calls,
