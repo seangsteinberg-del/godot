@@ -530,7 +530,7 @@ Vector<AudioFrame> AudioStreamPlayer3D::_update_panning() {
 			if (local_velocity != Vector3()) {
 				const float approaching = local_pos.normalized().dot(local_velocity.normalized());
 				const float velocity = local_velocity.length();
-				static constexpr float speed_of_sound = 343.0F;
+				const float speed_of_sound = AudioServer::get_singleton()->get_speed_of_sound(); // LONGSHOT patch 91: the listener's air's
 
 				float doppler_pitch_scale = internal->pitch_scale * speed_of_sound / (speed_of_sound + velocity * approaching);
 

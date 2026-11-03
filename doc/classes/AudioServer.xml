@@ -389,6 +389,9 @@
 		<member name="playback_speed_scale" type="float" setter="set_playback_speed_scale" getter="get_playback_speed_scale" default="1.0">
 			Scales the rate at which audio is played (i.e. setting it to [code]0.5[/code] will make the audio be played at half its speed). See also [member Engine.time_scale] to affect the general simulation speed, which is independent from [member AudioServer.playback_speed_scale].
 		</member>
+		<member name="speed_of_sound" type="float" setter="set_speed_of_sound" getter="get_speed_of_sound" default="343.0">
+			The speed of sound, in meters per second, in the air the listener hears through. Every [AudioStreamPlayer3D]'s Doppler effect is reckoned by it (the Earth's sea-level air by default; another world's air carries sound at its own speed). It must be over [code]0.0[/code].
+		</member>
 	</members>
 	<signals>
 		<signal name="bus_layout_changed">
