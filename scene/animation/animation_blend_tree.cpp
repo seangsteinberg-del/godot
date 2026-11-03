@@ -1184,6 +1184,7 @@ void AnimationNodeTransition::get_parameter_list(LocalVector<PropertyInfo> *r_li
 	r_list->push_back(PropertyInfo(Variant::INT, current_index, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_READ_ONLY)); // To avoid finding the index every frame, use this internally.
 	r_list->push_back(PropertyInfo(Variant::INT, prev_index, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE));
 	r_list->push_back(PropertyInfo(Variant::FLOAT, prev_xfading, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE));
+	r_list->push_back(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, fading, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE)); // LONGSHOT patch 90.
 }
 
 Variant AnimationNodeTransition::get_parameter_default_value(const StringName &p_parameter) const {
@@ -1194,6 +1195,8 @@ Variant AnimationNodeTransition::get_parameter_default_value(const StringName &p
 
 	if (p_parameter == prev_xfading) {
 		return 0.0;
+	} else if (p_parameter == fading) {
+		return PackedFloat32Array();
 	} else if (p_parameter == prev_index || p_parameter == current_index) {
 		return (int)-1;
 	} else {
@@ -1306,12 +1309,60 @@ bool AnimationNodeTransition::is_allow_transition_to_self() const {
 	return allow_transition_to_self;
 }
 
+// LONGSHOT patch 90 (THE SWITCH FADES WHAT IT CARRIES): the share of the fade `p_fading` still to run with `p_remaining` of its
+// seconds left (1 as it begins, 0 at its end), shaped by the curve.
+real_t AnimationNodeTransition::_fade_share(const PackedFloat32Array &p_fading, double p_remaining) const {
+	if (p_fading.size() < 2 || p_fading[0] <= 0.0 || p_remaining <= 0.0) {
+		return 0.0;
+	}
+	real_t share = CLAMP(p_remaining / p_fading[0], 0.0, 1.0);
+	return xfade_curve.is_valid() ? xfade_curve->sample(share) : share;
+}
+
+// LONGSHOT patch 90: the fade a switch from `p_current` to `p_to` begins - each input weighed as it stands now (the current coming
+// in from its weight at the last switch toward the whole, every carried input going from its own toward nought), the new current
+// taking up its own weight (an input switched back to while it fades goes on from where it stands, never from nought) and every
+// other input going out from its own over the switch's fade. Instant (no fade time): it carries nothing.
+PackedFloat32Array AnimationNodeTransition::_carried(const PackedFloat32Array &p_fading, double p_remaining, int p_current, int p_to) const {
+	PackedFloat32Array out;
+	if (xfade_time <= 0.0) {
+		return out;
+	}
+	const real_t share = _fade_share(p_fading, p_remaining);
+	LocalVector<int> inputs;
+	LocalVector<real_t> weights;
+	inputs.push_back(p_current);
+	weights.push_back(share > 0.0 ? p_fading[1] + (1.0 - p_fading[1]) * (1.0 - share) : 1.0);
+	if (share > 0.0) {
+		for (int k = 2; k + 1 < p_fading.size(); k += 2) {
+			inputs.push_back((int)p_fading[k]);
+			weights.push_back(p_fading[k + 1] * share);
+		}
+	}
+	real_t to_weight = 0.0;
+	for (uint32_t n = 0; n < inputs.size(); n++) {
+		if (inputs[n] == p_to) {
+			to_weight += weights[n];
+		}
+	}
+	out.push_back(xfade_time);
+	out.push_back(to_weight);
+	for (uint32_t n = 0; n < inputs.size(); n++) {
+		if (inputs[n] != p_to && weights[n] > CMP_EPSILON) {
+			out.push_back(inputs[n]);
+			out.push_back(weights[n]);
+		}
+	}
+	return out;
+}
+
 AnimationNode::NodeTimeInfo AnimationNodeTransition::_process(ProcessState &p_process_state, AnimationNodeInstance &p_instance, const AnimationMixer::PlaybackInfo &p_playback_info, bool p_test_only) {
 	const String &cur_transition_request = p_instance.get_parameter_transition_request();
 	int cur_current_index = p_instance.get_parameter_current_index();
 	int cur_prev_index = p_instance.get_parameter_prev_index();
 
 	double cur_prev_xfading = p_instance.get_parameter_prev_xfading();
+	PackedFloat32Array cur_fading = p_instance.get_parameter_fading(); // LONGSHOT patch 90: the fade carried.
 
 	bool switched = false;
 	bool restart = false;
@@ -1352,6 +1403,9 @@ AnimationNode::NodeTimeInfo AnimationNodeTransition::_process(ProcessState &p_pr
 				}
 			} else {
 				switched = true;
+				// LONGSHOT patch 90: every input the switch carries fades out from the weight it has now (a switch inside a fade
+				// dropped the input it was fading from at once, and the body jumped by what that input still held)
+				cur_fading = _carried(cur_fading, cur_prev_xfading, cur_current_index, new_idx);
 				cur_prev_index = cur_current_index;
 				p_instance.set_parameter_prev_index(cur_current_index, p_process_state.is_testing);
 				cur_current_index = new_idx;
@@ -1369,6 +1423,8 @@ AnimationNode::NodeTimeInfo AnimationNodeTransition::_process(ProcessState &p_pr
 		p_instance.set_parameter_prev_xfading(0, p_process_state.is_testing);
 		cur_prev_index = -1;
 		p_instance.set_parameter_prev_index(-1, p_process_state.is_testing);
+		cur_fading.clear();
+		p_instance.set_parameter_fading(cur_fading, p_process_state.is_testing);
 	}
 
 	AnimationMixer::PlaybackInfo pi = p_playback_info;
@@ -1389,10 +1445,21 @@ AnimationNode::NodeTimeInfo AnimationNodeTransition::_process(ProcessState &p_pr
 		return NodeTimeInfo();
 	}
 
+	// LONGSHOT patch 90: the inputs the fade carries (each out from its own weight), none of them the current
+	LocalVector<int> carried;
+	if (cur_prev_index >= 0) {
+		for (int k = 2; k + 1 < cur_fading.size(); k += 2) {
+			int i = (int)cur_fading[k];
+			if (i >= 0 && i < get_input_count() && i != cur_current_index) {
+				carried.push_back(i);
+			}
+		}
+	}
+
 	if (sync) {
 		pi.weight = 0;
 		for (int i = 0; i < get_input_count(); i++) {
-			if (i != cur_current_index && i != cur_prev_index) {
+			if (i != cur_current_index && !carried.has(i)) {
 				blend_input(p_process_state, p_instance, i, pi, FILTER_IGNORE, true, p_test_only);
 			}
 		}
@@ -1405,43 +1472,42 @@ AnimationNode::NodeTimeInfo AnimationNodeTransition::_process(ProcessState &p_pr
 		if (input_data[cur_current_index].auto_advance && Animation::is_less_or_equal_approx(cur_nti.get_remain(input_data[cur_current_index].break_loop_at_end), xfade_time)) {
 			p_instance.set_parameter_transition_request(get_input_name((cur_current_index + 1) % get_input_count()), p_process_state.is_testing);
 		}
-	} else { // Cross-fading from prev to current.
-
-		real_t blend = 0.0;
-		real_t blend_inv = 1.0;
-		bool use_blend = sync;
-		if (xfade_time > 0) {
-			use_blend = true;
-			blend = cur_prev_xfading / xfade_time;
-			if (xfade_curve.is_valid()) {
-				blend = xfade_curve->sample(blend);
-			}
-			blend_inv = 1.0 - blend;
-			blend = Math::is_zero_approx(blend) ? CMP_EPSILON : blend;
-			blend_inv = Math::is_zero_approx(blend_inv) ? CMP_EPSILON : blend_inv;
-		}
+	} else { // Cross-fading the carried inputs out and the current in (LONGSHOT patch 90: each from the weight it had at the switch).
+		const real_t share = _fade_share(cur_fading, cur_prev_xfading);
+		const bool use_blend = sync || (cur_fading.size() >= 2 && cur_fading[0] > 0.0);
+		const real_t from = cur_fading.size() >= 2 ? cur_fading[1] : 0.0;
+		real_t current_weight = from + (1.0 - from) * (1.0 - share);
 
 		// Blend values must be more than CMP_EPSILON to process discrete keys in edge.
-		pi.weight = blend_inv;
+		pi.weight = Math::is_zero_approx(current_weight) ? CMP_EPSILON : current_weight;
 		if (input_data[cur_current_index].reset && !p_seek && switched) { // Just switched, seek to start of current.
 			pi.time = 0;
 			pi.seeked = true;
 		}
 		cur_nti = blend_input(p_process_state, p_instance, cur_current_index, pi, FILTER_IGNORE, true, p_test_only);
 
-		pi = p_playback_info;
-		pi.seeked &= use_blend;
-		pi.weight = blend;
-		blend_input(p_process_state, p_instance, cur_prev_index, pi, FILTER_IGNORE, true, p_test_only);
+		for (int k = 2; k + 1 < cur_fading.size(); k += 2) {
+			int i = (int)cur_fading[k];
+			if (!carried.has(i)) {
+				continue;
+			}
+			real_t weight = cur_fading[k + 1] * share;
+			pi = p_playback_info;
+			pi.seeked &= use_blend;
+			pi.weight = Math::is_zero_approx(weight) ? CMP_EPSILON : weight;
+			blend_input(p_process_state, p_instance, i, pi, FILTER_IGNORE, true, p_test_only);
+		}
 		if (!p_seek) {
 			if (Animation::is_less_or_equal_approx(cur_prev_xfading, 0)) {
 				p_instance.set_parameter_prev_index(-1, p_process_state.is_testing);
+				cur_fading.clear();
 			}
 			cur_prev_xfading -= Math::abs(p_playback_info.delta);
 		}
 	}
 
 	p_instance.set_parameter_prev_xfading(cur_prev_xfading, p_process_state.is_testing);
+	p_instance.set_parameter_fading(cur_fading, p_process_state.is_testing);
 
 	return cur_nti;
 }

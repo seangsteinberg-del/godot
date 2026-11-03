@@ -328,6 +328,8 @@ struct AnimationNodeInstance {
 	X(5, PREV_INDEX, prev_index, Variant::INT, int) \
 	X(6, PREV_XFADING, prev_xfading, Variant::FLOAT, double) \
 	X(7, CURRENT_STATE, current_state, Variant::STRING, String) \
+	/* LONGSHOT patch 90: the fade a transition carries. */ \
+	X(8, TRANSITION_FADING, fading, Variant::PACKED_FLOAT32_ARRAY, PackedFloat32Array) \
 	/* AnimationNodeBlendSpace1D and AnimationNodeBlendSpace2D, \
 	We currently cannot do blend_position, due to type same name but different type */ \
 	X(3, CLOSEST, closest, Variant::INT, int)
