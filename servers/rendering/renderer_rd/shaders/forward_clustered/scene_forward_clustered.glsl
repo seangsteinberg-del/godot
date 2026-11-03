@@ -1206,7 +1206,7 @@ vec4 fog_process(vec3 vertex) {
 // clouds' light map in two tiers about the eye's deck point (the near blended into the far over its outer fifth, the far's outer fifth
 // into one; the frames in the scene data: o with the half-extent, u with the texel, v with the standing flag); one at every point no tier
 // holds and while no map stands. Every directional light's shadow takes it (the map is the key light's; it stands by day alone)
-float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, bool near_tier, out float edge) {
+float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, int tier, out float edge) {
 	edge = 1.0;
 	if (v.w < 0.5) {
 		return -1.0;
@@ -1219,19 +1219,30 @@ float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, bool near_tier, ou
 	}
 	edge = smoothstep(0.8 * o.w, o.w, m);
 	vec2 uv = xy / (2.0 * o.w) + 0.5;
-	return near_tier ? textureLod(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), uv, 0.0).r : textureLod(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+	if (tier == 0) {
+		return textureLod(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+	}
+	if (tier == 1) {
+		return textureLod(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+	}
+	return textureLod(sampler2D(longshot_cloud_shadow_dist, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
 }
+// LONGSHOT patch #89: THE SUN'S SHADOW REACHES THE DISTANT TIER - three tiers (24, 60 and 160 km about the eye's deck point), each blended into
+// the next over its outer fifth and the outermost into one; the deck's shadow ended at the far tier in a hard square before
 float longshot_cloud_sun_shadow(vec3 p) {
 	if (!bool(scene_data_block.data.flags & SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW)) {
 		return 1.0;
 	}
-	float e_far, e_near;
-	float t_far = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[3], scene_data_block.data.longshot_cloud_shadow[4], scene_data_block.data.longshot_cloud_shadow[5], false, e_far);
-	float t_near = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[0], scene_data_block.data.longshot_cloud_shadow[1], scene_data_block.data.longshot_cloud_shadow[2], true, e_near);
+	float e_dist, e_far, e_near;
+	float t_dist = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[6], scene_data_block.data.longshot_cloud_shadow[7], scene_data_block.data.longshot_cloud_shadow[8], 2, e_dist);
+	float t_far = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[3], scene_data_block.data.longshot_cloud_shadow[4], scene_data_block.data.longshot_cloud_shadow[5], 1, e_far);
+	float t_near = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[0], scene_data_block.data.longshot_cloud_shadow[1], scene_data_block.data.longshot_cloud_shadow[2], 0, e_near);
+	float beyond_far = t_dist >= 0.0 ? mix(t_dist, 1.0, e_dist) : 1.0;
+	float beyond_near = t_far >= 0.0 ? mix(t_far, beyond_far, e_far) : beyond_far;
 	if (t_near >= 0.0) {
-		return t_far >= 0.0 ? mix(mix(t_near, t_far, e_near), 1.0, e_far) : mix(t_near, 1.0, e_near);
+		return mix(t_near, beyond_near, e_near);
 	}
-	return t_far >= 0.0 ? mix(t_far, 1.0, e_far) : 1.0;
+	return beyond_near;
 }
 float longshot_clouds_cdf(float x) {
 	return 1.0 / (1.0 + exp(-1.5976 * x * (1.0 + 0.04417 * x * x)));

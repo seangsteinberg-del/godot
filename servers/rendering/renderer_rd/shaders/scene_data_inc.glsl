@@ -83,5 +83,5 @@ struct SceneData {
 	float IBL_exposure_normalization;
 	uint camera_visible_layers;
 	float pass_alpha_multiplier;
-	vec4 longshot_cloud_shadow[6]; // LONGSHOT patch #83: the light map's two tiers' frames (o, u, v a tier; the near first)
+	vec4 longshot_cloud_shadow[9];   // LONGSHOT patch #89: the distant tier's frame after the far's // LONGSHOT patch #83: the light map's two tiers' frames (o, u, v a tier; the near first)
 };

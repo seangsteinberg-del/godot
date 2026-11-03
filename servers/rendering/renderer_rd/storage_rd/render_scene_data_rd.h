@@ -41,7 +41,7 @@ class RenderSceneDataRD : public RenderSceneData {
 
 public:
 	bool calculate_motion_vectors = false;
-	float longshot_cloud_shadow_frames[6][4] = {}; // LONGSHOT patch #83: the render buffers' frames, copied at the environment's setup
+	float longshot_cloud_shadow_frames[9][4] = {};   // LONGSHOT patch #89: three tiers // LONGSHOT patch #83: the render buffers' frames, copied at the environment's setup
 	bool longshot_cloud_shadow_on = false;
 
 	Transform3D cam_transform;
@@ -185,7 +185,7 @@ private:
 		float IBL_exposure_normalization; // Adjusts for baked exposure.
 		uint32_t camera_visible_layers;
 		float pass_alpha_multiplier;
-		float longshot_cloud_shadow[6][4]; // LONGSHOT patch #83: the light map's two tiers' frames (o, u, v a tier; the near first) - the block's last
+		float longshot_cloud_shadow[9][4];   // LONGSHOT patch #89: three tiers // LONGSHOT patch #83: the light map's two tiers' frames (o, u, v a tier; the near first) - the block's last
 	};
 
 	struct UBODATA {

@@ -3963,7 +3963,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		// LONGSHOT patch #83: THE SUN WEARS THE DECK'S SHADOW - the clouds' light map's two tiers for every list (fixed textures; white where
 		// none stands, and the scene data's flag says whether to read them)
 		const bool cs = rb.is_valid() && rb->has_longshot_cloud_shadow();
-		for (int t = 0; t < 2; t++) {
+		for (int t = 0; t < 3; t++) {   // LONGSHOT patch #89: the three tiers at 39, 40, 41
 			RD::Uniform w;
 			w.binding = 39 + t;
 			w.uniform_type = RD::UNIFORM_TYPE_TEXTURE;

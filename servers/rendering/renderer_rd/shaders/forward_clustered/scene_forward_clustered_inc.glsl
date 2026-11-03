@@ -495,7 +495,8 @@ layout(set = 1, binding = 36) uniform texture2D ssr_mip_level_buffer;
 layout(set = 1, binding = 37) uniform texture2D longshot_clouds_light;
 layout(set = 1, binding = 38) uniform texture2D longshot_clouds_depth;
 layout(set = 1, binding = 39) uniform texture2D longshot_cloud_shadow_near; // LONGSHOT patch #83: the clouds' transmittance along the key light, the near tier
-layout(set = 1, binding = 40) uniform texture2D longshot_cloud_shadow_far;  // and the far
+layout(set = 1, binding = 40) uniform texture2D longshot_cloud_shadow_far;
+layout(set = 1, binding = 41) uniform texture2D longshot_cloud_shadow_dist; // LONGSHOT patch #89: and the distant tier (160 km), so the deck's shadow does not end in a square at 60  // and the far
 
 #endif
 
