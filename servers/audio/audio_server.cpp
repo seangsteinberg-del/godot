@@ -1236,6 +1236,16 @@ float AudioServer::get_playback_speed_scale() const {
 	return playback_speed_scale;
 }
 
+// LONGSHOT patch 91 (THE SOUND'S OWN SPEED): the listener's air's speed of sound, read by every 3D player's Doppler
+void AudioServer::set_speed_of_sound(float p_mps) {
+	ERR_FAIL_COND_MSG(!(p_mps > 0.0f), "The speed of sound must be over nought (a vacuum carries no sound to shift).");
+	speed_of_sound = p_mps;
+}
+
+float AudioServer::get_speed_of_sound() const {
+	return speed_of_sound;
+}
+
 void AudioServer::start_playback_stream(Ref<AudioStreamPlayback> p_playback, const StringName &p_bus, Vector<AudioFrame> p_volume_db_vector, float p_start_time, float p_pitch_scale) {
 	ERR_FAIL_COND(p_playback.is_null());
 
@@ -2080,6 +2090,9 @@ void AudioServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_playback_speed_scale", "scale"), &AudioServer::set_playback_speed_scale);
 	ClassDB::bind_method(D_METHOD("get_playback_speed_scale"), &AudioServer::get_playback_speed_scale);
 
+	ClassDB::bind_method(D_METHOD("set_speed_of_sound", "mps"), &AudioServer::set_speed_of_sound); // LONGSHOT patch 91
+	ClassDB::bind_method(D_METHOD("get_speed_of_sound"), &AudioServer::get_speed_of_sound);
+
 	ClassDB::bind_method(D_METHOD("lock"), &AudioServer::lock);
 	ClassDB::bind_method(D_METHOD("unlock"), &AudioServer::unlock);
 
@@ -2120,6 +2133,7 @@ void AudioServer::_bind_methods() {
 	// Override for class reference generation purposes.
 	ADD_PROPERTY_DEFAULT("input_device", "Default");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "playback_speed_scale"), "set_playback_speed_scale", "get_playback_speed_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "speed_of_sound", PROPERTY_HINT_RANGE, "1,2000,0.1,or_greater,suffix:m/s"), "set_speed_of_sound", "get_speed_of_sound"); // LONGSHOT patch 91
 
 	ADD_SIGNAL(MethodInfo("bus_layout_changed"));
 	ADD_SIGNAL(MethodInfo("bus_renamed", PropertyInfo(Variant::INT, "bus_index"), PropertyInfo(Variant::STRING_NAME, "old_name"), PropertyInfo(Variant::STRING_NAME, "new_name")));
