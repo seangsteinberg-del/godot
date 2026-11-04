@@ -5761,53 +5761,88 @@ void GLTFDocument::_import_animation(Ref<GLTFState> p_state, AnimationPlayer *p_
 				}
 			}
 
-			const double increment = 1.0 / p_state->get_bake_fps();
-			double time = anim_start;
-
-			Vector3 base_pos;
-			Quaternion base_rot;
-			Vector3 base_scale = Vector3(1, 1, 1);
-
-			if (rotation_idx == -1) {
-				base_rot = gltf_node->get_rotation();
+			// THE CLIPS AS KEYED (LONGSHOT, 11-02): a LINEAR or STEP track is an interpolation the Animation plays itself (a
+			// rotation's by slerp, as glTF's own), so its keys go in as they were keyed - as the blend shape weights' below do.
+			// Baked at the import's rate, every key off the rate's grid had its corner cut and every sample its time rounded to a
+			// float: a 24 fps clip imported at 30 stood off its authored poses between its keys, and a clip keyed at its own events
+			// (a roll-out wing's rolls touching down) stands on no rate's grid at all. A cubic or Catmull-Rom track is baked at the
+			// rate as before.
+			const auto keyed = [](GLTFAnimation::Interpolation p_interp) {
+				return p_interp == GLTFAnimation::INTERP_LINEAR || p_interp == GLTFAnimation::INTERP_STEP;
+			};
+			if (position_idx >= 0 && keyed(track.position_track.interpolation)) {
+				ERR_FAIL_COND_MSG(track.position_track.values.size() != track.position_track.times.size(), "glTF: an animation sampler's output does not match its input.");
+				for (int i = 0; i < track.position_track.times.size(); i++) {
+					animation->position_track_insert_key(position_idx, track.position_track.times[i] - anim_start, track.position_track.values[i]);
+				}
+				position_idx = -1;
+			}
+			if (rotation_idx >= 0 && keyed(track.rotation_track.interpolation)) {
+				ERR_FAIL_COND_MSG(track.rotation_track.values.size() != track.rotation_track.times.size(), "glTF: an animation sampler's output does not match its input.");
+				for (int i = 0; i < track.rotation_track.times.size(); i++) {
+					const Quaternion &rot = track.rotation_track.values[i];
+					ERR_FAIL_COND_MSG(!rot.is_normalized(), vformat("glTF: the rotation key %s must be normalized.", rot));
+					animation->rotation_track_insert_key(rotation_idx, track.rotation_track.times[i] - anim_start, rot.normalized());
+				}
+				rotation_idx = -1;
+			}
+			if (scale_idx >= 0 && keyed(track.scale_track.interpolation)) {
+				ERR_FAIL_COND_MSG(track.scale_track.values.size() != track.scale_track.times.size(), "glTF: an animation sampler's output does not match its input.");
+				for (int i = 0; i < track.scale_track.times.size(); i++) {
+					animation->scale_track_insert_key(scale_idx, track.scale_track.times[i] - anim_start, track.scale_track.values[i]);
+				}
+				scale_idx = -1;
 			}
 
-			if (position_idx == -1) {
-				base_pos = gltf_node->get_position();
-			}
+			if (position_idx >= 0 || rotation_idx >= 0 || scale_idx >= 0) {
+				const double increment = 1.0 / p_state->get_bake_fps();
+				double time = anim_start;
 
-			if (scale_idx == -1) {
-				base_scale = gltf_node->get_scale();
-			}
+				Vector3 base_pos;
+				Quaternion base_rot;
+				Vector3 base_scale = Vector3(1, 1, 1);
 
-			bool last = false;
-			while (true) {
-				Vector3 pos = base_pos;
-				Quaternion rot = base_rot;
-				Vector3 scale = base_scale;
-
-				if (position_idx >= 0) {
-					pos = _interpolate_track<Vector3>(track.position_track.times, track.position_track.values, time, track.position_track.interpolation);
-					animation->position_track_insert_key(position_idx, time - anim_start, pos);
+				if (rotation_idx == -1) {
+					base_rot = gltf_node->get_rotation();
 				}
 
-				if (rotation_idx >= 0) {
-					rot = _interpolate_track<Quaternion>(track.rotation_track.times, track.rotation_track.values, time, track.rotation_track.interpolation);
-					animation->rotation_track_insert_key(rotation_idx, time - anim_start, rot);
+				if (position_idx == -1) {
+					base_pos = gltf_node->get_position();
 				}
 
-				if (scale_idx >= 0) {
-					scale = _interpolate_track<Vector3>(track.scale_track.times, track.scale_track.values, time, track.scale_track.interpolation);
-					animation->scale_track_insert_key(scale_idx, time - anim_start, scale);
+				if (scale_idx == -1) {
+					base_scale = gltf_node->get_scale();
 				}
 
-				if (last) {
-					break;
-				}
-				time += increment;
-				if (time >= anim_end) {
-					last = true;
-					time = anim_end;
+				bool last = false;
+				while (true) {
+					Vector3 pos = base_pos;
+					Quaternion rot = base_rot;
+					Vector3 scale = base_scale;
+
+					if (position_idx >= 0) {
+						pos = _interpolate_track<Vector3>(track.position_track.times, track.position_track.values, time, track.position_track.interpolation);
+						animation->position_track_insert_key(position_idx, time - anim_start, pos);
+					}
+
+					if (rotation_idx >= 0) {
+						rot = _interpolate_track<Quaternion>(track.rotation_track.times, track.rotation_track.values, time, track.rotation_track.interpolation);
+						animation->rotation_track_insert_key(rotation_idx, time - anim_start, rot);
+					}
+
+					if (scale_idx >= 0) {
+						scale = _interpolate_track<Vector3>(track.scale_track.times, track.scale_track.values, time, track.scale_track.interpolation);
+						animation->scale_track_insert_key(scale_idx, time - anim_start, scale);
+					}
+
+					if (last) {
+						break;
+					}
+					time += increment;
+					if (time >= anim_end) {
+						last = true;
+						time = anim_end;
+					}
 				}
 			}
 		}
