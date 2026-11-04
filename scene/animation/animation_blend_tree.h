@@ -341,6 +341,9 @@ class AnimationNodeTransition : public AnimationNodeSync {
 
 	StringName prev_xfading = "prev_xfading";
 	StringName prev_index = "prev_index";
+	// LONGSHOT patch 90 (THE SWITCH FADES WHAT IT CARRIES): the fade under way - its length, the current input's weight as it
+	// began, then each input it fades out and that input's weight as it began: [length, from, input, weight, input, weight, ...]
+	StringName fading = "fading";
 	StringName current_index = PNAME("current_index");
 	StringName current_state = PNAME("current_state");
 	StringName transition_request = PNAME("transition_request");
@@ -350,6 +353,9 @@ class AnimationNodeTransition : public AnimationNodeSync {
 	bool allow_transition_to_self = false;
 
 	bool pending_update = false;
+
+	real_t _fade_share(const PackedFloat32Array &p_fading, double p_remaining) const;
+	PackedFloat32Array _carried(const PackedFloat32Array &p_fading, double p_remaining, int p_current, int p_to) const;
 
 protected:
 	bool _get(const StringName &p_path, Variant &r_ret) const;

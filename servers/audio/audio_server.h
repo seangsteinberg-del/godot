@@ -223,6 +223,9 @@ private:
 	int to_mix = 0;
 
 	float playback_speed_scale = 1.0f;
+	// LONGSHOT patch 91 (THE SOUND'S OWN SPEED): the speed of sound in the air the listener hears through, m/s - every 3D player's
+	// Doppler reckons by it (the Earth's 343 till a game sets its world's)
+	float speed_of_sound = 343.0f;
 
 	bool tag_used_audio_streams = false;
 
@@ -429,6 +432,9 @@ public:
 
 	void set_playback_speed_scale(float p_scale);
 	float get_playback_speed_scale() const;
+
+	void set_speed_of_sound(float p_mps); // LONGSHOT patch 91
+	float get_speed_of_sound() const;
 
 	// Convenience method.
 	void start_playback_stream(Ref<AudioStreamPlayback> p_playback, const StringName &p_bus, Vector<AudioFrame> p_volume_db_vector, float p_start_time = 0, float p_pitch_scale = 1);
