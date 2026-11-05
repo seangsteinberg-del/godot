@@ -3447,6 +3447,23 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 		}
 	}
 
+	// LONGSHOT patch #94 (THE IMPORT'S INPUTS RE-IMPORT): the files the post-import script read, named on its scene's root (the meta
+	// `import_inputs`), each one's hash kept for the import's metadata and the meta taken off the scene - so a changed input makes the
+	// import again as a changed script does (#63); an input that does not exist fails the import (a script naming a file it never read)
+	Dictionary import_inputs;
+	if (scene && scene->has_meta(SNAME("import_inputs"))) {
+		const PackedStringArray inputs = scene->get_meta(SNAME("import_inputs"));
+		for (const String &input : inputs) {
+			if (!FileAccess::exists(input)) {
+				EditorNode::add_io_error(TTR("The post-import script names an input that does not exist:") + " " + input);
+				memdelete(scene);
+				return ERR_FILE_NOT_FOUND;
+			}
+			import_inputs[input] = FileAccess::get_md5(input);
+		}
+		scene->remove_meta(SNAME("import_inputs"));
+	}
+
 	for (int i = 0; i < post_importer_plugins.size(); i++) {
 		post_importer_plugins.write[i]->post_process(scene, p_options);
 	}
@@ -3503,6 +3520,9 @@ Error ResourceImporterScene::import(ResourceUID::ID p_source_id, const String &p
 		if (!post_import_script_path.is_empty() && FileAccess::exists(post_import_script_path)) {
 			meta["import_script_md5"] = FileAccess::get_md5(post_import_script_path);
 		}
+		if (!import_inputs.is_empty()) {
+			meta["import_inputs"] = import_inputs; // (patch #94: each input the script read, by its hash)
+		}
 		*r_metadata = meta;
 	}
 
@@ -3531,7 +3551,20 @@ bool ResourceImporterScene::are_import_settings_valid(const String &p_path, cons
 	if (!FileAccess::exists(script_path)) {
 		return true;
 	}
-	return p_meta.has("import_script_md5") && String(p_meta["import_script_md5"]) == FileAccess::get_md5(script_path);
+	if (!p_meta.has("import_script_md5") || String(p_meta["import_script_md5"]) != FileAccess::get_md5(script_path)) {
+		return false;
+	}
+	// LONGSHOT patch #94 (THE IMPORT'S INPUTS RE-IMPORT): and each file the script read reads as it did - one changed or gone since
+	// imports the scene again
+	const Dictionary inputs = p_meta.get("import_inputs", Dictionary());
+	const Array names = inputs.keys();
+	for (int i = 0; i < names.size(); i++) {
+		const String input = names[i];
+		if (!FileAccess::exists(input) || FileAccess::get_md5(input) != String(inputs[names[i]])) {
+			return false;
+		}
+	}
+	return true;
 }
 
 Vector<Ref<EditorSceneFormatImporter>> ResourceImporterScene::scene_importers;
