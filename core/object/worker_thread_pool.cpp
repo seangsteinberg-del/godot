@@ -134,6 +134,10 @@ void WorkerThreadPool::_process_task(Task *p_task) {
 		}
 
 		// For groups, tasks get rid of themselves.
+		// LONGSHOT patch #95 (THE TASK'S CAPTURES FREED PAST THE LOCK): this task's copy of the group's Callable goes first, while
+		// no lock is held and this is still the thread's task - when it is the last copy its captures end here, and one whose end
+		// waits on this pool must find `task_mutex` free (freed under it, it locked the mutex again on the thread that held it).
+		p_task->callable = Callable();
 
 		task_mutex.lock();
 		task_allocator.free(p_task);
@@ -401,6 +405,12 @@ bool WorkerThreadPool::is_task_completed(TaskID p_task_id) const {
 }
 
 Error WorkerThreadPool::wait_for_task_completion(TaskID p_task_id) {
+	// LONGSHOT patch #95 (THE TASK'S CAPTURES FREED PAST THE LOCK): the last waiter frees the task below under `task_mutex`, and the
+	// task's Callable - its captures - went with it: a capture holding the last reference to an object whose end waits on this pool
+	// (a material's shader: PipelineHashMapRD::clear_pipelines) locked `task_mutex` again on the thread that held it, and the engine
+	// aborted (std::_Throw_Cpp_error; the game's builder at a new craft, 11-06). The Callable is taken out of the task before the
+	// task is freed, and ends here as the function returns, past the unlock.
+	Callable released;
 	task_mutex.lock();
 	Task **taskp = tasks.getptr(p_task_id);
 	if (!taskp) {
@@ -411,6 +421,8 @@ Error WorkerThreadPool::wait_for_task_completion(TaskID p_task_id) {
 
 	if (task->completed) {
 		if (task->waiting_pool == 0 && task->waiting_user == 0) {
+			released = task->callable; // (patch #95: the captures end past the unlock)
+			task->callable = Callable();
 			tasks.erase(p_task_id);
 			task_allocator.free(task);
 		}
@@ -447,6 +459,8 @@ Error WorkerThreadPool::wait_for_task_completion(TaskID p_task_id) {
 		task_mutex.lock();
 		task->waiting_pool--;
 		if (task->waiting_pool == 0 && task->waiting_user == 0) {
+			released = task->callable; // (patch #95: the captures end past the unlock)
+			task->callable = Callable();
 			tasks.erase(p_task_id);
 			task_allocator.free(task);
 		}
@@ -456,6 +470,8 @@ Error WorkerThreadPool::wait_for_task_completion(TaskID p_task_id) {
 		task_mutex.lock();
 		task->waiting_user--;
 		if (task->waiting_pool == 0 && task->waiting_user == 0) {
+			released = task->callable; // (patch #95: the captures end past the unlock)
+			task->callable = Callable();
 			tasks.erase(p_task_id);
 			task_allocator.free(task);
 		}
