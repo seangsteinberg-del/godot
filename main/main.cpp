@@ -220,6 +220,7 @@ static String locale;
 static String log_file;
 static bool show_help = false;
 static uint64_t quit_after = 0;
+uint64_t longshot_iteration_parts_us[6] = { 0, 0, 0, 0, 0, 0 }; // LONGSHOT patch #97 THE ITERATION'S PARTS (11-08): the last iteration's main-thread time by part - the physics steps, the process callbacks, the deferred flush after them, the render sync, the draw call (the pre-draw hooks and the push), the whole - read by SceneTree::get_process_ledger_frame as "iteration_usec" (an extern there, so no header moves)
 static bool longshot_script_run = false; // LONGSHOT patch #90 THE RUN THAT HEARD A SCRIPT ERROR ENDS: a --script run (a smoke, a look, a probe)
 static bool longshot_end_on_script_error = false; // ... ends with exit code 2 at the first script error (longshot/tests/end_on_script_error)
 static ProcessID editor_pid = 0;
@@ -4972,6 +4973,7 @@ bool Main::iteration() {
 	XRServer::get_singleton()->_process();
 #endif // XR_DISABLED
 
+	const uint64_t ls_physics_begin = OS::get_singleton()->get_ticks_usec(); // LONGSHOT patch #97 THE ITERATION'S PARTS
 	GodotProfileZoneGrouped(_profile_zone, "physics");
 	for (int iters = 0; iters < advance.physics_steps; ++iters) {
 		GodotProfileZone("Physics Step");
@@ -5057,6 +5059,7 @@ bool Main::iteration() {
 
 		Engine::get_singleton()->_in_physics = false;
 	}
+	const uint64_t ls_physics_us = OS::get_singleton()->get_ticks_usec() - ls_physics_begin; // LONGSHOT patch #97
 
 	if (Input::get_singleton()->is_agile_input_event_flushing()) {
 		Input::get_singleton()->flush_buffered_events();
@@ -5068,7 +5071,9 @@ bool Main::iteration() {
 	if (OS::get_singleton()->get_main_loop()->process(process_step * time_scale)) {
 		exit = true;
 	}
+	const uint64_t ls_process_end = OS::get_singleton()->get_ticks_usec(); // LONGSHOT patch #97
 	message_queue->flush();
+	const uint64_t ls_flush_end = OS::get_singleton()->get_ticks_usec(); // LONGSHOT patch #97: the deferred calls' flush after the process callbacks
 
 #ifndef NAVIGATION_2D_DISABLED
 	GodotProfileZoneGrouped(_profile_zone, "process 2D navigation");
@@ -5079,8 +5084,10 @@ bool Main::iteration() {
 	NavigationServer3D::get_singleton()->process(process_step * time_scale);
 #endif // NAVIGATION_3D_DISABLED
 
+	const uint64_t ls_sync_begin = OS::get_singleton()->get_ticks_usec(); // LONGSHOT patch #97
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::sync");
 	RenderingServer::get_singleton()->sync(); //sync if still drawing from previous frames.
+	const uint64_t ls_sync_end = OS::get_singleton()->get_ticks_usec(); // LONGSHOT patch #97
 
 	GodotProfileZoneGrouped(_profile_zone, "RenderingServer::draw");
 	const bool has_pending_resources_for_processing = RD::get_singleton() && RD::get_singleton()->has_pending_resources_for_processing();
@@ -5102,6 +5109,15 @@ bool Main::iteration() {
 		}
 	}
 
+	{ // LONGSHOT patch #97 THE ITERATION'S PARTS: the last iteration by part, for the frame ledger's hitch line
+		const uint64_t ls_draw_end = OS::get_singleton()->get_ticks_usec();
+		longshot_iteration_parts_us[0] = ls_physics_us;
+		longshot_iteration_parts_us[1] = ls_process_end - process_begin;
+		longshot_iteration_parts_us[2] = ls_flush_end - ls_process_end;
+		longshot_iteration_parts_us[3] = ls_sync_end - ls_sync_begin;
+		longshot_iteration_parts_us[4] = ls_draw_end - ls_sync_end;
+		longshot_iteration_parts_us[5] = ls_draw_end - ticks;
+	}
 	process_ticks = OS::get_singleton()->get_ticks_usec() - process_begin;
 	process_max = MAX(process_ticks, process_max);
 	uint64_t frame_time = OS::get_singleton()->get_ticks_usec() - ticks;

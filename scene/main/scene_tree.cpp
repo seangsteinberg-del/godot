@@ -1300,6 +1300,8 @@ void SceneTree::process_ledger_draw(Node *p_node, uint64_t p_usec) {
 
 // THE HITCH'S OWNERS (longshot patch #49): the sums' growth since the last take, by owner, kept as the last iteration's; an owner whose sum
 // was reset (get_process_ledger(true) between takes) reads as its whole sum - the same frame the window opens, said once.
+extern uint64_t longshot_iteration_parts_us[6]; // LONGSHOT patch #97 THE ITERATION'S PARTS: defined in main/main.cpp, filled at each iteration's end
+
 void SceneTree::_process_ledger_frame_take() {
 	process_ledger_lock.lock();
 	for (int k = 0; k < 3; k++) {
@@ -1326,6 +1328,17 @@ Dictionary SceneTree::get_process_ledger_frame() {
 			us[String(kv.key)] = (int64_t)kv.value;
 		}
 		out[String(names[k]) + "_usec"] = us;
+	}
+	{ // LONGSHOT patch #97 THE ITERATION'S PARTS: the main loop's last iteration by part (usec), beside the owners - what a deferred call, a
+		// pre-draw hook or the physics step cost, which no node's process names
+		Dictionary it;
+		it["physics"] = (int64_t)longshot_iteration_parts_us[0];
+		it["process"] = (int64_t)longshot_iteration_parts_us[1];
+		it["deferred"] = (int64_t)longshot_iteration_parts_us[2];
+		it["sync"] = (int64_t)longshot_iteration_parts_us[3];
+		it["draw"] = (int64_t)longshot_iteration_parts_us[4];
+		it["whole"] = (int64_t)longshot_iteration_parts_us[5];
+		out["iteration_usec"] = it;
 	}
 	process_ledger_lock.unlock();
 	return out;
