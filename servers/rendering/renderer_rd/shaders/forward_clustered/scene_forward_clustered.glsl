@@ -2474,7 +2474,8 @@ void fragment_shader(in SceneData scene_data) {
 					// LONGSHOT patch #77 (THE FAR GROUND SHADOWS ITSELF): a material with `shadows_near` takes the sun's maps within the first
 					// three cascades alone; beyond their reach it is lit by its own law (the ground's relief statistics, its horizon tiles toward
 					// the sun), one shadow law a scale - the far ground was shadowed twice (the map's share times its horizon's) and sampled
-					// the maps for every far pixel
+					// the maps for every far pixel. LONGSHOT patch #96 (THE SHADOW BAND): the maps hand over to that law across the end of the
+					// third cascade (below, after the sample), never at a line
 #ifdef SHADOWS_NEAR
 					const bool shadow_beyond_near = depth_z >= directional_lights.data[i].shadow_split_offsets.z;
 #else
@@ -2663,6 +2664,18 @@ void fragment_shader(in SceneData scene_data) {
 							shadow = mix(shadow, shadow2, pssm_blend);
 						}
 					}
+
+#ifdef SHADOWS_NEAR
+					// LONGSHOT patch #96 (THE SHADOW BAND): a `shadows_near` material's maps hand over to its own shadow law across the end of the
+					// third cascade - from the light's fade_start share of that reach to the reach itself, the law the engine fades its last cascade
+					// by at the shadow's end - never at a line. With two splits the third cascade is the last and the engine's own fade below is the
+					// band; beyond the reach the sample above was skipped and the shadow already stands at one
+					if (directional_lights.data[i].shadow_split_offsets.z < directional_lights.data[i].shadow_split_offsets.w) {
+						float near_end = directional_lights.data[i].shadow_split_offsets.z;
+						float near_share = directional_lights.data[i].fade_to < 0.0 ? directional_lights.data[i].fade_from / directional_lights.data[i].fade_to : 1.0;
+						shadow = mix(shadow, 1.0, smoothstep(near_end * near_share, near_end, depth_z));
+					}
+#endif
 
 #ifdef USE_LIGHTMAP
 					if (shadowmask_mode == LIGHTMAP_SHADOWMASK_MODE_REPLACE) {
