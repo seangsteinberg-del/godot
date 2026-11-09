@@ -43,6 +43,7 @@
 
 #include <Jolt/Jolt.h>
 
+#include <Jolt/Core/Factory.h> // (Jolt 5.6: RegisterTypes.h no longer brings the Factory; Godot master's line)
 #include <Jolt/RegisterTypes.h>
 
 #include <cstdarg>
