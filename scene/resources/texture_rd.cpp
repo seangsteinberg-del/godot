@@ -93,6 +93,12 @@ void Texture2DRD::set_texture_rd_rid(RID p_texture_rd_rid) {
 void Texture2DRD::_set_texture_rd_rid(RID p_texture_rd_rid) {
 	ERR_FAIL_NULL(RD::get_singleton());
 	ERR_FAIL_COND(!RD::get_singleton()->texture_is_valid(p_texture_rd_rid));
+	// LONGSHOT patch #104 (A WRAPPER STANDS ON THE ORIGINAL): a device texture that is itself a view (texture_create_shared: the view the
+	// server makes for every wrapper, an sRGB view, a slice) is refused here, before anything is kept. The server refuses it later
+	// (texture_rd_initialize: "Please create the texture object using the original texture") - after texture_rd_create has allocated
+	// the RID this object then stores: a texture that was never made, which every material walk and the free print about and which
+	// draws as the default white (a giant's deck tint, 11-09: a dozen error lines a giant, its floor without its colour, two RIDs leaked)
+	ERR_FAIL_COND_MSG(RD::get_singleton()->texture_is_shared(p_texture_rd_rid), "A texture wrapper was handed a device texture that is a view of another texture (another wrapper's, an sRGB or a slice view): a wrapper stands on the original - bind the owner's Texture resource instead. Nothing was changed.");
 
 	RD::TextureFormat tf = RD::get_singleton()->texture_get_format(p_texture_rd_rid);
 	ERR_FAIL_COND(tf.texture_type != RD::TEXTURE_TYPE_2D);
@@ -199,6 +205,12 @@ void TextureLayeredRD::set_texture_rd_rid(RID p_texture_rd_rid) {
 void TextureLayeredRD::_set_texture_rd_rid(RID p_texture_rd_rid) {
 	ERR_FAIL_NULL(RD::get_singleton());
 	ERR_FAIL_COND(!RD::get_singleton()->texture_is_valid(p_texture_rd_rid));
+	// LONGSHOT patch #104 (A WRAPPER STANDS ON THE ORIGINAL): a device texture that is itself a view (texture_create_shared: the view the
+	// server makes for every wrapper, an sRGB view, a slice) is refused here, before anything is kept. The server refuses it later
+	// (texture_rd_initialize: "Please create the texture object using the original texture") - after texture_rd_create has allocated
+	// the RID this object then stores: a texture that was never made, which every material walk and the free print about and which
+	// draws as the default white (a giant's deck tint, 11-09: a dozen error lines a giant, its floor without its colour, two RIDs leaked)
+	ERR_FAIL_COND_MSG(RD::get_singleton()->texture_is_shared(p_texture_rd_rid), "A texture wrapper was handed a device texture that is a view of another texture (another wrapper's, an sRGB or a slice view): a wrapper stands on the original - bind the owner's Texture resource instead. Nothing was changed.");
 
 	RSE::TextureLayeredType rs_layer_type;
 	RD::TextureFormat tf = RD::get_singleton()->texture_get_format(p_texture_rd_rid);
@@ -320,6 +332,12 @@ void Texture3DRD::set_texture_rd_rid(RID p_texture_rd_rid) {
 void Texture3DRD::_set_texture_rd_rid(RID p_texture_rd_rid) {
 	ERR_FAIL_NULL(RD::get_singleton());
 	ERR_FAIL_COND(!RD::get_singleton()->texture_is_valid(p_texture_rd_rid));
+	// LONGSHOT patch #104 (A WRAPPER STANDS ON THE ORIGINAL): a device texture that is itself a view (texture_create_shared: the view the
+	// server makes for every wrapper, an sRGB view, a slice) is refused here, before anything is kept. The server refuses it later
+	// (texture_rd_initialize: "Please create the texture object using the original texture") - after texture_rd_create has allocated
+	// the RID this object then stores: a texture that was never made, which every material walk and the free print about and which
+	// draws as the default white (a giant's deck tint, 11-09: a dozen error lines a giant, its floor without its colour, two RIDs leaked)
+	ERR_FAIL_COND_MSG(RD::get_singleton()->texture_is_shared(p_texture_rd_rid), "A texture wrapper was handed a device texture that is a view of another texture (another wrapper's, an sRGB or a slice view): a wrapper stands on the original - bind the owner's Texture resource instead. Nothing was changed.");
 
 	RD::TextureFormat tf = RD::get_singleton()->texture_get_format(p_texture_rd_rid);
 	ERR_FAIL_COND(tf.texture_type != RD::TEXTURE_TYPE_3D);
