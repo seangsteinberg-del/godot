@@ -511,22 +511,19 @@ Files generated from upstream source:
 ## jolt_physics
 
 - Upstream: https://github.com/jrouwe/JoltPhysics
-- Version: 5.5.0 (23dadd0e603f1b321142d4c74df07fce85064989, 2025)
+- Version: 5.6.0 (e77f175595e64cb44218cc9d9d56fc365ad0e36a, 2026)
 - License: MIT
 
 Files extracted from upstream source:
 
-- All files in `Jolt/`, except `Jolt/Jolt.cmake` and any files dependent on `ENABLE_OBJECT_STREAM`, as seen in `Jolt/Jolt.cmake`
+- All files in `Jolt/`, except `Jolt/Jolt.cmake`, any files dependent on `ENABLE_OBJECT_STREAM` as seen in `Jolt/Jolt.cmake` and the `Jolt/Physics/Hair/`, `Jolt/Compute/` and `Jolt/Shaders/` folders.
 - `LICENSE`
 
 Patches:
 
-- `0001-backport-upstream-commit-ee3725250.patch` (GH-115089)
-- `0002-backport-upstream-commit-bc7f1fb8c.patch` (GH-115305)
-- `0003-backport-upstream-commit-365a15367.patch` (GH-115305)
-- `0004-backport-upstream-commit-e0a6a9a16.patch` (GH-115327)
-- `0005-backport-upstream-commit-449b645.patch` (GH-117194)
-- `0006-backport-upstream-commit-63765d1.patch` (GH-118393)
+- `0001-backport-upstream-commit-63f2f57.patch` (GH-121974)
+
+PROJECT LONGSHOT (11-09, the fleet lane): 5.6.0 taken for the sim core (modules/longshot_sim), which runs every craft, foot, dock and line through it; the 5.5.0 copy's six backports are upstream in 5.6.0. The sim's own extensions of Jolt live beside the library in modules/longshot_sim/core/flight, never in `Jolt/`.
 
 
 ## libbacktrace
