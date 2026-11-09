@@ -577,7 +577,7 @@ bool VehicleConstraint::SolveVelocityConstraint(float inDeltaTime)
 
 			// When reaching the minimal suspension length only allow forces pushing the bodies away
 			if (w->mSuspensionMaxUpPart.IsActive())
-				impulse |= w->mSuspensionMaxUpPart.SolveVelocityConstraint(*mBody, *w->mContactBody, neg_contact_normal, 0.0f, FLT_MAX);
+				impulse |= w->mSuspensionMaxUpPart.SolveVelocityConstraint(*mBody, *w->mContactBody, neg_contact_normal, 0.0f, w->mSettings->mSuspensionMaxUpImpulse); // LONGSHOT: a yielding stop's per-step cap (FLT_MAX: rigid, as before)
 		}
 
 	// Solve the horizontal movement of the vehicle
@@ -609,7 +609,7 @@ bool VehicleConstraint::SolvePositionConstraint(float inDeltaTime, float inBaumg
 			RVec3 ws_position = body_transform * settings->mPosition;
 			RVec3 min_suspension_pos = ws_position + settings->mSuspensionMinLength * ws_direction;
 			float max_up_error = float(RVec3(w->mContactNormal).Dot(min_suspension_pos) - w->mAxlePlaneConstant);
-			if (max_up_error < 0.0f)
+			if (max_up_error < 0.0f && settings->mSuspensionMaxUpImpulse >= FLT_MAX) // LONGSHOT: a yielding stop keeps what it gave (the stroke is plastic)
 			{
 				Vec3 neg_contact_normal = -w->mContactNormal;
 

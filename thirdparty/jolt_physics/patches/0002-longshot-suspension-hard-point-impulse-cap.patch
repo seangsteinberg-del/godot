@@ -1,0 +1,62 @@
+diff --git a/thirdparty/jolt_physics/Jolt/Physics/Vehicle/VehicleConstraint.cpp b/thirdparty/jolt_physics/Jolt/Physics/Vehicle/VehicleConstraint.cpp
+index cf961ec3d1..15d0b945fb 100644
+--- a/thirdparty/jolt_physics/Jolt/Physics/Vehicle/VehicleConstraint.cpp
++++ b/thirdparty/jolt_physics/Jolt/Physics/Vehicle/VehicleConstraint.cpp
+@@ -577,7 +577,7 @@ bool VehicleConstraint::SolveVelocityConstraint(float inDeltaTime)
+ 
+ 			// When reaching the minimal suspension length only allow forces pushing the bodies away
+ 			if (w->mSuspensionMaxUpPart.IsActive())
+-				impulse |= w->mSuspensionMaxUpPart.SolveVelocityConstraint(*mBody, *w->mContactBody, neg_contact_normal, 0.0f, FLT_MAX);
++				impulse |= w->mSuspensionMaxUpPart.SolveVelocityConstraint(*mBody, *w->mContactBody, neg_contact_normal, 0.0f, w->mSettings->mSuspensionMaxUpImpulse); // LONGSHOT: a yielding stop's per-step cap (FLT_MAX: rigid, as before)
+ 		}
+ 
+ 	// Solve the horizontal movement of the vehicle
+@@ -609,7 +609,7 @@ bool VehicleConstraint::SolvePositionConstraint(float inDeltaTime, float inBaumg
+ 			RVec3 ws_position = body_transform * settings->mPosition;
+ 			RVec3 min_suspension_pos = ws_position + settings->mSuspensionMinLength * ws_direction;
+ 			float max_up_error = float(RVec3(w->mContactNormal).Dot(min_suspension_pos) - w->mAxlePlaneConstant);
+-			if (max_up_error < 0.0f)
++			if (max_up_error < 0.0f && settings->mSuspensionMaxUpImpulse >= FLT_MAX) // LONGSHOT: a yielding stop keeps what it gave (the stroke is plastic)
+ 			{
+ 				Vec3 neg_contact_normal = -w->mContactNormal;
+ 
+diff --git a/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.cpp b/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.cpp
+index e43ffb8c9a..c3a97f3cb8 100644
+--- a/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.cpp
++++ b/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.cpp
+@@ -27,6 +27,7 @@ JPH_IMPLEMENT_SERIALIZABLE_VIRTUAL(WheelSettings)
+ 	JPH_ADD_ATTRIBUTE(WheelSettings, mRadius)
+ 	JPH_ADD_ATTRIBUTE(WheelSettings, mWidth)
+ 	JPH_ADD_ATTRIBUTE(WheelSettings, mEnableSuspensionForcePoint)
++	JPH_ADD_ATTRIBUTE(WheelSettings, mSuspensionMaxUpImpulse)
+ }
+ 
+ void WheelSettings::SaveBinaryState(StreamOut &inStream) const
+@@ -44,6 +45,7 @@ void WheelSettings::SaveBinaryState(StreamOut &inStream) const
+ 	inStream.Write(mRadius);
+ 	inStream.Write(mWidth);
+ 	inStream.Write(mEnableSuspensionForcePoint);
++	inStream.Write(mSuspensionMaxUpImpulse);
+ }
+ 
+ void WheelSettings::RestoreBinaryState(StreamIn &inStream)
+@@ -61,6 +63,7 @@ void WheelSettings::RestoreBinaryState(StreamIn &inStream)
+ 	inStream.Read(mRadius);
+ 	inStream.Read(mWidth);
+ 	inStream.Read(mEnableSuspensionForcePoint);
++	inStream.Read(mSuspensionMaxUpImpulse);
+ }
+ 
+ Wheel::Wheel(const WheelSettings &inSettings) :
+diff --git a/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.h b/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.h
+index 0e92caa7a4..8a9866873b 100644
+--- a/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.h
++++ b/thirdparty/jolt_physics/Jolt/Physics/Vehicle/Wheel.h
+@@ -39,6 +39,7 @@ public:
+ 	float					mRadius = 0.3f;								///< Radius of the wheel (m)
+ 	float					mWidth = 0.1f;								///< Width of the wheel (m)
+ 	bool					mEnableSuspensionForcePoint = false;		///< Enables mSuspensionForcePoint, if disabled, the forces are applied at the collision contact point. This leads to a more accurate simulation when interacting with dynamic objects but makes the vehicle less stable. When setting this to true, all forces will be applied to a fixed point on the vehicle body.
++	float					mSuspensionMaxUpImpulse = FLT_MAX;			///< LONGSHOT (additive): the most impulse (N s) the hard point at mSuspensionMinLength applies in one step. FLT_MAX is the rigid stop as before; a finite cap is a stop that YIELDS at a plateau force (a crushable cartridge): the suspension compresses past its minimum while the load exceeds the cap, and the position solve does not push it back out (the stroke is plastic; the owner reads the length below the minimum as the stroke and shortens the suspension).
+ };
+ 
+ /// Base class for runtime data for a wheel, each VehicleController can implement a derived class of this

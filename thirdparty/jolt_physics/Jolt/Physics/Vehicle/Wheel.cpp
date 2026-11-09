@@ -27,6 +27,7 @@ JPH_IMPLEMENT_SERIALIZABLE_VIRTUAL(WheelSettings)
 	JPH_ADD_ATTRIBUTE(WheelSettings, mRadius)
 	JPH_ADD_ATTRIBUTE(WheelSettings, mWidth)
 	JPH_ADD_ATTRIBUTE(WheelSettings, mEnableSuspensionForcePoint)
+	JPH_ADD_ATTRIBUTE(WheelSettings, mSuspensionMaxUpImpulse)
 }
 
 void WheelSettings::SaveBinaryState(StreamOut &inStream) const
@@ -44,6 +45,7 @@ void WheelSettings::SaveBinaryState(StreamOut &inStream) const
 	inStream.Write(mRadius);
 	inStream.Write(mWidth);
 	inStream.Write(mEnableSuspensionForcePoint);
+	inStream.Write(mSuspensionMaxUpImpulse);
 }
 
 void WheelSettings::RestoreBinaryState(StreamIn &inStream)
@@ -61,6 +63,7 @@ void WheelSettings::RestoreBinaryState(StreamIn &inStream)
 	inStream.Read(mRadius);
 	inStream.Read(mWidth);
 	inStream.Read(mEnableSuspensionForcePoint);
+	inStream.Read(mSuspensionMaxUpImpulse);
 }
 
 Wheel::Wheel(const WheelSettings &inSettings) :

@@ -39,6 +39,7 @@ public:
 	float					mRadius = 0.3f;								///< Radius of the wheel (m)
 	float					mWidth = 0.1f;								///< Width of the wheel (m)
 	bool					mEnableSuspensionForcePoint = false;		///< Enables mSuspensionForcePoint, if disabled, the forces are applied at the collision contact point. This leads to a more accurate simulation when interacting with dynamic objects but makes the vehicle less stable. When setting this to true, all forces will be applied to a fixed point on the vehicle body.
+	float					mSuspensionMaxUpImpulse = FLT_MAX;			///< LONGSHOT (additive): the most impulse (N s) the hard point at mSuspensionMinLength applies in one step. FLT_MAX is the rigid stop as before; a finite cap is a stop that YIELDS at a plateau force (a crushable cartridge): the suspension compresses past its minimum while the load exceeds the cap, and the position solve does not push it back out (the stroke is plastic; the owner reads the length below the minimum as the stroke and shortens the suspension).
 };
 
 /// Base class for runtime data for a wheel, each VehicleController can implement a derived class of this

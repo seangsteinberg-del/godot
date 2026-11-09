@@ -522,6 +522,10 @@ Files extracted from upstream source:
 Patches:
 
 - `0001-backport-upstream-commit-63f2f57.patch` (GH-121974)
+- `0002-longshot-suspension-hard-point-impulse-cap.patch` (PROJECT LONGSHOT, 11-09: `WheelSettings::mSuspensionMaxUpImpulse`, a per-step
+  impulse cap on the suspension's hard point - FLT_MAX is the rigid stop as before; a finite cap is a stop that yields at a plateau
+  force, a crushable cartridge, and the position solve does not push a yielded stop back out. Additive: nothing of Jolt's own behaviour
+  changes while the cap is infinite. Why: the sim core's landing legs crush at their cartridge's plateau, JOLT OWNS THE SANDBOX step 2)
 
 PROJECT LONGSHOT (11-09, the fleet lane): 5.6.0 taken for the sim core (modules/longshot_sim), which runs every craft, foot, dock and line through it; the 5.5.0 copy's six backports are upstream in 5.6.0. The sim's own extensions of Jolt live beside the library in modules/longshot_sim/core/flight, never in `Jolt/`.
 
