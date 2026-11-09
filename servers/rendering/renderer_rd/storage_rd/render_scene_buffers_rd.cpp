@@ -101,6 +101,7 @@ void RenderSceneBuffersRD::_bind_methods() {
 // LONGSHOT patch #18: the clouds hand over this frame's textures; they stand for this frame alone
 // LONGSHOT patch #83: the clouds' light map for the sun's shadow (set by the clouds effect each frame; read at the next frame's setup)
 void RenderSceneBuffersRD::set_longshot_cloud_shadow(RID p_near, RID p_far, RID p_dist, const float *p_frames, bool p_on) {
+	longshot_cloud_shadow_handed = RSG::rasterizer->get_frame_number();   // LONGSHOT patch #98: the hand is this frame's
 	longshot_cloud_shadow_tex[0] = p_near;
 	longshot_cloud_shadow_tex[1] = p_far;
 	longshot_cloud_shadow_tex[2] = p_dist;   // LONGSHOT patch #89: the distant tier
@@ -109,6 +110,15 @@ void RenderSceneBuffersRD::set_longshot_cloud_shadow(RID p_near, RID p_far, RID 
 }
 
 bool RenderSceneBuffersRD::has_longshot_cloud_shadow() const {
+	// LONGSHOT patch #98: THE HANDED SHADOW MAP STANDS ONE FRAME (11-09). The map stood from its hand until the next hand - and the clouds
+	// effect hands only while it renders: a layer parked out of the tree (a seat on a world without clouds), or hidden while its deck is
+	// drawn as a far air, hands no more, and the Earth's last clouds shaded the Moon's ground and the Earth's from orbit, gliding with the
+	// seat frame their windows stand in (the director's mark of 11-08). The law patch #18 gives the clouds' own textures (this frame
+	// alone) holds here too, with the one frame between the hand (during a frame's render) and the read (the next frame's setup)
+	const uint64_t frame = RSG::rasterizer->get_frame_number();
+	if (frame > longshot_cloud_shadow_handed + 1) {
+		return false;
+	}
 	return longshot_cloud_shadow_on && longshot_cloud_shadow_tex[0].is_valid() && longshot_cloud_shadow_tex[1].is_valid() && longshot_cloud_shadow_tex[2].is_valid() && RD::get_singleton()->texture_is_valid(longshot_cloud_shadow_tex[0]) && RD::get_singleton()->texture_is_valid(longshot_cloud_shadow_tex[1]) && RD::get_singleton()->texture_is_valid(longshot_cloud_shadow_tex[2]);
 }
 

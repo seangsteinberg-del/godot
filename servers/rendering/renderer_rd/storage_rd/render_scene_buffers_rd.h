@@ -217,6 +217,7 @@ public:
 	RID longshot_cloud_shadow_tex[3];   // LONGSHOT patch #89: the three tiers (the near, the far, the distant)
 	float longshot_cloud_shadow_frame[9][4] = {};
 	bool longshot_cloud_shadow_on = false;
+	uint64_t longshot_cloud_shadow_handed = 0;   // LONGSHOT patch #98: THE HANDED SHADOW MAP STANDS ONE FRAME - the frame the map was handed in; it answers "none" after the frame that follows (the effect hands during a frame's render, the next frame's setup reads it)
 	void set_longshot_cloud_shadow(RID p_near, RID p_far, RID p_dist, const float *p_frames, bool p_on);
 	bool has_longshot_cloud_shadow() const;
 	RID get_longshot_cloud_shadow(int p_tier) const { return longshot_cloud_shadow_tex[p_tier]; }
