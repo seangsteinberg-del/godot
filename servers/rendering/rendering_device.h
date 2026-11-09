@@ -467,6 +467,10 @@ public:
 	RID texture_create_from_extension(TextureType p_type, DataFormat p_format, TextureSamples p_samples, BitField<RenderingDevice::TextureUsageBits> p_usage, uint64_t p_image, uint64_t p_width, uint64_t p_height, uint64_t p_depth, uint64_t p_layers, uint64_t p_mipmaps = 1);
 	RID texture_create_shared_from_slice(const TextureView &p_view, RID p_with_texture, uint32_t p_layer, uint32_t p_mipmap, uint32_t p_mipmaps = 1, TextureSliceType p_slice_type = TEXTURE_SLICE_2D, uint32_t p_layers = 0);
 	Error texture_update(RID p_texture, uint32_t p_layer, const Vector<uint8_t> &p_data);
+	// LONGSHOT patch #99: THE DEVICE WRITES A TEXTURE FROM ITS OWN BUFFER - one mip of one layer copied from a buffer the device filled (a
+	// compute encoder's blocks: THE COLOUR BLOCK-COMPRESSED ON THE DEVICE), on the graph after the buffer's writer and before the texture's
+	// next reader; the texture needs TEXTURE_USAGE_CAN_UPDATE_BIT as texture_update's does, the buffer's bytes stand in the mip's block rows
+	Error texture_update_from_buffer(RID p_texture, uint32_t p_layer, uint32_t p_mipmap, RID p_buffer, uint32_t p_buffer_offset);
 	Vector<uint8_t> texture_get_data(RID p_texture, uint32_t p_layer); // CPU textures will return immediately, while GPU textures will most likely force a flush
 	Error texture_get_data_async(RID p_texture, uint32_t p_layer, const Callable &p_callback);
 

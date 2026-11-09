@@ -2294,6 +2294,96 @@ Error RenderingDevice::_texture_initialize(RID p_texture, uint32_t p_layer, cons
 	return OK;
 }
 
+// LONGSHOT patch #99: THE DEVICE WRITES A TEXTURE FROM ITS OWN BUFFER (11-09; THE COLOUR BLOCK-COMPRESSED ON THE DEVICE): one mip of one
+// layer of a texture copied from a buffer the device filled - a compute encoder's BC7 blocks - as texture_update copies from its staging
+// buffers, but from the caller's own buffer: the copy is recorded on the render graph with the buffer's tracker (it runs after the dispatch
+// that wrote the buffer) and the texture's (the texture's next reader waits for it). A block-compressed texture is no storage image and
+// has no uncompressed view across its layers without maintenance6, so the encoder writes blocks and the device copies them in. The bytes
+// at p_buffer_offset are the mip's rows of blocks, tight: a row is (the mip's padded width x the format's bytes a texel x the block's
+// width) >> the format's shift, as texture_update lays its regions out
+Error RenderingDevice::texture_update_from_buffer(RID p_texture, uint32_t p_layer, uint32_t p_mipmap, RID p_buffer, uint32_t p_buffer_offset) {
+	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
+
+	ERR_FAIL_COND_V_MSG(draw_list.active, ERR_INVALID_PARAMETER, "Updating textures is forbidden during creation of a draw list.");
+	ERR_FAIL_COND_V_MSG(compute_list.active, ERR_INVALID_PARAMETER, "Updating textures is forbidden during creation of a compute list.");
+	ERR_FAIL_COND_V_MSG(raytracing_list.active, ERR_INVALID_PARAMETER, "Updating textures is forbidden during creation of a raytracing list.");
+
+	Texture *texture = texture_owner.get_or_null(p_texture);
+	ERR_FAIL_NULL_V(texture, ERR_INVALID_PARAMETER);
+
+	if (texture->owner != RID()) {
+		p_texture = texture->owner;
+		texture = texture_owner.get_or_null(texture->owner);
+		ERR_FAIL_NULL_V(texture, ERR_BUG); // This is a bug.
+	}
+
+	ERR_FAIL_COND_V_MSG(texture->bound, ERR_CANT_ACQUIRE_RESOURCE,
+			"Texture can't be updated while a draw list that uses it as part of a framebuffer is being created.");
+	ERR_FAIL_COND_V_MSG(!(texture->usage_flags & TEXTURE_USAGE_CAN_UPDATE_BIT), ERR_INVALID_PARAMETER, "Texture requires the `RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT` to be set to be updatable.");
+
+	const uint32_t layer_count = _texture_layer_count(texture);
+	ERR_FAIL_COND_V(p_layer >= layer_count, ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(p_mipmap >= texture->mipmaps, ERR_INVALID_PARAMETER);
+
+	Buffer *buffer = _get_buffer_from_owner(p_buffer);
+	ERR_FAIL_NULL_V_MSG(buffer, ERR_INVALID_PARAMETER, "Source buffer argument is not a valid buffer of any type.");
+
+	// the mip's extent (padded to the format's blocks, as texture_update's regions are) and the bytes its rows of blocks take
+	uint32_t width = 0, height = 0, depth = 0;
+	get_image_format_required_size(texture->format, texture->width, texture->height, texture->depth, p_mipmap + 1, &width, &height, &depth);
+	uint32_t block_w = 0, block_h = 0;
+	get_compressed_image_format_block_dimensions(texture->format, block_w, block_h);
+	ERR_FAIL_COND_V(block_w == 0 || block_h == 0, ERR_BUG);
+	ERR_FAIL_COND_V(width % block_w, ERR_BUG);
+	ERR_FAIL_COND_V(height % block_h, ERR_BUG);
+	const uint32_t pixel_size = get_image_format_pixel_size(texture->format);
+	const uint32_t pixel_rshift = get_compressed_image_format_pixel_rshift(texture->format);
+	const uint32_t row_pitch = (width * pixel_size * block_w) >> pixel_rshift;
+	const uint32_t rows = height / block_h;
+	const uint64_t needed = uint64_t(p_buffer_offset) + uint64_t(row_pitch) * uint64_t(rows);
+	ERR_FAIL_COND_V_MSG(needed > buffer->size, ERR_INVALID_PARAMETER,
+			vformat("The buffer holds %d bytes; the mip %d of this texture needs %d from the offset %d.", buffer->size, p_mipmap, uint64_t(row_pitch) * uint64_t(rows), p_buffer_offset));
+	const uint32_t logic_w = MAX(1u, texture->width >> p_mipmap);
+	const uint32_t logic_h = MAX(1u, texture->height >> p_mipmap);
+
+	// Clear the texture if the driver requires it during its first use.
+	_texture_check_pending_clear(p_texture, texture);
+
+	_check_transfer_worker_texture(texture);
+	_check_transfer_worker_buffer(buffer);
+
+	// Indicate the texture will get modified for the shared texture fallback.
+	_texture_update_shared_fallback(p_texture, texture, true);
+
+	RDD::BufferTextureCopyRegion copy_region;
+	copy_region.buffer_offset = p_buffer_offset;
+	copy_region.row_pitch = row_pitch;
+	copy_region.texture_subresource.aspect = texture->read_aspect_flags.has_flag(RDD::TEXTURE_ASPECT_DEPTH_BIT) ? RDD::TEXTURE_ASPECT_DEPTH : RDD::TEXTURE_ASPECT_COLOR;
+	copy_region.texture_subresource.mipmap = p_mipmap;
+	copy_region.texture_subresource.layer = p_layer;
+	copy_region.texture_offset = Vector3i(0, 0, 0);
+	copy_region.texture_region_size = Vector3i(logic_w, logic_h, 1);
+
+	RDG::RecordedBufferToTextureCopy buffer_to_texture_copy;
+	buffer_to_texture_copy.from_buffer = buffer->driver_id;
+	buffer_to_texture_copy.region = copy_region;
+
+	if (_texture_make_mutable(texture, p_texture)) {
+		// The texture must be mutable to be used as a copy destination.
+		draw_graph.add_synchronization();
+	}
+	if (_buffer_make_mutable(buffer, p_buffer)) {
+		// A buffer the device wrote carries its tracker already (its uniform set made it); one never bound before is made trackable here
+		draw_graph.add_synchronization();
+	}
+
+	// the buffer's tracker orders the copy after the dispatch that filled it (texture_update's staging buffers have none to order by)
+	RDG::ResourceTracker *buffer_tracker = buffer->draw_tracker;
+	draw_graph.add_texture_update(texture->driver_id, texture->draw_tracker, VectorView<RDG::RecordedBufferToTextureCopy>(&buffer_to_texture_copy, 1), VectorView<RDG::ResourceTracker *>(&buffer_tracker, 1));
+
+	return OK;
+}
+
 Error RenderingDevice::texture_update(RID p_texture, uint32_t p_layer, const Vector<uint8_t> &p_data) {
 	ERR_RENDER_THREAD_GUARD_V(ERR_UNAVAILABLE);
 
@@ -9261,6 +9351,7 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("texture_create_from_extension", "type", "format", "samples", "usage_flags", "image", "width", "height", "depth", "layers", "mipmaps"), &RenderingDevice::texture_create_from_extension, DEFVAL(1));
 
 	ClassDB::bind_method(D_METHOD("texture_update", "texture", "layer", "data"), &RenderingDevice::texture_update);
+	ClassDB::bind_method(D_METHOD("texture_update_from_buffer", "texture", "layer", "mipmap", "buffer", "buffer_offset"), &RenderingDevice::texture_update_from_buffer);   // LONGSHOT patch #99
 	ClassDB::bind_method(D_METHOD("texture_get_data", "texture", "layer"), &RenderingDevice::texture_get_data);
 	ClassDB::bind_method(D_METHOD("texture_get_data_async", "texture", "layer", "callback"), &RenderingDevice::texture_get_data_async);
 
