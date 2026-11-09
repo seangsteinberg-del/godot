@@ -3030,25 +3030,37 @@ void LightStorage::set_directional_shadow_count(int p_count) {
 	directional_shadow.current_light = 0;
 }
 
+// LONGSHOT patch #102 (THE CASCADE IS SQUARE BY CONSTRUCTION): the atlas is divided among the casting lights in a SQUARE grid - the side
+// doubled until its cells hold them - and a light's cell among its cascades in quarters (directional_shadow_cascade_rect), so a cascade's
+// rect is a square at every count of lights and every split mode. Upstream doubled the columns before the rows (two lights: two upright
+// halves) and gave a two-split light two flat halves, and returned the longer side as the cascade's size; the kept maps (#65), their
+// scroll (#66: the window exactly 2R wide, the texel exactly 2R / size, the strips in texels of that size on both axes) and the region
+// clear (#68) take that one size for both sides, so a second casting light or a two-split light ran the strips, the clear and the blit off
+// the cascade's rect - `draw_list_begin: custom region must be contained within the framebuffer` and a corrupt map (9,615 pairs in one
+// play of 11-09, two lights casting over a red dwarf's moon). The layout has one law and one place now, and every size is a square's side
 static Rect2i _get_directional_shadow_rect(int p_size, int p_shadow_count, int p_shadow_index) {
-	int split_h = 1;
-	int split_v = 1;
-
-	while (split_h * split_v < p_shadow_count) {
-		if (split_h == split_v) {
-			split_h <<= 1;
-		} else {
-			split_v <<= 1;
-		}
+	int split = 1;
+	while (split * split < p_shadow_count) {
+		split <<= 1;
 	}
 
-	Rect2i rect(0, 0, p_size, p_size);
-	rect.size.width /= split_h;
-	rect.size.height /= split_v;
+	Rect2i rect(0, 0, p_size / split, p_size / split);
+	rect.position.x = rect.size.width * (p_shadow_index % split);
+	rect.position.y = rect.size.height * (p_shadow_index / split);
 
-	rect.position.x = rect.size.width * (p_shadow_index % split_h);
-	rect.position.y = rect.size.height * (p_shadow_index / split_h);
+	return rect;
+}
 
+// LONGSHOT patch #102: a cascade's rect within its light's cell - the cell whole for one cascade, its quarters in reading order for two
+// or four (two cascades leave the lower pair unused: a square each, where upstream's flat halves were twice as wide as tall)
+Rect2i LightStorage::directional_shadow_cascade_rect(const Rect2i &p_light_rect, RSE::LightDirectionalShadowMode p_mode, int p_cascade) {
+	Rect2i rect = p_light_rect;
+	if (p_mode == RSE::LIGHT_DIRECTIONAL_SHADOW_ORTHOGONAL) {
+		return rect;
+	}
+	rect.size /= 2;
+	rect.position.x += rect.size.width * (p_cascade & 1);
+	rect.position.y += rect.size.height * (p_cascade >> 1);
 	return rect;
 }
 
@@ -3064,18 +3076,8 @@ int LightStorage::get_directional_light_shadow_size(RID p_light_instance) {
 	LightInstance *light_instance = light_instance_owner.get_or_null(p_light_instance);
 	ERR_FAIL_NULL_V(light_instance, 0);
 
-	switch (light_directional_get_shadow_mode(light_instance->light)) {
-		case RSE::LIGHT_DIRECTIONAL_SHADOW_ORTHOGONAL:
-			break; //none
-		case RSE::LIGHT_DIRECTIONAL_SHADOW_PARALLEL_2_SPLITS:
-			r.size.height /= 2;
-			break;
-		case RSE::LIGHT_DIRECTIONAL_SHADOW_PARALLEL_4_SPLITS:
-			r.size /= 2;
-			break;
-	}
-
-	return MAX(r.size.width, r.size.height);
+	// LONGSHOT patch #102: the cascade's side from the one law of the layout (a square: either side)
+	return directional_shadow_cascade_rect(r, light_directional_get_shadow_mode(light_instance->light), 0).size.width;
 }
 
 /* SHADOW CUBEMAPS */

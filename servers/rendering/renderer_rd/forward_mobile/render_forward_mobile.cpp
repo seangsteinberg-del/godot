@@ -1444,27 +1444,8 @@ void RenderForwardMobile::_render_shadow_pass(RID p_light, RID p_shadow_atlas, i
 		light_projection = light_storage->light_instance_get_shadow_camera(p_light, p_pass);
 		light_transform = light_storage->light_instance_get_shadow_transform(p_light, p_pass);
 
-		atlas_rect = light_storage->light_instance_get_directional_rect(p_light);
-
-		if (light_storage->light_directional_get_shadow_mode(base) == RSE::LIGHT_DIRECTIONAL_SHADOW_PARALLEL_4_SPLITS) {
-			atlas_rect.size.width /= 2;
-			atlas_rect.size.height /= 2;
-
-			if (p_pass == 1) {
-				atlas_rect.position.x += atlas_rect.size.width;
-			} else if (p_pass == 2) {
-				atlas_rect.position.y += atlas_rect.size.height;
-			} else if (p_pass == 3) {
-				atlas_rect.position += atlas_rect.size;
-			}
-		} else if (light_storage->light_directional_get_shadow_mode(base) == RSE::LIGHT_DIRECTIONAL_SHADOW_PARALLEL_2_SPLITS) {
-			atlas_rect.size.height /= 2;
-
-			if (p_pass == 0) {
-			} else {
-				atlas_rect.position.y += atlas_rect.size.height;
-			}
-		}
+		// LONGSHOT patch #102 (THE CASCADE IS SQUARE BY CONSTRUCTION): the cascade's rect from the layout's one law (light_storage.cpp)
+		atlas_rect = RendererRD::LightStorage::directional_shadow_cascade_rect(light_storage->light_instance_get_directional_rect(p_light), light_storage->light_directional_get_shadow_mode(base), p_pass);
 
 		float directional_shadow_size = light_storage->directional_shadow_get_size();
 		Rect2 atlas_rect_norm = atlas_rect;

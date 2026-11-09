@@ -2697,6 +2697,13 @@ void fragment_shader(in SceneData scene_data) {
 #undef BIAS_FUNC
 				} // shadows
 
+				// LONGSHOT patch #102 (THE DECK'S SHADE IS THE LIGHT'S, NEVER THE MAPS'): the light's shadow opacity is its MAPS' share - the game
+				// hands the maps from one light to the next through nought (docs/manual/sky.md THE SHADOWS ARE THE BRIGHTEST LIGHT'S, HANDED OVER
+				// AT NOUGHT) - so it is taken here, on the maps alone, before the clouds' transmittance. Upstream's mix after the unpack (the
+				// second loop) thinned the deck's shade with the maps, and a light whose maps were off lost the shade whole while its energy
+				// stood clear-sky (#83)
+				shadow = mix(1.0, shadow, directional_lights.data[i].shadow_opacity);
+
 				shadow *= longshot_cloud_sun_shadow((inv_view_matrix * vec4(vertex, 1.0)).xyz); // LONGSHOT patch #83: the clouds' transmittance on the light's shadow
 
 				if (i < 4) {
@@ -2794,7 +2801,11 @@ void fragment_shader(in SceneData scene_data) {
 				shadow = float(shadow1 >> ((i - 4u) * 8u) & 0xFFu) / 255.0;
 			}
 
-			shadow = mix(1.0, shadow, directional_lights.data[i].shadow_opacity);
+#ifdef USE_LIGHTMAP
+			if (shadowmask_mode == LIGHTMAP_SHADOWMASK_MODE_ONLY) {
+				shadow = mix(1.0, shadow, directional_lights.data[i].shadow_opacity); // LONGSHOT patch #102: the opacity is taken in the first loop, on the maps alone; a shadowmask that stands in for that loop takes it here, as upstream did
+			}
+#endif
 #endif
 
 			blur_shadow(shadow);

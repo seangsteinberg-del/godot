@@ -1233,6 +1233,7 @@ public:
 	virtual void set_directional_shadow_count(int p_count) override;
 
 	Rect2i get_directional_shadow_rect();
+	static Rect2i directional_shadow_cascade_rect(const Rect2i &p_light_rect, RSE::LightDirectionalShadowMode p_mode, int p_cascade); // LONGSHOT patch #102: THE CASCADE IS SQUARE BY CONSTRUCTION
 	void update_directional_shadow_atlas();
 
 	_FORCE_INLINE_ RID directional_shadow_get_texture() {
