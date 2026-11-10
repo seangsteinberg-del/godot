@@ -374,11 +374,98 @@ static void _longshot_terminate() {
 	signal(SIGABRT, SIG_DFL);
 	abort();
 }
+
+// LONGSHOT patch #105 (THE CRASH HEARD ON EVERY THREAD, THE MACHINE'S ROOM SAID): the engine's crash filter stood on main()'s __try
+// alone, so an access violation on any other thread - a pool worker, a module's own thread, the audio's, a driver's - ended the
+// process with no line at all, and a stack overflow on the main thread died inside the filter that tried to walk it on the stack it
+// had run out of. On 11-10 five boots of the launch pad returned 139 and said nothing: the machine was out of commit (Windows' own
+// record at each death, System log 2004) and an allocation refused off the main thread killed each one. One filter now serves
+// main()'s __except and the process's unhandled exceptions:
+//   - THE RAW LINE FIRST, lock-free and straight to stderr: the exception's code, where it stood (an offset from the executable's
+//     base), the thread, and THE MACHINE'S ROOM - the commit this process may still take, of the machine's limit - with OUT OF MEMORY
+//     said in words under OUT_OF_ROOM_MB (a refused allocation is the machine's, not the code's: who holds it is asked of the
+//     machine, never guessed from the code);
+//   - then the same symbol backtrace as a crash on the main thread, of the thread that raised it;
+//   - A STACK OVERFLOW IS WALKED FROM ANOTHER STACK: a helper thread walks the overflowed thread's own context while it waits (the
+//     main thread also keeps OVERFLOW_ROOM_BYTES of stack in hand for the filter itself, SetThreadStackGuarantee);
+//   - ONE WALKER: the first thread to raise walks, a later one says its raw line and holds (as the abort's, patch #72).
+static const unsigned long long OUT_OF_ROOM_MB = 2048;
+static const ULONG OVERFLOW_ROOM_BYTES = 128 * 1024;
+static std::atomic<DWORD> g_crash_walker{ 0 };
+static EXCEPTION_POINTERS *g_overflow_ep = nullptr;
+
+static void _longshot_raw_exception(const EXCEPTION_POINTERS *p_ep, DWORD p_thread) {
+	MEMORYSTATUSEX ms;
+	ms.dwLength = sizeof(ms);
+	unsigned long long free_mb = 0, limit_mb = 0;
+	if (GlobalMemoryStatusEx(&ms)) {
+		free_mb = (unsigned long long)(ms.ullAvailPageFile >> 20);
+		limit_mb = (unsigned long long)(ms.ullTotalPageFile >> 20);
+	}
+	const uintptr_t base = (uintptr_t)GetModuleHandleW(nullptr);
+	const uintptr_t at = (uintptr_t)p_ep->ExceptionRecord->ExceptionAddress;
+	const bool ours = at >= base && at - base < (uintptr_t)0x40000000;
+	char line[640];
+	snprintf(line, sizeof(line), "LONGSHOT: an exception 0x%08lx at %s%llx on thread %lu; the machine's room: %llu MB of commit free of %llu%s",
+			(unsigned long)p_ep->ExceptionRecord->ExceptionCode, ours ? "+" : "", (unsigned long long)(ours ? at - base : at), (unsigned long)p_thread, free_mb, limit_mb,
+			limit_mb > 0 && free_mb < OUT_OF_ROOM_MB ? " - OUT OF MEMORY: the machine's, not the code's (who holds it: Get-Process by PagedMemorySize64)" : "");
+	_longshot_say(line);
+}
+
+static DWORD WINAPI _longshot_overflow_walk(LPVOID) {
+	if (g_overflow_ep) {
+		CrashHandlerException(g_overflow_ep);
+	}
+	return 0;
+}
+
+DWORD LongshotCrashFilter(EXCEPTION_POINTERS *p_ep) {
+	if (p_ep == nullptr || p_ep->ExceptionRecord == nullptr || p_ep->ContextRecord == nullptr) {
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	if (OS::get_singleton() == nullptr || OS::get_singleton()->is_disable_crash_handler() || IsDebuggerPresent()) {
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	const DWORD me = GetCurrentThreadId();
+	DWORD walker = 0;
+	if (!g_crash_walker.compare_exchange_strong(walker, me)) {
+		if (walker == me) {
+			return EXCEPTION_CONTINUE_SEARCH; // this thread's exception is told already (main()'s filter, then the process's)
+		}
+		_longshot_raw_exception(p_ep, me);
+		char line[256];
+		snprintf(line, sizeof(line), "LONGSHOT: thread %lu holds while thread %lu walks its backtrace", (unsigned long)me, (unsigned long)walker);
+		_longshot_say(line);
+		Sleep(INFINITE);
+	}
+	_longshot_raw_exception(p_ep, me);
+	if (p_ep->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
+		_longshot_say("LONGSHOT: a stack overflow - its backtrace walked from another thread's stack");
+		g_overflow_ep = p_ep;
+		HANDLE helper = CreateThread(nullptr, 0, _longshot_overflow_walk, nullptr, 0, nullptr);
+		if (helper) {
+			WaitForSingleObject(helper, INFINITE);
+			CloseHandle(helper);
+		}
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	return CrashHandlerException(p_ep);
+}
+
+static LONG WINAPI _longshot_unhandled(EXCEPTION_POINTERS *p_ep) {
+	return (LONG)LongshotCrashFilter(p_ep);
+}
 #endif
 
 void CrashHandler::initialize() {
 #ifdef CRASH_HANDLER_EXCEPTION
 	signal(SIGABRT, _longshot_sigabrt); // LONGSHOT patch #72
 	std::set_terminate(_longshot_terminate);
+#ifdef _MSC_VER
+	// LONGSHOT patch #105: every thread's unhandled exception comes to the one filter, and the main thread keeps room for it
+	SetUnhandledExceptionFilter(_longshot_unhandled);
+	ULONG overflow_room = OVERFLOW_ROOM_BYTES;
+	SetThreadStackGuarantee(&overflow_room);
+#endif
 #endif
 }

@@ -38,6 +38,8 @@
 
 #ifdef _MSC_VER
 extern DWORD CrashHandlerException(EXCEPTION_POINTERS *ep);
+// LONGSHOT patch #105 (THE CRASH HEARD ON EVERY THREAD): the one filter of main()'s __except and of the process's unhandled exceptions
+extern DWORD LongshotCrashFilter(EXCEPTION_POINTERS *ep);
 #endif
 
 #endif

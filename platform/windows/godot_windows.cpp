@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
 #if defined(CRASH_HANDLER_EXCEPTION) && defined(_MSC_VER)
 	__try {
 		return _main();
-	} __except (CrashHandlerException(GetExceptionInformation())) {
+	} __except (LongshotCrashFilter(GetExceptionInformation())) { // LONGSHOT patch #105 (THE CRASH HEARD ON EVERY THREAD)
 		return 1;
 	}
 #else
