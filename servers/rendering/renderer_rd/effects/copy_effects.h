@@ -281,8 +281,8 @@ private:
 
 	struct OctmapFilterPushConstant {
 		float border_size[2];
-		uint32_t pad1;
-		uint32_t pad2;
+		uint32_t base_resolution; // LONGSHOT #106: the first destination level's own width (octmap_filter).
+		uint32_t pad;
 	};
 
 	struct OctmapFilterRasterPushConstant {

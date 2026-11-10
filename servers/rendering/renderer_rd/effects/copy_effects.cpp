@@ -1222,15 +1222,19 @@ void CopyEffects::octmap_downsample_raster(RID p_source_octmap, RID p_dest_frame
 	RD::get_singleton()->draw_list_end();
 }
 
-static constexpr int _compute_dispatch_size(bool p_use_array) {
-	constexpr int SIZE = 320;
-	constexpr int GROUP = 64;
+// LONGSHOT #106 (THE FAST FILTER WRITES THE ATLAS IT IS GIVEN): the groups that cover every texel of the destination's six levels from
+// `p_base`, the first level's own width (the shader walks the same chain). Upstream covered a fixed 320-pixel chain - the levels of a
+// 256 atlas - whatever the destination was: #103 let a realtime probe keep the project's atlas (512 here, its levels 576, 288, ...),
+// and every rough level of a mirror's picture then lay in a corner of its mipmap with the rest never written - the whole world
+// squeezed into one side of a visor and black over the rest of it.
+static int64_t _compute_dispatch_size(bool p_use_array, int64_t p_base) {
+	constexpr int64_t GROUP = 64;
 	constexpr int LEVELS = 6; // One less than Sky::REAL_TIME_ROUGHNESS_LAYERS.
-	int size = 0;
+	int64_t size = 0;
 	if (p_use_array) {
-		size = SIZE * SIZE * LEVELS;
+		size = p_base * p_base * LEVELS;
 	} else {
-		int dim = SIZE;
+		int64_t dim = p_base;
 		for (int i = 0; i < LEVELS && dim >= 2; i++) {
 			size += dim * dim;
 			dim >>= 1;
@@ -1295,6 +1299,15 @@ void CopyEffects::octmap_filter(RID p_source_octmap, const Vector<RID> &p_dest_o
 	RID shader = filter.compute_shader.version_get_shader(filter.shader_version, mode);
 	ERR_FAIL_COND(shader.is_null());
 
+	// LONGSHOT #106: the filter's chain starts at the first destination's own width (in an array a level holds four texels for each
+	// one filtered: half its width), and the groups cover that chain.
+	const uint32_t base_resolution = p_use_array ? texture_format.width / 2 : texture_format.width;
+	ERR_FAIL_COND_MSG(base_resolution < 2, "The octmap filter's first destination is under two texels wide.");
+	const int64_t groups = _compute_dispatch_size(p_use_array, base_resolution);
+	ERR_FAIL_COND_MSG(groups > int64_t(RD::get_singleton()->limit_get(RD::LIMIT_MAX_COMPUTE_WORKGROUP_COUNT_X)), vformat("The octmap filter's destination (%d texels wide) asks more compute groups than the device runs in one dispatch.", base_resolution));
+	push_constant.base_resolution = base_resolution;
+	push_constant.pad = 0;
+
 	RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 	RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, filter.compute_pipelines[mode].get_rid());
 	RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(shader, 0, u_source_octmap), 0);
@@ -1303,7 +1316,7 @@ void CopyEffects::octmap_filter(RID p_source_octmap, const Vector<RID> &p_dest_o
 
 	RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(OctmapFilterPushConstant));
 
-	RD::get_singleton()->compute_list_dispatch(compute_list, _compute_dispatch_size(p_use_array), 1, 1);
+	RD::get_singleton()->compute_list_dispatch(compute_list, uint32_t(groups), 1, 1);
 
 	RD::get_singleton()->compute_list_end();
 }

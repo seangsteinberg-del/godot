@@ -44,13 +44,15 @@ layout(OCTMAP_FORMAT, set = 2, binding = 5) uniform restrict writeonly image2D d
 #define NUM_TAPS 8
 #endif
 
+// LONGSHOT #106 (THE FAST FILTER WRITES THE ATLAS IT IS GIVEN): the first destination level's own width - each level after it half the
+// one before, as the destination's own mipmaps are (in an array every level the same). Upstream wrote a fixed 320-pixel chain, the
+// levels of a 256 atlas: into any other atlas each level's picture lay in a corner of its mipmap, the rest never written.
 layout(push_constant, std430) uniform Params {
 	vec2 border_size;
-	vec2 pad;
+	uint base_resolution;
+	uint pad;
 }
 params;
-
-#define BASE_RESOLUTION 320
 
 #ifdef USE_HIGH_QUALITY
 layout(set = 1, binding = 0, std430) buffer restrict readonly Data {
@@ -69,16 +71,16 @@ void main() {
 	uvec2 id = gl_GlobalInvocationID.xy;
 	uint mip_level = 0;
 #ifndef USE_TEXTURE_ARRAY
-	uint res = BASE_RESOLUTION;
+	uint res = params.base_resolution;
 	while ((id.x >= (res * res)) && (res > 1)) {
 		id.x -= res * res;
 		res = res >> 1;
 		mip_level++;
 	}
 #else // Using Texture Arrays so all levels are the same resolution
-	uint res = BASE_RESOLUTION;
-	mip_level = id.x / (BASE_RESOLUTION * BASE_RESOLUTION);
-	id.x -= mip_level * BASE_RESOLUTION * BASE_RESOLUTION;
+	uint res = params.base_resolution;
+	mip_level = id.x / (res * res);
+	id.x -= mip_level * res * res;
 #endif
 	// Determine the direction from the texel's position.
 	id.y = id.x / res;
