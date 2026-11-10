@@ -203,6 +203,9 @@ public:
 	virtual bool reflection_probe_instance_needs_redraw(RID p_instance) = 0;
 	virtual bool reflection_probe_instance_has_reflection(RID p_instance) = 0;
 	virtual bool reflection_probe_instance_begin_render(RID p_instance, RID p_reflection_atlas) = 0;
+	// LONGSHOT #103 (THE SLICED REALTIME PROBE): the faces of its cube the probe renders this frame, a bit a face (+X -X +Y -Y +Z -Z);
+	// all six unless the backend slices a realtime probe. Asked once a frame, after begin_render.
+	virtual uint32_t reflection_probe_instance_faces_to_render(RID p_instance) { return 0x3F; }
 	virtual bool reflection_probe_instance_end_render(RID p_instance, RID p_reflection_atlas) = 0;
 	virtual Ref<RenderSceneBuffers> reflection_probe_atlas_get_render_buffers(RID p_reflection_atlas) = 0;
 	virtual bool reflection_probe_instance_postprocess_step(RID p_instance) = 0;

@@ -285,6 +285,7 @@ private:
 
 		RID reflection;
 		RID color_buffer;
+		RID cube_owner; // LONGSHOT #103: the probe instance whose picture the cube buffer holds (one cube an atlas: another probe's render takes it).
 		RID color_views[6];
 		RID color_fbs[6];
 		RID depth_buffer;
@@ -316,6 +317,9 @@ private:
 		bool dirty = true;
 		bool rendering = false;
 		int processing_layer = 1;
+
+		// LONGSHOT #103 (THE SLICED REALTIME PROBE): the face the next slice renders.
+		uint32_t slice_cursor = 0;
 
 		uint64_t last_pass = 0;
 		uint32_t cull_mask = 0;
@@ -1005,6 +1009,7 @@ public:
 	virtual bool reflection_probe_instance_needs_redraw(RID p_instance) override;
 	virtual bool reflection_probe_instance_has_reflection(RID p_instance) override;
 	virtual bool reflection_probe_instance_begin_render(RID p_instance, RID p_reflection_atlas) override;
+	virtual uint32_t reflection_probe_instance_faces_to_render(RID p_instance) override;
 	virtual bool reflection_probe_instance_end_render(RID p_instance, RID p_reflection_atlas) override;
 	virtual Ref<RenderSceneBuffers> reflection_probe_atlas_get_render_buffers(RID p_reflection_atlas) override;
 	virtual bool reflection_probe_instance_postprocess_step(RID p_instance) override;

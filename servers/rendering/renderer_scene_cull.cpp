@@ -4260,11 +4260,19 @@ bool RendererSceneCull::_render_reflection_probe_step(Instance *p_instance, int 
 		RID shadow_atlas = use_shadows ? scenario->reflection_probe_shadow_atlas : RID();
 		RID environment = scenario->environment.is_valid() ? scenario->environment : scenario->fallback_environment;
 		Ref<RenderSceneBuffers> render_buffers = RSG::light_storage->reflection_probe_atlas_get_render_buffers(scenario->reflection_atlas);
+		// LONGSHOT #103 (THE SLICED REALTIME PROBE): the far plane is the one distance for every face (upstream grows it face by face), and
+		// only the faces the storage names are rendered this frame - all six, or a realtime probe's slice.
 		for (uint32_t face = 0; face < 6; face++) {
 			// Compute distance from origin offset to the actual view distance limit.
 			Vector3 edge = view_normals[face] * probe_size / 2;
 			float distance = Math::abs(view_normals[face].dot(edge) - view_normals[face].dot(origin_offset));
 			max_distance = MAX(max_distance, distance);
+		}
+		const uint32_t faces_to_render = RSG::light_storage->reflection_probe_instance_faces_to_render(reflection_probe->instance);
+		for (uint32_t face = 0; face < 6; face++) {
+			if (!(faces_to_render & (1u << face))) {
+				continue;
+			}
 
 			// Render cubemap side.
 			Projection cm;

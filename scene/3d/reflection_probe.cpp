@@ -82,8 +82,10 @@ Color ReflectionProbe::get_ambient_color() const {
 }
 
 void ReflectionProbe::set_max_distance(float p_distance) {
-	max_distance = CLAMP(p_distance, 0.0, 262'144.0);
-	// Reflection rendering breaks if distance exceeds 262,144 units (due to floating-point precision with the near plane being 0.01).
+	// LONGSHOT #103 (THE SLICED REALTIME PROBE): the fork is built in double precision and draws reversed depth, so a probe's far plane
+	// may stand where a camera's does (upstream stops at 262,144 units: its single-precision projection loses the centimetre near
+	// plane past that). A true-scale scene's probe reaches its planet from orbit.
+	max_distance = CLAMP(p_distance, 0.0, 1.0e13);
 	RS::get_singleton()->reflection_probe_set_max_distance(probe, max_distance);
 }
 

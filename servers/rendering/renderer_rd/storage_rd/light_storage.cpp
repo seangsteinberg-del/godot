@@ -1779,6 +1779,7 @@ void LightStorage::reflection_atlas_free(RID p_ref_atlas) {
 void LightStorage::_reflection_atlas_clear(ReflectionAtlas *p_reflection_atlas) {
 	RD::get_singleton()->free_rid(p_reflection_atlas->reflection);
 	p_reflection_atlas->reflection = RID();
+	p_reflection_atlas->cube_owner = RID(); // LONGSHOT #103: the cube goes with the atlas.
 
 	RD::get_singleton()->free_rid(p_reflection_atlas->depth_fb);
 	p_reflection_atlas->depth_fb = RID();
@@ -1935,10 +1936,9 @@ bool LightStorage::reflection_probe_instance_begin_render(RID p_instance, RID p_
 	RD::get_singleton()->draw_command_begin_label("Reflection Probe Render");
 
 	const bool update_always = LightStorage::get_singleton()->reflection_probe_get_update_mode(rpi->probe) == RSE::REFLECTION_PROBE_UPDATE_ALWAYS;
-	if (update_always && atlas->reflection.is_valid() && atlas->size != 256) {
-		WARN_PRINT("ReflectionProbes set to UPDATE_ALWAYS must have an atlas size of 256. Please update the atlas size in the ProjectSettings.");
-		reflection_atlas_set_size(p_reflection_atlas, 256, atlas->count);
-	}
+	// LONGSHOT #103 (THE SLICED REALTIME PROBE): a realtime probe keeps the project's atlas size (upstream forces 256). The fast
+	// filter's rough levels are made from a fixed 160-pixel chain whatever the size, so a larger atlas buys a sharp base level - a
+	// mirror's - and nothing else; the rough levels of a large realtime atlas alias under a small bright source.
 
 	// Reflection atlas only allows recreating the texture at a lower resolution when going from not real time to real time,
 	// but not the other way around. This can lead to situations where the reflection atlas will be stuck on a lower resolution
@@ -2009,6 +2009,7 @@ bool LightStorage::reflection_probe_instance_begin_render(RID p_instance, RID p_
 
 		atlas->render_buffers->configure_for_reflections(Size2i(atlas->size, atlas->size));
 		atlas->update_always = update_always;
+		atlas->cube_owner = RID(); // LONGSHOT #103: a new cube holds nobody's picture.
 	}
 
 	if (rpi->atlas_index == -1) {
@@ -2045,6 +2046,32 @@ bool LightStorage::reflection_probe_instance_begin_render(RID p_instance, RID p_
 	RD::get_singleton()->draw_command_end_label();
 
 	return true;
+}
+
+// LONGSHOT #103 (THE SLICED REALTIME PROBE): a realtime probe renders `realtime_faces_per_frame` faces of its cube a frame, in turn,
+// and the cube is converted and filtered every frame as before - so a moving reflection costs one scene pass a frame instead of six,
+// each face at most six frames old. The cube is the atlas's one: a probe that finds another's picture in it (or none) renders all six
+// first, so several realtime probes on one atlas each render whole, as upstream; an UPDATE_ONCE probe always renders whole.
+uint32_t LightStorage::reflection_probe_instance_faces_to_render(RID p_instance) {
+	ReflectionProbeInstance *rpi = reflection_probe_instance_owner.get_or_null(p_instance);
+	ERR_FAIL_NULL_V(rpi, 0x3F);
+	ReflectionAtlas *atlas = reflection_atlas_owner.get_or_null(rpi->atlas);
+	ERR_FAIL_NULL_V(atlas, 0x3F);
+
+	const int per_frame = GLOBAL_GET_CACHED(int, "rendering/reflections/reflection_atlas/realtime_faces_per_frame"); // (asked every frame on the render thread: the cached read, as #86f's)
+	const bool sliced = per_frame >= 1 && per_frame < 6 && reflection_probe_get_update_mode(rpi->probe) == RSE::REFLECTION_PROBE_UPDATE_ALWAYS;
+	if (!sliced || atlas->cube_owner != p_instance) {
+		atlas->cube_owner = p_instance;
+		rpi->slice_cursor = 0;
+		return 0x3F;
+	}
+
+	uint32_t faces = 0;
+	for (int i = 0; i < per_frame; i++) {
+		faces |= 1u << rpi->slice_cursor;
+		rpi->slice_cursor = (rpi->slice_cursor + 1) % 6;
+	}
+	return faces;
 }
 
 bool LightStorage::reflection_probe_instance_end_render(RID p_instance, RID p_reflection_atlas) {
