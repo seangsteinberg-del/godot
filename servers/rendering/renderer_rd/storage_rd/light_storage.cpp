@@ -1454,6 +1454,31 @@ void LightStorage::update_light_buffers(RenderDataRD *p_render_data, const Paged
 			}
 		} else {
 			light_data.shadow_opacity = 0.0;
+
+			// LONGSHOT patch #107 (THE PROJECTOR STANDS WITHOUT THE SHADOW): the scene's shader draws a light's projector through
+			// shadow_matrix whether or not the light casts in this view (scene_forward_lights_inc.glsl), and this row is kept from
+			// call to call - so a light that keeps no shadow here (a reflection probe drawn without shadows, a light past its
+			// shadow's fade, a light the atlas has no room for) projected through whatever matrix the row last held: another
+			// light's, or its own from another view. The projection is the light's own angle and reach, as the shadow's is
+			// (RendererSceneCull::_light_instance_update_shadow), and is stated here for a light that has only its projector.
+			if (projector.is_valid()) {
+				if (type == RSE::LIGHT_OMNI) {
+					Transform3D proj = (inverse_transform * light_transform).inverse();
+
+					RendererRD::MaterialStorage::store_transform(proj, light_data.shadow_matrix);
+				} else if (type == RSE::LIGHT_SPOT) {
+					Transform3D modelview = (inverse_transform * light_transform).inverse();
+					Projection bias;
+					bias.set_light_bias();
+
+					Projection correction;
+					correction.set_depth_correction(false, true, false);
+					Projection spot_cm;
+					spot_cm.set_perspective(spot_angle * 2.0, 1.0, MIN(0.025f, radius), radius);
+					Projection shadow_mtx = bias * (correction * spot_cm) * modelview;
+					RendererRD::MaterialStorage::store_camera(shadow_mtx, light_data.shadow_matrix);
+				}
+			}
 		}
 
 		light_instance->cull_mask = light->cull_mask;
