@@ -351,6 +351,20 @@ MainFrameTime MainTimerSync::advance_core(double p_physics_step, int p_physics_t
 
 	ret.process_step = p_process_step;
 
+	// LONGSHOT #112 THE TICK'S FRACTION IS KEPT ACROSS A CHANGE OF RATE: `time_accum` is the SECONDS since the last physics tick and
+	// the interpolation fraction is those seconds over the step. Read under another step the same seconds are another part of a tick:
+	// after the rate is lowered a smaller one, so the fraction stepped BACK with no tick between (whatever is drawn between two ticks
+	// was drawn a moment earlier than in the frame before), and after it is raised a larger one (a skip forward, and past one whole
+	// tick a burst of ticks). The leftover is carried as the part of a tick it is: the count of ticks plus the fraction then moves on
+	// by exactly the frame's own time at the rate in force, whatever the rate did between two frames. The deficit is wall time: it
+	// stays as it is
+	if (p_physics_step != time_accum_step) {
+		if (time_accum_step > 0.0) {
+			time_accum *= p_physics_step / time_accum_step;
+		}
+		time_accum_step = p_physics_step;
+	}
+
 	// simple determination of number of physics iteration
 	time_accum += ret.process_step;
 	ret.physics_steps = std::floor(time_accum * p_physics_ticks_per_second);

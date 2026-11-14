@@ -94,6 +94,10 @@ class MainTimerSync {
 	// logical game time since last physics timestep
 	double time_accum = 0;
 
+	// LONGSHOT #112 THE TICK'S FRACTION IS KEPT ACROSS A CHANGE OF RATE: the physics step `time_accum` was last advanced under
+	// (0 before the first advance) - `advance_core` carries the leftover to a new step as the part of a tick it is
+	double time_accum_step = 0;
+
 	// current difference between wall clock time and reported sum of process_steps
 	double time_deficit = 0;
 
