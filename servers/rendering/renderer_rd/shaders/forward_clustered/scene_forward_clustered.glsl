@@ -1206,6 +1206,46 @@ vec4 fog_process(vec3 vertex) {
 // clouds' light map in two tiers about the eye's deck point (the near blended into the far over its outer fifth, the far's outer fifth
 // into one; the frames in the scene data: o with the half-extent, u with the texel, v with the standing flag); one at every point no tier
 // holds and while no map stands. Every directional light's shadow takes it (the map is the key light's; it stands by day alone)
+// LONGSHOT patch #111: THE SHADOW IS READ SMOOTHLY - a tier's texel is the share of it in shade, and read between its texels (one tap, as
+// #83 read it) a small cloud's shadow lay on the sea as straight-edged lozenges along the map's grid: the cubic B-spline over the texel grid
+// as four taps between texels (Sigg and Hadwiger, GPU Gems 2 ch. 20) - C2 across the grid, no texel corners, the texel means kept: the read
+// the game's own readers of this map take (game/shaders/cloud_field.gdshaderinc ls_cloud_bspline_taps, cloud_shadow.gdshaderinc)
+float longshot_cloud_sun_tap(int tier, vec2 uv) {
+	if (tier == 0) {
+		return textureLod(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+	}
+	if (tier == 1) {
+		return textureLod(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+	}
+	return textureLod(sampler2D(longshot_cloud_shadow_dist, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+}
+vec2 longshot_cloud_sun_size(int tier) {
+	if (tier == 0) {
+		return vec2(textureSize(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), 0));
+	}
+	if (tier == 1) {
+		return vec2(textureSize(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), 0));
+	}
+	return vec2(textureSize(sampler2D(longshot_cloud_shadow_dist, SAMPLER_LINEAR_CLAMP), 0));
+}
+float longshot_cloud_sun_smooth(int tier, vec2 uv) {
+	vec2 size = longshot_cloud_sun_size(tier);
+	vec2 st = uv * size - 0.5;
+	vec2 i = floor(st);
+	vec2 f = st - i;
+	vec2 f2 = f * f;
+	vec2 f3 = f2 * f;
+	vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) * (1.0 / 6.0);
+	vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) * (1.0 / 6.0);
+	vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) * (1.0 / 6.0);
+	vec2 w3 = f3 * (1.0 / 6.0);
+	vec2 g0 = w0 + w1;
+	vec2 g1 = w2 + w3;
+	vec2 ta = (i - 1.0 + w1 / max(g0, vec2(1.0e-6)) + 0.5) / size;
+	vec2 tb = (i + 1.0 + w3 / max(g1, vec2(1.0e-6)) + 0.5) / size;
+	return mix(mix(longshot_cloud_sun_tap(tier, ta), longshot_cloud_sun_tap(tier, vec2(tb.x, ta.y)), g1.x),
+			mix(longshot_cloud_sun_tap(tier, vec2(ta.x, tb.y)), longshot_cloud_sun_tap(tier, tb), g1.x), g1.y);
+}
 float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, int tier, out float edge) {
 	edge = 1.0;
 	if (v.w < 0.5) {
@@ -1219,13 +1259,7 @@ float longshot_cloud_sun_tier(vec3 p, vec4 o, vec4 u, vec4 v, int tier, out floa
 	}
 	edge = smoothstep(0.8 * o.w, o.w, m);
 	vec2 uv = xy / (2.0 * o.w) + 0.5;
-	if (tier == 0) {
-		return textureLod(sampler2D(longshot_cloud_shadow_near, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
-	}
-	if (tier == 1) {
-		return textureLod(sampler2D(longshot_cloud_shadow_far, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
-	}
-	return textureLod(sampler2D(longshot_cloud_shadow_dist, SAMPLER_LINEAR_CLAMP), uv, 0.0).r;
+	return longshot_cloud_sun_smooth(tier, uv); // LONGSHOT patch #111
 }
 // LONGSHOT patch #89: THE SUN'S SHADOW REACHES THE DISTANT TIER - three tiers (24, 60 and 160 km about the eye's deck point), each blended into
 // the next over its outer fifth and the outermost into one; the deck's shadow ended at the far tier in a hard square before
@@ -1234,9 +1268,18 @@ float longshot_cloud_sun_shadow(vec3 p) {
 		return 1.0;
 	}
 	float e_dist, e_far, e_near;
-	float t_dist = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[6], scene_data_block.data.longshot_cloud_shadow[7], scene_data_block.data.longshot_cloud_shadow[8], 2, e_dist);
-	float t_far = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[3], scene_data_block.data.longshot_cloud_shadow[4], scene_data_block.data.longshot_cloud_shadow[5], 1, e_far);
 	float t_near = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[0], scene_data_block.data.longshot_cloud_shadow[1], scene_data_block.data.longshot_cloud_shadow[2], 0, e_near);
+	// LONGSHOT patch #111: a point inside a tier's inner four fifths is that tier's alone - the tiers past it are not read (each read is four
+	// taps now): the values below are the same ones, the blend's weight on the farther tier being nought there
+	if (t_near >= 0.0 && e_near <= 0.0) {
+		return t_near;
+	}
+	float t_far = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[3], scene_data_block.data.longshot_cloud_shadow[4], scene_data_block.data.longshot_cloud_shadow[5], 1, e_far);
+	float t_dist = -1.0;
+	e_dist = 1.0;
+	if (!(t_far >= 0.0 && e_far <= 0.0)) {
+		t_dist = longshot_cloud_sun_tier(p, scene_data_block.data.longshot_cloud_shadow[6], scene_data_block.data.longshot_cloud_shadow[7], scene_data_block.data.longshot_cloud_shadow[8], 2, e_dist);
+	}
 	float beyond_far = t_dist >= 0.0 ? mix(t_dist, 1.0, e_dist) : 1.0;
 	float beyond_near = t_far >= 0.0 ? mix(t_far, beyond_far, e_far) : beyond_far;
 	if (t_near >= 0.0) {
