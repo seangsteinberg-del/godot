@@ -60,6 +60,9 @@ class Main {
 
 public:
 	static bool is_cmdline_tool();
+	// LONGSHOT patch #111 THE FIXED FRAME TIME SAID: the frames a second this process steps its frames by whatever the wall says
+	// (--fixed-fps, a movie's), or -1 where the frames follow the wall
+	static int get_fixed_fps();
 #ifdef TOOLS_ENABLED
 	enum CLIScope {
 		CLI_SCOPE_TOOL, // Editor and project manager.

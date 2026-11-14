@@ -315,6 +315,14 @@ bool Main::is_cmdline_tool() {
 	return cmdline_tool;
 }
 
+// LONGSHOT patch #111 THE FIXED FRAME TIME SAID: the frames a second this process steps its frames by whatever the wall says
+// (--fixed-fps, a movie's), or -1 where the frames follow the wall. Under it a frame is a fixed span of the game's time and the
+// iteration caps no frame's physics steps (Main::iteration), so a module that paces its own work by the wall has no wall to pace
+// by: it asks here, once
+int Main::get_fixed_fps() {
+	return fixed_fps;
+}
+
 #ifdef TOOLS_ENABLED
 const Vector<String> &Main::get_forwardable_cli_arguments(Main::CLIScope p_scope) {
 	return forwardable_cli_arguments[p_scope];
