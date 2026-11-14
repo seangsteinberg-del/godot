@@ -30,6 +30,23 @@
 				LONGSHOT patch #25: the settled layer's image handed over this frame (its opacity in alpha).
 			</description>
 		</method>
+		<method name="hand_longshot_cloud_shadow">
+			<return type="void" />
+			<param index="0" name="near" type="RID" />
+			<param index="1" name="far" type="RID" />
+			<param index="2" name="dist" type="RID" />
+			<param index="3" name="frames" type="PackedFloat32Array" />
+			<param index="4" name="on" type="bool" />
+			<description>
+				LONGSHOT patch #110: the clouds' shadow map handed for this frame by an effect written in script - three tiers' transmittance textures across the key light and their nine frames as 36 floats (a tier's origin with its half-extent, its first axis with the texel, its second axis with one while the tier stands), the near tier first. Every directional light's shadow takes the map at the next frame's setup (patch #83); it stands one frame (patch #98).
+			</description>
+		</method>
+		<method name="has_longshot_cloud_shadow" qualifiers="const">
+			<return type="bool" />
+			<description>
+				LONGSHOT patch #98: whether a clouds' shadow map handed in this frame or the one before stands (bound by patch #110).
+			</description>
+		</method>
 		<method name="has_longshot_clouds" qualifiers="const">
 			<return type="bool" />
 			<description>

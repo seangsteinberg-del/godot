@@ -68,6 +68,9 @@ void RenderSceneBuffersRD::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("has_longshot_clouds"), &RenderSceneBuffersRD::has_longshot_clouds);
 	ClassDB::bind_method(D_METHOD("get_longshot_clouds_light"), &RenderSceneBuffersRD::get_longshot_clouds_light);
 	ClassDB::bind_method(D_METHOD("get_longshot_clouds_depth"), &RenderSceneBuffersRD::get_longshot_clouds_depth);
+	// LONGSHOT patch #110: THE SHADOW'S HAND FOR A SCRIPT
+	ClassDB::bind_method(D_METHOD("hand_longshot_cloud_shadow", "near", "far", "dist", "frames", "on"), &RenderSceneBuffersRD::hand_longshot_cloud_shadow);
+	ClassDB::bind_method(D_METHOD("has_longshot_cloud_shadow"), &RenderSceneBuffersRD::has_longshot_cloud_shadow);
 	ClassDB::bind_method(D_METHOD("set_longshot_settled", "settled"), &RenderSceneBuffersRD::set_longshot_settled);
 	ClassDB::bind_method(D_METHOD("has_longshot_settled"), &RenderSceneBuffersRD::has_longshot_settled);
 	ClassDB::bind_method(D_METHOD("get_longshot_settled"), &RenderSceneBuffersRD::get_longshot_settled);
@@ -107,6 +110,13 @@ void RenderSceneBuffersRD::set_longshot_cloud_shadow(RID p_near, RID p_far, RID 
 	longshot_cloud_shadow_tex[2] = p_dist;   // LONGSHOT patch #89: the distant tier
 	memcpy(longshot_cloud_shadow_frame, p_frames, sizeof(longshot_cloud_shadow_frame));
 	longshot_cloud_shadow_on = p_on;
+}
+
+// LONGSHOT patch #110: THE SHADOW'S HAND FOR A SCRIPT - nine vec4s of frames (a tier's o, u and v, the near tier first) as thirty-six
+// floats; any other count is refused loudly and nothing is handed
+void RenderSceneBuffersRD::hand_longshot_cloud_shadow(RID p_near, RID p_far, RID p_dist, const PackedFloat32Array &p_frames, bool p_on) {
+	ERR_FAIL_COND_MSG(p_frames.size() != 36, vformat("LONGSHOT patch #110: the clouds' shadow map is handed with nine vec4s of frames - 36 floats, a tier's o, u and v - and %d were given", p_frames.size()));
+	set_longshot_cloud_shadow(p_near, p_far, p_dist, p_frames.ptr(), p_on);
 }
 
 bool RenderSceneBuffersRD::has_longshot_cloud_shadow() const {

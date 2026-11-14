@@ -219,6 +219,9 @@ public:
 	bool longshot_cloud_shadow_on = false;
 	uint64_t longshot_cloud_shadow_handed = 0;   // LONGSHOT patch #98: THE HANDED SHADOW MAP STANDS ONE FRAME - the frame the map was handed in; it answers "none" after the frame that follows (the effect hands during a frame's render, the next frame's setup reads it)
 	void set_longshot_cloud_shadow(RID p_near, RID p_far, RID p_dist, const float *p_frames, bool p_on);
+	// LONGSHOT patch #110: THE SHADOW'S HAND FOR A SCRIPT - the same hand with its nine frames as thirty-six floats (a compositor effect
+	// written in script passes no pointer): the paper's cloud pass bakes the map and hands it as the clouds' native effect did
+	void hand_longshot_cloud_shadow(RID p_near, RID p_far, RID p_dist, const PackedFloat32Array &p_frames, bool p_on);
 	bool has_longshot_cloud_shadow() const;
 	RID get_longshot_cloud_shadow(int p_tier) const { return longshot_cloud_shadow_tex[p_tier]; }
 	const float *get_longshot_cloud_shadow_frames() const { return &longshot_cloud_shadow_frame[0][0]; }
