@@ -82,22 +82,24 @@ const int kGroupSize = GROUP_SIZE;
 const int kTileDimension = kGroupSize + kBorderSize * 2;
 const int kTileDimension2 = kTileDimension * kTileDimension;
 
-// LONGSHOT [patch] #108 THE HISTORY IS HELD TO ITS NEIGHBOURHOOD'S OWN RANGE, IN THE BOUNDED SPACE. The filter clipped the history in
-// linear light by the neighbourhood's variance alone and tonemapped only for the last blend. Beside a sun's disc - sixty thousand
-// against one - the variance box runs from far under nought to tens of thousands and admits anything: a history the bicubic
-// sample's negative lobes had driven under nought (floored at nought) stood as a black pixel on the disc's edge, held there by
-// every frame's sample, a ring of them wherever the eye turned (the director: "when moving the sun gets a black circle inside of
-// it sometimes"; white points and dark squares along a hull's edge before a bright disc); and with the box shut by motion the
-// history is the neighbourhood's mean, a third of the disc's light laid on the sky beside it. THE LAW: every colour the filter
-// weighs is taken into the bounded space first (Reinhard's, a channel at a time) - the input, the neighbourhood, the history
-// - and the history is clipped there to the variance box MET WITH the neighbourhood's own least and most, so no resolved pixel
-// is darker than its darkest neighbour or brighter than its brightest. A value that is no number is nought, one past the
-// buffer's top is the top, and the way back is kept under the top (the inverse is finite)
+// LONGSHOT [patch] #108, #109 THE HISTORY IS HELD TO ITS NEIGHBOURHOOD'S OWN RANGE. The filter clipped the history by the neighbourhood's
+// variance alone. Beside a sun's disc - sixty thousand against one - that box runs from far under nought to tens of thousands
+// and admits anything: a history the bicubic sample's negative lobes had driven under nought (floored at nought) stood as a
+// black pixel on the disc's edge, held there by every frame's sample, a ring of them wherever the eye turned (the director: "when
+// moving the sun gets a black circle inside of it sometimes"; white points and dark squares along a hull's edge before a bright
+// disc). THE LAW: the variance box is MET WITH the neighbourhood's own least and most, so no clipped history is darker than its
+// darkest neighbour or brighter than its brightest. The neighbourhood is weighed IN LINEAR LIGHT (#109: #108 weighed it in the
+// bounded space, and with the box shut by motion the history is the neighbourhood's mean - a mean of tonemapped values keeps a
+// fifth of the light a point's linear mean keeps: the stars' peaks halved while the eye panned). Only the last blend stands in
+// the bounded space, as it did; a value that is no number is nought, one past the buffer's top is the top, and the way back is
+// kept under the top (the inverse is finite)
 const float BOUNDED_TOP = 0.99998474; // the buffer's top, 65504, in the bounded space
-vec3 to_bounded(vec3 hdr) {
+vec3 finite_color(vec3 hdr) {
 	vec3 c = min(max(hdr, vec3(0.0)), vec3(65504.0));
-	c = mix(c, vec3(0.0), isnan(hdr));
-	return c / (c + 1.0);
+	return mix(c, vec3(0.0), isnan(hdr));
+}
+vec3 to_bounded(vec3 hdr) {
+	return hdr / (hdr + 1.0);
 }
 vec3 from_bounded(vec3 sdr) {
 	vec3 c = clamp(sdr, vec3(0.0), vec3(BOUNDED_TOP));
@@ -279,18 +281,18 @@ vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 p, vec3 q) {
 	return p + r;
 }
 
-// Clip history to the neighbourhood of the current sample: the history and the answer in the bounded space ([patch] #108)
+// Clip history to the neighbourhood of the current sample, in linear light, within the neighbourhood's own range ([patch] #108, #109)
 vec3 clip_history_3x3(uvec2 group_pos, vec3 color_history, vec2 velocity_closest) {
 	// Sample a 3x3 neighbourhood
-	vec3 s1 = to_bounded(load_color(group_pos + kOffsets3x3[0]));
-	vec3 s2 = to_bounded(load_color(group_pos + kOffsets3x3[1]));
-	vec3 s3 = to_bounded(load_color(group_pos + kOffsets3x3[2]));
-	vec3 s4 = to_bounded(load_color(group_pos + kOffsets3x3[3]));
-	vec3 s5 = to_bounded(load_color(group_pos + kOffsets3x3[4]));
-	vec3 s6 = to_bounded(load_color(group_pos + kOffsets3x3[5]));
-	vec3 s7 = to_bounded(load_color(group_pos + kOffsets3x3[6]));
-	vec3 s8 = to_bounded(load_color(group_pos + kOffsets3x3[7]));
-	vec3 s9 = to_bounded(load_color(group_pos + kOffsets3x3[8]));
+	vec3 s1 = finite_color(load_color(group_pos + kOffsets3x3[0]));
+	vec3 s2 = finite_color(load_color(group_pos + kOffsets3x3[1]));
+	vec3 s3 = finite_color(load_color(group_pos + kOffsets3x3[2]));
+	vec3 s4 = finite_color(load_color(group_pos + kOffsets3x3[3]));
+	vec3 s5 = finite_color(load_color(group_pos + kOffsets3x3[4]));
+	vec3 s6 = finite_color(load_color(group_pos + kOffsets3x3[5]));
+	vec3 s7 = finite_color(load_color(group_pos + kOffsets3x3[6]));
+	vec3 s8 = finite_color(load_color(group_pos + kOffsets3x3[7]));
+	vec3 s9 = finite_color(load_color(group_pos + kOffsets3x3[8]));
 
 	// Compute min and max (with an adaptive box size, which greatly reduces ghosting)
 	vec3 color_avg = (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9) * RPC_9;
@@ -340,11 +342,11 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	// Get reprojected uv
 	vec2 uv_reprojected = uv + velocity;
 
-	// Get input color, in the bounded space ([patch] #108)
-	vec3 color_input = to_bounded(load_color(pos_group));
+	// Get input color (a number of the buffer: [patch] #108)
+	vec3 color_input = finite_color(load_color(pos_group));
 
-	// Get history color (catmull-rom reduces a lot of the blurring that you get under motion), into the bounded space
-	vec3 color_history = to_bounded(sample_catmull_rom_9(tex_history, uv_reprojected, params.resolution).rgb);
+	// Get history color (catmull-rom reduces a lot of the blurring that you get under motion)
+	vec3 color_history = finite_color(sample_catmull_rom_9(tex_history, uv_reprojected, params.resolution).rgb);
 
 	// Clip history to the neighbourhood of the current sample (fixes a lot of the ghosting).
 	vec2 velocity_closest = vec2(0.0); // This is best done by using the velocity with the closest depth.
@@ -367,7 +369,9 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	// Resolve
 	vec3 color_resolved = vec3(0.0);
 	{
-		// (the input and the clipped history stand in the bounded space already: [patch] #108)
+		// Tonemap (the clipped history lies within its neighbourhood's own range: [patch] #108)
+		color_history = to_bounded(color_history);
+		color_input = to_bounded(color_input);
 
 		// Reduce flickering
 		float lum_color = luminance(color_input);
