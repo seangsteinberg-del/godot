@@ -82,11 +82,26 @@ const int kGroupSize = GROUP_SIZE;
 const int kTileDimension = kGroupSize + kBorderSize * 2;
 const int kTileDimension2 = kTileDimension * kTileDimension;
 
-vec3 reinhard(vec3 hdr) {
-	return hdr / (hdr + 1.0);
+// LONGSHOT [patch] #108 THE HISTORY IS HELD TO ITS NEIGHBOURHOOD'S OWN RANGE, IN THE BOUNDED SPACE. The filter clipped the history in
+// linear light by the neighbourhood's variance alone and tonemapped only for the last blend. Beside a sun's disc - sixty thousand
+// against one - the variance box runs from far under nought to tens of thousands and admits anything: a history the bicubic
+// sample's negative lobes had driven under nought (floored at nought) stood as a black pixel on the disc's edge, held there by
+// every frame's sample, a ring of them wherever the eye turned (the director: "when moving the sun gets a black circle inside of
+// it sometimes"; white points and dark squares along a hull's edge before a bright disc); and with the box shut by motion the
+// history is the neighbourhood's mean, a third of the disc's light laid on the sky beside it. THE LAW: every colour the filter
+// weighs is taken into the bounded space first (Reinhard's, a channel at a time) - the input, the neighbourhood, the history
+// - and the history is clipped there to the variance box MET WITH the neighbourhood's own least and most, so no resolved pixel
+// is darker than its darkest neighbour or brighter than its brightest. A value that is no number is nought, one past the
+// buffer's top is the top, and the way back is kept under the top (the inverse is finite)
+const float BOUNDED_TOP = 0.99998474; // the buffer's top, 65504, in the bounded space
+vec3 to_bounded(vec3 hdr) {
+	vec3 c = min(max(hdr, vec3(0.0)), vec3(65504.0));
+	c = mix(c, vec3(0.0), isnan(hdr));
+	return c / (c + 1.0);
 }
-vec3 reinhard_inverse(vec3 sdr) {
-	return sdr / (1.0 - sdr);
+vec3 from_bounded(vec3 sdr) {
+	vec3 c = clamp(sdr, vec3(0.0), vec3(BOUNDED_TOP));
+	return c / (1.0 - c);
 }
 
 float get_depth(ivec2 thread_id) {
@@ -264,18 +279,18 @@ vec3 clip_aabb(vec3 aabb_min, vec3 aabb_max, vec3 p, vec3 q) {
 	return p + r;
 }
 
-// Clip history to the neighbourhood of the current sample
+// Clip history to the neighbourhood of the current sample: the history and the answer in the bounded space ([patch] #108)
 vec3 clip_history_3x3(uvec2 group_pos, vec3 color_history, vec2 velocity_closest) {
 	// Sample a 3x3 neighbourhood
-	vec3 s1 = load_color(group_pos + kOffsets3x3[0]);
-	vec3 s2 = load_color(group_pos + kOffsets3x3[1]);
-	vec3 s3 = load_color(group_pos + kOffsets3x3[2]);
-	vec3 s4 = load_color(group_pos + kOffsets3x3[3]);
-	vec3 s5 = load_color(group_pos + kOffsets3x3[4]);
-	vec3 s6 = load_color(group_pos + kOffsets3x3[5]);
-	vec3 s7 = load_color(group_pos + kOffsets3x3[6]);
-	vec3 s8 = load_color(group_pos + kOffsets3x3[7]);
-	vec3 s9 = load_color(group_pos + kOffsets3x3[8]);
+	vec3 s1 = to_bounded(load_color(group_pos + kOffsets3x3[0]));
+	vec3 s2 = to_bounded(load_color(group_pos + kOffsets3x3[1]));
+	vec3 s3 = to_bounded(load_color(group_pos + kOffsets3x3[2]));
+	vec3 s4 = to_bounded(load_color(group_pos + kOffsets3x3[3]));
+	vec3 s5 = to_bounded(load_color(group_pos + kOffsets3x3[4]));
+	vec3 s6 = to_bounded(load_color(group_pos + kOffsets3x3[5]));
+	vec3 s7 = to_bounded(load_color(group_pos + kOffsets3x3[6]));
+	vec3 s8 = to_bounded(load_color(group_pos + kOffsets3x3[7]));
+	vec3 s9 = to_bounded(load_color(group_pos + kOffsets3x3[8]));
 
 	// Compute min and max (with an adaptive box size, which greatly reduces ghosting)
 	vec3 color_avg = (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9) * RPC_9;
@@ -283,14 +298,17 @@ vec3 clip_history_3x3(uvec2 group_pos, vec3 color_history, vec2 velocity_closest
 	// Use variance clipping as described in https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf
 	float box_size = mix(0.0f, params.variance_dynamic, smoothstep(0.02f, 0.0f, length(velocity_closest)));
 	vec3 dev = sqrt(abs(color_avg2 - (color_avg * color_avg))) * box_size;
-	vec3 color_min = color_avg - dev;
-	vec3 color_max = color_avg + dev;
+	// ... MET WITH the neighbourhood's own range ([patch] #108): one outlier widens the variance past every sample there is
+	vec3 near_min = min(min(min(s1, s2), min(s3, s4)), min(min(s5, s6), min(min(s7, s8), s9)));
+	vec3 near_max = max(max(max(s1, s2), max(s3, s4)), max(max(s5, s6), max(max(s7, s8), s9)));
+	vec3 color_min = max(color_avg - dev, near_min);
+	vec3 color_max = min(color_avg + dev, near_max);
 
 	// Variance clipping
 	vec3 color = clip_aabb(color_min, color_max, clamp(color_avg, color_min, color_max), color_history);
 
-	// Clamp to prevent NaNs
-	color = clamp(color, FLT_MIN, FLT_MAX);
+	// the clip's own rounding never leaves the box (and the box is numbers: the samples are)
+	color = clamp(color, color_min, color_max);
 
 	return color;
 }
@@ -322,11 +340,11 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	// Get reprojected uv
 	vec2 uv_reprojected = uv + velocity;
 
-	// Get input color
-	vec3 color_input = load_color(pos_group);
+	// Get input color, in the bounded space ([patch] #108)
+	vec3 color_input = to_bounded(load_color(pos_group));
 
-	// Get history color (catmull-rom reduces a lot of the blurring that you get under motion)
-	vec3 color_history = sample_catmull_rom_9(tex_history, uv_reprojected, params.resolution).rgb;
+	// Get history color (catmull-rom reduces a lot of the blurring that you get under motion), into the bounded space
+	vec3 color_history = to_bounded(sample_catmull_rom_9(tex_history, uv_reprojected, params.resolution).rgb);
 
 	// Clip history to the neighbourhood of the current sample (fixes a lot of the ghosting).
 	vec2 velocity_closest = vec2(0.0); // This is best done by using the velocity with the closest depth.
@@ -349,9 +367,7 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	// Resolve
 	vec3 color_resolved = vec3(0.0);
 	{
-		// Tonemap
-		color_history = reinhard(color_history);
-		color_input = reinhard(color_input);
+		// (the input and the clipped history stand in the bounded space already: [patch] #108)
 
 		// Reduce flickering
 		float lum_color = luminance(color_input);
@@ -375,8 +391,8 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 		// Lerp/blend
 		color_resolved = mix(color_history, color_input, blend_factor);
 
-		// Inverse tonemap
-		color_resolved = reinhard_inverse(color_resolved);
+		// Out of the bounded space, under the buffer's top
+		color_resolved = from_bounded(color_resolved);
 	}
 
 	return color_resolved;
