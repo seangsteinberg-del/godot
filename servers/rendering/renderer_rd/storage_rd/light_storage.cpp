@@ -52,6 +52,7 @@ LightStorage::LightStorage() {
 
 	directional_shadow.size = GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/size");
 	GLOBAL_DEF("longshot/shadows/lamps_keeper", true); // LONGSHOT patch #86f: the lamps' keeper (patch #86) held on or off for a run, read live
+	GLOBAL_DEF("longshot/budget/render.lamp_shadows_n", 0); // LONGSHOT patch #114 (THE LAMPS IN TURN): the positional lights' shadow maps drawn a frame at the most (0: no budget - every dirty one, the engine's own way), read live
 	directional_shadow.use_16_bits = GLOBAL_GET("rendering/lights_and_shadows/directional_shadow/16_bits");
 
 	using_lightmap_array = true; // high end

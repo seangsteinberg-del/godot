@@ -788,6 +788,16 @@ public:
 		// or closely culled to the camera frustum.
 		bool is_shadow_update_full() const { return shadow_dirty_count == 0; }
 
+		// LONGSHOT patch #114 (THE LAMPS IN TURN): the frame the light's shadow map was last drawn (0: never) and the shape it was drawn
+		// at - its range, its spot angle, its area size (a map is kept past its turn for the same shape alone: the sampling reads the
+		// light's range and its projection as they stand) - and the word that makes its next draw a whole one (every caster in the
+		// light's volume, never the camera's frustum's alone: a map drawn in its turn stands for the frames until its next)
+		uint64_t shadow_drawn_frame = 0;
+		float shadow_drawn_range = -1.0f;
+		float shadow_drawn_angle = -1.0f;
+		Vector2 shadow_drawn_area;
+		void make_shadow_dirty_whole() { shadow_dirty_count = 1; }
+
 		InstanceLightData() {
 			bake_mode = RSE::LIGHT_BAKE_DISABLED;
 			D = nullptr;

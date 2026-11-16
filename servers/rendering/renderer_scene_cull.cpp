@@ -3927,6 +3927,57 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 			}
 		}
 
+		// LONGSHOT patch #114 (THE LAMPS IN TURN): a positional light's shadow map is drawn again whenever the light or a caster in its
+		// range moved - and under a lamp that rides a moving body both move every frame, in the world's frame, though nothing moves
+		// against the lamp: a ship in orbit with twelve floods drew twelve maps a frame, each the ship over again (the keeper's own
+		// voice, patch #86: "RECAPTURED - the static set 0 casters" for every lamp, every frame). The shipped engines' answer is a budget
+		// and a turn (id Tech 6's maps by distance and update rate, HDRP's maximum shadows on screen and its on-demand maps): at most
+		// `longshot/budget/render.lamp_shadows_n` positional maps are drawn a frame, the map drawn longest ago first; a light past the
+		// budget keeps its map for the frame. The kept map is sampled through the light's transform as it stands (light_storage.cpp
+		// update_light_buffers reads the instance's own), so what is fixed to the lamp - a craft's hull under its own flood - is
+		// shadowed exactly, and what moves against it waits for the lamp's turn, a few frames. A light never drawn, or whose shape
+		// changed since (its range, its angle, its area: the sampling reads them as they stand), is drawn at once and held by no
+		// budget. While the budget holds any light back, a map is drawn whole - every caster in the light's volume, where a light
+		// dirty every frame is culled to the camera's frustum - since it stands for frames the camera may turn in. Nought: no budget.
+		LocalVector<uint8_t> turn_held; // a light of the cull result: 1 while its turn has not come this frame (empty: no light is held)
+		{
+			const int turn_budget = GLOBAL_GET_CACHED(int, "longshot/budget/render.lamp_shadows_n");
+			if (turn_budget > 0 && p_shadow_atlas.is_valid()) {
+				struct Turn {
+					uint64_t age = 0;
+					uint32_t i = 0;
+					bool operator<(const Turn &p_o) const { return age > p_o.age || (age == p_o.age && i < p_o.i); }
+				};
+				LocalVector<Turn> turns;
+				const uint64_t frame_now = RSG::rasterizer->get_frame_number();
+				for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++) {
+					Instance *ins = scene_cull_result.lights[i];
+					InstanceLightData *light = static_cast<InstanceLightData *>(ins->base_data);
+					if (!light->is_shadow_dirty() || !RSG::light_storage->light_has_shadow(ins->base) || !RSG::light_storage->light_instance_is_shadow_visible_at_position(light->instance, camera_position)) {
+						continue;
+					}
+					Turn t;
+					t.i = i;
+					const bool same_shape = light->shadow_drawn_frame != 0 &&
+							light->shadow_drawn_range == float(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE)) &&
+							light->shadow_drawn_angle == float(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_SPOT_ANGLE)) &&
+							(RSG::light_storage->light_get_type(ins->base) != RSE::LIGHT_AREA || light->shadow_drawn_area == RSG::light_storage->light_area_get_size(ins->base));
+					t.age = same_shape ? frame_now - light->shadow_drawn_frame : UINT64_MAX;
+					turns.push_back(t);
+				}
+				if (int(turns.size()) > turn_budget) {
+					turns.sort();
+					turn_held.resize(scene_cull_result.lights.size());
+					memset(turn_held.ptr(), 0, turn_held.size());
+					for (uint32_t k = uint32_t(turn_budget); k < turns.size(); k++) {
+						if (turns[k].age != UINT64_MAX) {
+							turn_held[turns[k].i] = 1;
+						}
+					}
+				}
+			}
+		}
+
 		// Positional Shadows
 		for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++) {
 			Instance *ins = scene_cull_result.lights[i];
@@ -4056,7 +4107,12 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				// There is however a cost to tighter shadow culling in this situation (2 shadow updates in 1 frame),
 				// so we should detect this and switch off tighter caster culling automatically.
 				// This is done in the logic for `decrement_shadow_dirty()`.
-				if (allow_redraw) {
+				// LONGSHOT patch #114 (THE LAMPS IN TURN): a light whose turn has not come keeps its version, its map and its dirt (the
+				// atlas may still move its slot, below: that map is drawn whatever the turn); while any light is held, a map is drawn whole
+				if (allow_redraw && !(!turn_held.is_empty() && turn_held[i])) {
+					if (!turn_held.is_empty()) {
+						light->make_shadow_dirty_whole();
+					}
 					light->last_version++;
 					light->decrement_shadow_dirty();
 				}
@@ -4070,6 +4126,11 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 				if (_light_instance_update_shadow(ins, p_camera_data->main_transform, p_camera_data->main_projection, p_camera_data->is_orthogonal, p_camera_data->vaspect, p_shadow_atlas, scenario, p_screen_mesh_lod_threshold, p_visible_layers)) {
 					light->make_shadow_dirty();
 				}
+				// LONGSHOT patch #114 (THE LAMPS IN TURN): the map's frame and the shape it was drawn at
+				light->shadow_drawn_frame = RSG::rasterizer->get_frame_number();
+				light->shadow_drawn_range = float(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_RANGE));
+				light->shadow_drawn_angle = float(RSG::light_storage->light_get_param(ins->base, RSE::LIGHT_PARAM_SPOT_ANGLE));
+				light->shadow_drawn_area = RSG::light_storage->light_get_type(ins->base) == RSE::LIGHT_AREA ? RSG::light_storage->light_area_get_size(ins->base) : Vector2();
 				RENDER_TIMESTAMP("< Render Light3D " + itos(i));
 			} else {
 				if (redraw) {
