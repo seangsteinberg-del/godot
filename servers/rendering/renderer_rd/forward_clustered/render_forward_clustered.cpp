@@ -618,7 +618,25 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 				RD::get_singleton()->draw_list_draw(draw_list, false, mesh_storage->mesh_surface_get_vertex_count(mesh_surface), instance_count * 6);
 			} else if (external) {
 				// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the pass's commands of this surface, a rung each, in one multi-draw
-				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), mesh_storage->multimesh_external_command_offset(surf->owner->data->base, surf->surface_index, p_params->external_pass), mesh_storage->multimesh_external_rungs(surf->owner->data->base), sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE);
+				// LONGSHOT patch #115 (AN EXTERNAL SURFACE WITHOUT ITS LEVELS' INDICES IS REFUSED ALOUD): the maker's commands are INDEXED - five
+				// words, the fifth the first instance. A surface whose all-levels index array was never made went through here as a
+				// NON-INDEXED multi-draw over them: its vertices in their stored order as triangles, and the fourth word (nought) read
+				// as the first instance - the maker's first record, whatever stood there. It is the surface the pass draws that
+				// counts: a shadow or depth pass draws a surface whose material shares the default shadow material from the mesh's
+				// SHADOW MESH (surface_shadow), which a maker that gave the mesh's own levels alone left bare - a launch site's lamps
+				// drew as a sheet of triangles over their pad in the sun's maps (the planets lane, 11-19). Such a surface is not
+				// drawn, and is named: its mesh, its surface, whether it is the shadow mesh's, the first two dozen
+				if (!index_array_rd.is_valid()) {
+					static int external_bare_said = 0;
+					if (external_bare_said < 24) {
+						external_bare_said++;
+						const RID bare_mesh = mesh_storage->multimesh_get_mesh(surf->owner->data->base);
+						ERR_PRINT(vformat("LONGSHOT patch #115: an external multimesh's surface %d of the mesh %s (%s) has no all-levels index array in %s (pass %d of the maker's): it is not drawn - the maker gives every surface the renderer draws its levels' indices, its shadow mesh's too (mesh_surface_set_level_index_data).",
+								int(surf->surface_index), mesh_storage->mesh_get_path(bare_mesh), mesh_surface == surf->surface ? "its own surface" : "ITS SHADOW MESH'S", shadow_pass ? "a shadow pass" : "a depth or colour pass", int(p_params->external_pass)));
+					}
+				} else {
+					RD::get_singleton()->draw_list_draw_indirect(draw_list, true, mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), mesh_storage->multimesh_external_command_offset(surf->owner->data->base, surf->surface_index, p_params->external_pass), mesh_storage->multimesh_external_rungs(surf->owner->data->base), sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE);
+				}
 			} else if (indirect) {
 				RD::get_singleton()->draw_list_draw_indirect(draw_list, index_array_rd.is_valid(), mesh_storage->_multimesh_get_command_buffer_rd_rid(surf->owner->data->base), surf->surface_index * sizeof(uint32_t) * mesh_storage->INDIRECT_MULTIMESH_COMMAND_STRIDE, 1, 0);
 			} else {
