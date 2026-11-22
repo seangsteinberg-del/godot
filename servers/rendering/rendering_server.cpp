@@ -2523,6 +2523,7 @@ void RenderingServer::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("mesh_surface_set_level_index_data", "mesh", "surface", "data"), &RenderingServer::mesh_surface_set_level_index_data); // LONGSHOT patch #60
 	ClassDB::bind_method(D_METHOD("multimesh_external_changed", "multimesh"), &RenderingServer::multimesh_external_changed); // LONGSHOT patch #65
 	ClassDB::bind_method(D_METHOD("multimesh_external_set_previous", "multimesh", "previous_offset"), &RenderingServer::multimesh_external_set_previous); // LONGSHOT patch #117
+	ClassDB::bind_method(D_METHOD("multimesh_set_still", "multimesh", "still"), &RenderingServer::multimesh_set_still); // LONGSHOT patch #118
 	ClassDB::bind_method(D_METHOD("multimesh_get_buffer_rd_rid", "multimesh"), &RenderingServer::multimesh_get_buffer_rd_rid);
 	ClassDB::bind_method(D_METHOD("multimesh_get_buffer", "multimesh"), &RenderingServer::multimesh_get_buffer);
 

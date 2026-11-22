@@ -1669,6 +1669,9 @@ void MeshStorage::_multimesh_enable_motion_vectors(MultiMesh *multimesh) {
 	if (multimesh->motion_vectors_enabled) {
 		return;
 	}
+	if (multimesh->still) {
+		return; // LONGSHOT patch #118: a list of still things keeps no previous buffer
+	}
 
 	multimesh->motion_vectors_enabled = true;
 
@@ -1859,6 +1862,9 @@ void MeshStorage::_multimesh_update_motion_vectors_data_cache(MultiMesh *multime
 }
 
 bool MeshStorage::_multimesh_uses_motion_vectors(MultiMesh *multimesh) {
+	if (multimesh->still) {
+		return false; // LONGSHOT patch #118: no row of a list has a motion of its own, whenever its buffer was set
+	}
 	return (RSG::rasterizer->get_frame_number() - multimesh->motion_vectors_last_change) < 2;
 }
 
@@ -2294,6 +2300,20 @@ void MeshStorage::_multimesh_external_set_previous(RID p_multimesh, int p_previo
 	ERR_FAIL_COND_MSG(!multimesh->external, "LONGSHOT patch #117: only an external multimesh (multimesh_set_external_buffers) keeps its previous records in its maker's buffer.");
 	ERR_FAIL_COND_MSG(p_previous_offset < 0, "LONGSHOT patch #117: the previous records stand after the present ones.");
 	multimesh->external_previous_offset = uint32_t(p_previous_offset);
+}
+
+// LONGSHOT patch #118 (A MULTIMESH WHOSE ROWS ARE A LIST): the engine keeps a multimesh's last buffer as its rows' previous places - row
+// i now against row i then - which is true of bodies that move and false of a LIST: a maker that draws a frame's selection (the
+// ground's tiles in the frame's order) lists its rows anew as the selection changes, and a row is another thing from one buffer
+// to the next. Such a row took the other thing's place as its own last one - a false motion over a whole tract of ground on
+// every frame the list changed, and the temporal filter kept none of its history. A still multimesh keeps no previous buffer
+// (half the device buffer and half every upload) and no row has a motion of its own: its motion is its instance's and the
+// camera's, told from the depth as a plain still instance's is
+void MeshStorage::_multimesh_set_still(RID p_multimesh, bool p_still) {
+	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+	ERR_FAIL_NULL(multimesh);
+	ERR_FAIL_COND_MSG(p_still && multimesh->motion_vectors_enabled, "LONGSHOT patch #118: a multimesh is said still before its first buffer (it already keeps a previous one).");
+	multimesh->still = p_still;
 }
 
 void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) {

@@ -274,6 +274,9 @@ private:
 		// LONGSHOT patch #117 (AN EXTERNAL MULTIMESH SAYS WHERE ITS PREVIOUS RECORDS STAND): the instances from a record to the record of
 		// where the last frame drew that instance, in the maker's buffer (0: the maker keeps none)
 		uint32_t external_previous_offset = 0;
+		// LONGSHOT patch #118 (A MULTIMESH WHOSE ROWS ARE A LIST): its rows are a frame's list of still things, never bodies that move
+		// from one buffer to the next - no previous buffer is kept and no row has a motion of its own
+		bool still = false;
 
 		bool dirty = false;
 		MultiMesh *dirty_list = nullptr;
@@ -729,6 +732,7 @@ public:
 	virtual void _mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) override; // LONGSHOT patch #60
 	virtual void _multimesh_external_changed(RID p_multimesh) override; // LONGSHOT patch #65
 	virtual void _multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) override; // LONGSHOT patch #117
+	virtual void _multimesh_set_still(RID p_multimesh, bool p_still) override; // LONGSHOT patch #118
 	virtual RID _multimesh_get_buffer_rd_rid(RID p_multimesh) const override;
 	virtual Vector<float> _multimesh_get_buffer(RID p_multimesh) const override;
 

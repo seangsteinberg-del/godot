@@ -297,6 +297,11 @@ public:
 	// instances have no motion of their own). The engine's own scheme for a multimesh's motion - two records an instance at a fixed
 	// offset - told by the maker, where the engine's own buffer swaps its halves
 	virtual void multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) = 0;
+	// LONGSHOT patch #118 (A MULTIMESH WHOSE ROWS ARE A LIST): the multimesh's rows are a frame's list of things that stand still under
+	// its own instance - a selection listed anew as it changes, a row another thing from one buffer to the next - never bodies that move
+	// from buffer to buffer. The engine keeps no previous buffer for it and tells no motion of a row's own (its motion is its
+	// instance's and the camera's)
+	virtual void multimesh_set_still(RID p_multimesh, bool p_still) = 0;
 	// LONGSHOT patch #60: a surface's every level's indices in one run (the base first, then each level ascending by edge, in the surface's own
 	// width: 16 bits up to 65,536 vertices) - the combined index array an external multimesh's multi-draw reads; given before the first one
 	virtual void mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) = 0;
