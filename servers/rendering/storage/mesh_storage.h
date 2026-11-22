@@ -151,6 +151,7 @@ public:
 	virtual void multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances); // LONGSHOT patch #60
 	virtual void mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data); // LONGSHOT patch #60
 	virtual void multimesh_external_changed(RID p_multimesh); // LONGSHOT patch #65
+	virtual void multimesh_external_set_previous(RID p_multimesh, int p_previous_offset); // LONGSHOT patch #117
 	virtual RID multimesh_get_command_buffer_rd_rid(RID p_multimesh) const;
 	virtual RID multimesh_get_buffer_rd_rid(RID p_multimesh) const;
 	virtual Vector<float> multimesh_get_buffer(RID p_multimesh) const;
@@ -194,6 +195,7 @@ public:
 	virtual void _multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) = 0; // LONGSHOT patch #60
 	virtual void _mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) = 0; // LONGSHOT patch #60
 	virtual void _multimesh_external_changed(RID p_multimesh) = 0; // LONGSHOT patch #65
+	virtual void _multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) = 0; // LONGSHOT patch #117
 	virtual RID _multimesh_get_command_buffer_rd_rid(RID p_multimesh) const = 0;
 	virtual RID _multimesh_get_buffer_rd_rid(RID p_multimesh) const = 0;
 	virtual Vector<float> _multimesh_get_buffer(RID p_multimesh) const = 0;

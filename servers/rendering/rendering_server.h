@@ -292,6 +292,11 @@ public:
 	// LONGSHOT patch #65 (THE SHADOWS CACHED): an external multimesh's maker says its buffers' content moved (its own cull wrote them this
 	// frame); the instances drawing it take it as a change of their bounds, so the sun's cascades redraw their kept static maps without them
 	virtual void multimesh_external_changed(RID p_multimesh) = 0;
+	// LONGSHOT patch #117 (AN EXTERNAL MULTIMESH SAYS WHERE ITS PREVIOUS RECORDS STAND): the instances from an instance's record to the
+	// record of where the last frame drew it, in the maker's instance buffer (the maker writes both; 0: it keeps none, and its
+	// instances have no motion of their own). The engine's own scheme for a multimesh's motion - two records an instance at a fixed
+	// offset - told by the maker, where the engine's own buffer swaps its halves
+	virtual void multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) = 0;
 	// LONGSHOT patch #60: a surface's every level's indices in one run (the base first, then each level ascending by edge, in the surface's own
 	// width: 16 bits up to 65,536 vertices) - the combined index array an external multimesh's multi-draw reads; given before the first one
 	virtual void mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) = 0;

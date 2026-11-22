@@ -271,6 +271,9 @@ private:
 		uint32_t external_command_offset = 0;
 		uint32_t external_passes = 0;
 		uint32_t external_rungs = 0;
+		// LONGSHOT patch #117 (AN EXTERNAL MULTIMESH SAYS WHERE ITS PREVIOUS RECORDS STAND): the instances from a record to the record of
+		// where the last frame drew that instance, in the maker's buffer (0: the maker keeps none)
+		uint32_t external_previous_offset = 0;
 
 		bool dirty = false;
 		MultiMesh *dirty_list = nullptr;
@@ -725,6 +728,7 @@ public:
 	virtual void _multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) override; // LONGSHOT patch #60
 	virtual void _mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) override; // LONGSHOT patch #60
 	virtual void _multimesh_external_changed(RID p_multimesh) override; // LONGSHOT patch #65
+	virtual void _multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) override; // LONGSHOT patch #117
 	virtual RID _multimesh_get_buffer_rd_rid(RID p_multimesh) const override;
 	virtual Vector<float> _multimesh_get_buffer(RID p_multimesh) const override;
 

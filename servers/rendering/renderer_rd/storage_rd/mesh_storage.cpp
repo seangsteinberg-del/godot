@@ -1708,6 +1708,12 @@ void MeshStorage::_multimesh_enable_motion_vectors(MultiMesh *multimesh) {
 void MeshStorage::_multimesh_get_motion_vectors_offsets(RID p_multimesh, uint32_t &r_current_offset, uint32_t &r_prev_offset) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL(multimesh);
+	if (multimesh->external) {
+		// LONGSHOT patch #117: the maker's buffer holds an instance's record and, a fixed way on, where the last frame drew it
+		r_current_offset = 0;
+		r_prev_offset = multimesh->external_previous_offset;
+		return;
+	}
 	r_current_offset = multimesh->motion_vectors_current_offset;
 	if (!_multimesh_uses_motion_vectors(multimesh)) {
 		multimesh->motion_vectors_previous_offset = multimesh->motion_vectors_current_offset;
@@ -1718,6 +1724,9 @@ void MeshStorage::_multimesh_get_motion_vectors_offsets(RID p_multimesh, uint32_
 bool MeshStorage::_multimesh_uses_motion_vectors_offsets(RID p_multimesh) {
 	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
 	ERR_FAIL_NULL_V(multimesh, false);
+	if (multimesh->external) {
+		return multimesh->external_previous_offset != 0; // LONGSHOT patch #117: its instances move by their previous records
+	}
 	return _multimesh_uses_motion_vectors(multimesh);
 }
 
@@ -2272,6 +2281,19 @@ void MeshStorage::_multimesh_external_changed(RID p_multimesh) {
 	ERR_FAIL_NULL(multimesh);
 	ERR_FAIL_COND_MSG(!multimesh->external, "LONGSHOT patch #65: only an external multimesh (multimesh_set_external_buffers) is told of its content by its maker.");
 	multimesh->dependency.changed_notify(Dependency::DEPENDENCY_CHANGED_AABB);
+}
+
+// LONGSHOT patch #117 (AN EXTERNAL MULTIMESH SAYS WHERE ITS PREVIOUS RECORDS STAND): an external multimesh's instances are placed by its
+// maker on the device each frame, in slots that change with the frame's cull - the engine cannot keep where each stood. The maker
+// writes, for the instances it moves, a second record a fixed number of instances on (the place the last frame drew the instance
+// at, measured from where the multimesh's own instance stood then) and says that number here: the scene shader reads it as it
+// reads a multimesh's previous half, and the instance draws into the motion pass. Nought: no previous records, no motion of its own
+void MeshStorage::_multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) {
+	MultiMesh *multimesh = multimesh_owner.get_or_null(p_multimesh);
+	ERR_FAIL_NULL(multimesh);
+	ERR_FAIL_COND_MSG(!multimesh->external, "LONGSHOT patch #117: only an external multimesh (multimesh_set_external_buffers) keeps its previous records in its maker's buffer.");
+	ERR_FAIL_COND_MSG(p_previous_offset < 0, "LONGSHOT patch #117: the previous records stand after the present ones.");
+	multimesh->external_previous_offset = uint32_t(p_previous_offset);
 }
 
 void MeshStorage::_multimesh_set_external_buffers(RID p_multimesh, RID p_instance_buffer, RID p_command_buffer, int p_command_offset, const Vector<float> &p_rung_keys, const Vector<int32_t> &p_slice_first, int p_passes, int p_instances) {

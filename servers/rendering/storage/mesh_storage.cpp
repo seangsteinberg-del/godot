@@ -264,6 +264,10 @@ void RendererMeshStorage::multimesh_external_changed(RID p_multimesh) { // LONGS
 	_multimesh_external_changed(p_multimesh);
 }
 
+void RendererMeshStorage::multimesh_external_set_previous(RID p_multimesh, int p_previous_offset) { // LONGSHOT patch #117
+	_multimesh_external_set_previous(p_multimesh, p_previous_offset);
+}
+
 void RendererMeshStorage::mesh_surface_set_level_index_data(RID p_mesh, int p_surface, const Vector<uint8_t> &p_data) {
 	_mesh_surface_set_level_index_data(p_mesh, p_surface, p_data);
 }
