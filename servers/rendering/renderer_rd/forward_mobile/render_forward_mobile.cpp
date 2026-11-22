@@ -2090,10 +2090,7 @@ void RenderForwardMobile::_fill_instance_data(RenderListType p_render_list, uint
 
 		SceneState::InstanceData instance_data;
 
-		if (inst->prev_transform_dirty && frame > inst->prev_transform_change_frame && inst->prev_transform_change_frame) {
-			inst->prev_transform = inst->transform;
-			inst->prev_transform_dirty = false;
-		}
+		inst->motion_latch(frame); // LONGSHOT patch #116 (THE PREVIOUS PLACE IS WHERE IT WAS LAST DRAWN: renderer_geometry_instance.h)
 
 		if (inst->store_transform_cache) {
 			RendererRD::MaterialStorage::store_transform_transposed_3x4(inst->transform, instance_data.transform);
@@ -2712,17 +2709,6 @@ RenderGeometryInstance *RenderForwardMobile::geometry_instance_create(RID p_base
 	ginstance->_mark_dirty();
 
 	return ginstance;
-}
-
-void RendererSceneRenderImplementation::RenderForwardMobile::GeometryInstanceForwardMobile::set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) {
-	uint64_t frame = RSG::rasterizer->get_frame_number();
-	if (frame != prev_transform_change_frame) {
-		prev_transform = transform;
-		prev_transform_change_frame = frame;
-		prev_transform_dirty = true;
-	}
-
-	RenderGeometryInstanceBase::set_transform(p_transform, p_aabb, p_transformed_aabb);
 }
 
 void RenderForwardMobile::GeometryInstanceForwardMobile::set_use_lightmap(RID p_lightmap_instance, const Rect2 &p_lightmap_uv_scale, int p_lightmap_slice_index) {

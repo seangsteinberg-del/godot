@@ -142,6 +142,7 @@ void RenderGeometryInstanceBase::set_cast_double_sided_shadows(bool p_enable) {
 }
 
 void RenderGeometryInstanceBase::reset_motion_vectors() {
+	motion_reset = true; // LONGSHOT patch #116: the next frame that lays the instance gives it no motion of its own
 }
 
 Transform3D RenderGeometryInstanceBase::get_transform() {

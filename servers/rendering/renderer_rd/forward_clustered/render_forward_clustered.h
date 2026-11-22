@@ -597,13 +597,7 @@ private:
 		bool using_softshadows = false;
 
 		//used during setup
-		uint64_t prev_transform_change_frame = 0xFFFFFFFF;
-		enum TransformStatus {
-			NONE,
-			MOVED,
-			TELEPORTED,
-		} transform_status = TransformStatus::MOVED;
-		Transform3D prev_transform;
+		// (LONGSHOT patch #116: the previous transform and its latch are the base's - renderer_geometry_instance.h)
 		RID voxel_gi_instances[MAX_VOXEL_GI_INSTANCESS_PER_INSTANCE];
 		GeometryInstanceSurfaceDataCache *surface_caches = nullptr;
 		SelfList<GeometryInstanceForwardClustered> dirty_list_element;
@@ -613,8 +607,6 @@ private:
 
 		virtual void _mark_dirty() override;
 
-		virtual void set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) override;
-		virtual void reset_motion_vectors() override;
 		virtual void set_use_lightmap(RID p_lightmap_instance, const Rect2 &p_lightmap_uv_scale, int p_lightmap_slice_index) override;
 		virtual void set_lightmap_capture(const Color *p_sh9) override;
 

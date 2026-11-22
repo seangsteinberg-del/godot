@@ -539,9 +539,7 @@ protected:
 		uint32_t instance_count = 0;
 		uint32_t trail_steps = 1;
 
-		uint64_t prev_transform_change_frame = UINT_MAX;
-		bool prev_transform_dirty = true;
-		Transform3D prev_transform;
+		// (LONGSHOT patch #116: the previous transform and its latch are the base's - renderer_geometry_instance.h)
 
 		// lightmap
 		uint32_t gi_offset_cache = 0; // !BAS! Should rename this to lightmap_offset_cache, in forward clustered this was shared between gi and lightmap
@@ -572,7 +570,6 @@ protected:
 
 		virtual void _mark_dirty() override;
 
-		virtual void set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) override;
 		virtual void set_use_lightmap(RID p_lightmap_instance, const Rect2 &p_lightmap_uv_scale, int p_lightmap_slice_index) override;
 		virtual void set_lightmap_capture(const Color *p_sh9) override;
 

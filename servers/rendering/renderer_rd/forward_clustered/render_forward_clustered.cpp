@@ -1004,6 +1004,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 
 	for (int i = 0; i < (int)p_render_data->instances->size(); i++) {
 		GeometryInstanceForwardClustered *inst = static_cast<GeometryInstanceForwardClustered *>((*p_render_data->instances)[i]);
+		inst->motion_latch(frame); // LONGSHOT patch #116 (THE PREVIOUS PLACE IS WHERE IT WAS LAST DRAWN: renderer_geometry_instance.h)
 
 		Vector3 center = inst->transform.origin;
 		if (p_render_data->scene_data->cam_orthogonal) {
@@ -1116,7 +1117,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 				}
 			}
 			if (p_pass_mode == PASS_MODE_DEPTH_NORMAL_ROUGHNESS || p_pass_mode == PASS_MODE_DEPTH_NORMAL_ROUGHNESS_VOXEL_GI || p_pass_mode == PASS_MODE_COLOR) {
-				bool transform_changed = inst->transform_status == GeometryInstanceForwardClustered::TransformStatus::MOVED;
+				bool transform_changed = inst->moved; // LONGSHOT patch #116
 				bool has_mesh_instance = inst->mesh_instance.is_valid();
 				bool uses_particles = inst->base_flags & INSTANCE_DATA_FLAG_PARTICLES;
 				bool is_multimesh_with_motion = !uses_particles && (inst->base_flags & INSTANCE_DATA_FLAG_MULTIMESH) && mesh_storage->_multimesh_uses_motion_vectors_offsets(inst->data->base);
@@ -1148,11 +1149,6 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			Vector3 surface_distance = Vector3(0.0, 0.0, 0.0).max(aabb_min - camera_position).max(camera_position - aabb_max);
 
 			lod_distance = surface_distance.length();
-		}
-
-		if (unlikely(inst->transform_status != GeometryInstanceForwardClustered::TransformStatus::NONE && frame > inst->prev_transform_change_frame && inst->prev_transform_change_frame)) {
-			inst->prev_transform = inst->transform;
-			inst->transform_status = GeometryInstanceForwardClustered::TransformStatus::NONE;
 		}
 
 		while (surf) {
@@ -5128,24 +5124,6 @@ RenderGeometryInstance *RenderForwardClustered::geometry_instance_create(RID p_b
 	ginstance->_mark_dirty();
 
 	return ginstance;
-}
-
-void RenderForwardClustered::GeometryInstanceForwardClustered::set_transform(const Transform3D &p_transform, const AABB &p_aabb, const AABB &p_transformed_aabb) {
-	uint64_t frame = RSG::rasterizer->get_frame_number();
-	if (frame != prev_transform_change_frame) {
-		prev_transform = transform;
-		prev_transform_change_frame = frame;
-		transform_status = TransformStatus::MOVED;
-	} else if (unlikely(transform_status == TransformStatus::TELEPORTED)) {
-		prev_transform = transform;
-	}
-
-	RenderGeometryInstanceBase::set_transform(p_transform, p_aabb, p_transformed_aabb);
-}
-
-void RenderForwardClustered::GeometryInstanceForwardClustered::reset_motion_vectors() {
-	prev_transform = transform;
-	transform_status = TransformStatus::TELEPORTED;
 }
 
 void RenderForwardClustered::GeometryInstanceForwardClustered::set_use_lightmap(RID p_lightmap_instance, const Rect2 &p_lightmap_uv_scale, int p_lightmap_slice_index) {

@@ -90,6 +90,38 @@ public:
 	RID mesh_instance;
 
 	Transform3D transform;
+	// LONGSHOT patch #116 (THE PREVIOUS PLACE IS WHERE IT WAS LAST DRAWN): an instance's motion runs from the place the LAST FRAME LAID IT
+	// AT to the place this frame lays it at. The engine told it from the moment the transform was SET: the previous place was
+	// latched in set_transform by the frame's number, and an instance whose last set bore an earlier number than the frame
+	// drawn was taken as not having moved. The number advances when the draw begins - so a transform that reached the instance
+	// BEFORE the draw began (anything that updates the dirty instances early does it: a cull asked of the server, an instance
+	// freed - RendererSceneCull::instances_cull_*, ::free) bore the last frame's number, and the instance was drawn as standing
+	// still in the world. Under a camera that travels with it - a craft in flight, 190 m a frame in orbit - that wrote the
+	// camera's whole step as the craft's motion: the temporal filter looked its history up off the screen and kept none, and
+	// every thin thing of the hull flickered with the jitter (measured 11-22, game/tests/probe_hull_still.gd: 0.06 % of a
+	// lander's pixels moved between two frames on the pad, 7.2 % in orbit; probe_motion_latch.gd: a box riding with the camera
+	// drew no motion as the game ran and the craft's own motion once the dirty instances were flushed early).
+	// THE LAW: `motion_latch`, called where a frame first lays the instance in a render list (after every transform of the frame
+	// has reached it, whenever it did): the previous place is the place the last frame laid it at; an instance the last frame
+	// did not lay, or whose motion was reset since (reset_motion_vectors: a teleport), has no motion of its own this frame.
+	Transform3D prev_transform; // where the last frame laid it (this frame's place where it has no motion of its own)
+	Transform3D laid_transform; // where it is laid in `laid_frame`
+	uint64_t laid_frame = 0;
+	bool laid_before = false;
+	bool moved = false; // it stands elsewhere than the last frame laid it: it writes a motion of its own
+	bool motion_reset = false; // reset_motion_vectors since it was last laid
+	_FORCE_INLINE_ void motion_latch(uint64_t p_frame) {
+		if (likely(laid_before && laid_frame == p_frame)) {
+			return; // (laid already this frame: another pass, another viewport)
+		}
+		const bool follows = laid_before && laid_frame + 1 == p_frame && !motion_reset;
+		prev_transform = follows ? laid_transform : transform;
+		moved = follows && prev_transform != transform;
+		laid_transform = transform;
+		laid_frame = p_frame;
+		laid_before = true;
+		motion_reset = false;
+	}
 	bool mirror = false;
 	AABB transformed_aabb;
 	bool non_uniform_scale = false;
