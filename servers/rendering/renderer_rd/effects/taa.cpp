@@ -124,10 +124,17 @@ void TAA::process(Ref<RenderSceneBuffersRD> p_render_buffers, RD::DataFormat p_f
 			// transparent default: no share kept
 			RID settled = p_render_buffers->has_longshot_settled() ? p_render_buffers->get_longshot_settled() : TextureStorage::get_singleton()->texture_rd_get_default(TextureStorage::DEFAULT_RD_TEXTURE_TRANSPARENT);
 			resolve(internal_texture, taa_temp, depth_texture, velocity_buffer, taa_prev_velocity, taa_history, settled, Size2(internal_size.x, internal_size.y), p_z_near, p_z_far);
-			copy_effects->copy_to_rect(taa_temp, internal_texture, Rect2(0, 0, internal_size.x, internal_size.y));
+			// LONGSHOT [patch] #113 THE LOCK IS THE HISTORY'S ALONE: the resolve writes each pixel's lock in its alpha
+			// (taa_resolve.glsl: a thin thing seen is held until it is seen again). The history keeps the resolved frame WITH
+			// it; the frame handed on carries an alpha of one, as the resolve always wrote, so nothing after this reads a lock.
+			copy_effects->copy_to_rect(taa_temp, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
+			copy_effects->copy_to_rect(taa_temp, internal_texture, Rect2(0, 0, internal_size.x, internal_size.y), false, false, false, false, true);
+		} else {
+			// (the first frame's history is the frame as it stands, no pixel locked: its alpha written as nought would need a
+			// copy of its own; an alpha of one fades in LOCK_FRAMES frames and holds nothing that the frame did not draw)
+			copy_effects->copy_to_rect(internal_texture, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
 		}
 
-		copy_effects->copy_to_rect(internal_texture, taa_history, Rect2(0, 0, internal_size.x, internal_size.y));
 		copy_effects->copy_to_rect(velocity_buffer, taa_prev_velocity, Rect2(0, 0, target_size.x, target_size.y));
 	}
 

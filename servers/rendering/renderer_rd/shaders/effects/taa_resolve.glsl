@@ -19,6 +19,7 @@
 // CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ///////////////////////////////////////////////////////////////////////////////////
 // File changes (yyyy-mm-dd)
+// 2026-11-15: LONGSHOT [patch] #113: a thin thing of geometry, once seen, is held until it is seen again (it shook at a still eye)
 // 2026-10-05: LONGSHOT [patch] #10: the flicker guard bounded so a steady input always converges (a bright point's centre drew black)
 // 2025-11-05: Jakub Brzyski: Added dynamic variance, base variance value adjusted to reduce ghosting
 // 2022-05-06: Panos Karabelas: first commit
@@ -325,6 +326,67 @@ float luminance(vec3 color) {
 	return max(dot(color, lumCoeff), 0.0001f);
 }
 
+// LONGSHOT [patch] #113 A THIN THING SEEN IS HELD UNTIL IT IS SEEN AGAIN. A piece of geometry thinner than a pixel - a lattice's
+// lace, a window's bar, a handrail, a painted line a hand over its floor - is met by a frame's one jittered sample in some frames
+// and missed in the rest. In a frame that misses it nothing of it stands in the pixel's 3x3 neighbourhood, so the clip
+// (clip_history_3x3: the history held to its neighbourhood's own range, [patch] #108) takes it out of the history whole; the
+// next hit puts a sixteenth of it back; the miss after takes that out again. At a still eye over still things the picture
+// SHOOK wherever the site had thin steel (the director, 11-15, of the launch complex seen from the air: "some of the mesh
+// parts look like they are shaking for example these windows"; measured, tools/site/shimmer.py, two frames of one still view
+// eight frames apart: the worst 64-pixel tiles 7 to 16 per cent changed under this filter, none at all with no filter).
+// THE LAW: a pixel whose sample MET a thin thing - it stands apart from both its neighbours across one of the four lines
+// through it IN COLOUR AND IN DEPTH, proud of the plane between them (a line or a point of geometry: never an edge, where one side agrees;
+// never a glint, a star or a mote of gas, which have no depth of their own and keep the filter exactly as it was) - is LOCKED:
+// the lock rides the history's alpha, travels with the history's reprojection, fades over LOCK_FRAMES frames (longer than the
+// jitter's sixteen, so a thing a sixteenth of a pixel wide is met again before its lock is gone) and is dropped wherever the
+// pixel's motion is not its history's. While a pixel is locked its history is NOT clipped: it is the history's own texel (the plain sample: no
+// spline lobe to hold dark, #108's fault), and the sixteenth blend converges on the thing's true share of the pixel - a
+// steady faint line where there was a flashing one. Nothing held can stand for good: every frame still blends the input in.
+#define LOCK_FRAMES 24.0
+#define LOCK_COLOUR_LO 0.05 // the centre apart from both sides by this share of the brightest of the three: no lock under it ...
+#define LOCK_COLOUR_HI 0.20 // ... a whole lock from here
+// ... and PROUD OF THE PLANE BETWEEN ITS TWO NEIGHBOURS by this share of its own depth (a plane's depth is linear across the
+// screen: nought). THE GROUND IS NOT A THIN THING: a hill's own roundness stands a pixel's middle proud of its neighbours too -
+// by the pixel's width squared over twice the hill's radius, a few millionths of its depth for ground a kilometre off - and
+// every grain of a grass texture is apart from its neighbours in colour. At one threshold of two millionths the whole
+// textured ground locked (measured 11-15, the pads from the air: the worst tile 14.7 per cent changed, from 4.5), so the
+// lock begins well over a hill's roundness and is whole at a bar's (a mullion a hand proud of its wall, seen aslant from
+// seven hundred metres, stands seventy millionths proud)
+#define LOCK_DEPTH_LO 0.00001
+#define LOCK_DEPTH_HI 0.00005
+
+float lum_bounded(vec3 hdr) {
+	return luminance(to_bounded(finite_color(hdr)));
+}
+
+// 0 on a flat and on an edge; up to 1 where the sample met a line or a point of geometry about a pixel wide or thinner
+float thin_thing(uvec2 group_pos) {
+	const ivec2 across[4] = { ivec2(3, 5), ivec2(1, 7), ivec2(0, 8), ivec2(2, 6) };
+	float c = lum_bounded(load_color(group_pos + kOffsets3x3[4]));
+	float dc = load_depth(group_pos + kOffsets3x3[4]);
+	if (dc <= 0.0) {
+		return 0.0; // (the sky: nothing of geometry)
+	}
+	float found = 0.0;
+	for (int i = 0; i < 4; i++) {
+		float da = load_depth(group_pos + kOffsets3x3[across[i].x]);
+		float db = load_depth(group_pos + kOffsets3x3[across[i].y]);
+		// (the depth runs from 1 at the eye to 0 far away: nearer is greater, and across a plane it runs straight, so the
+		// middle of two neighbours is the plane's own depth between them. PROUD OF THAT MIDDLE, never nearer than both: a
+		// bar on a wall seen aslant is proud of its wall by less than the wall's own run from one pixel to the next - the
+		// first form of this test held the lattices against the sky and left every window's bars shaking, measured 11-15)
+		float proud = smoothstep(LOCK_DEPTH_LO, LOCK_DEPTH_HI, (dc - 0.5 * (da + db)) / dc);
+		if (proud <= 0.0) {
+			continue;
+		}
+		float a = lum_bounded(load_color(group_pos + kOffsets3x3[across[i].x]));
+		float b = lum_bounded(load_color(group_pos + kOffsets3x3[across[i].y]));
+		float apart = max(min(c - a, c - b), min(a - c, b - c)); // over both, or under both
+		found = max(found, proud * smoothstep(LOCK_COLOUR_LO, LOCK_COLOUR_HI, apart / max(max(a, b), max(c, 0.02))));
+	}
+	return found;
+}
+
 // This is "velocity disocclusion" as described by https://www.elopezr.com/temporal-aa-and-the-quest-for-the-holy-trail/.
 // We use texel space, so our scale and threshold differ.
 float get_factor_disocclusion(vec2 uv_reprojected, vec2 velocity) {
@@ -335,7 +397,8 @@ float get_factor_disocclusion(vec2 uv_reprojected, vec2 velocity) {
 	return clamp(disocclusion * DISOCCLUSION_SCALE, 0.0, 1.0);
 }
 
-vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_screen, vec2 uv, sampler2D tex_history) {
+// (the resolved colour, and in alpha the pixel's lock: [patch] #113)
+vec4 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_screen, vec2 uv, sampler2D tex_history) {
 	// Get the velocity of the current pixel
 	vec2 velocity = imageLoad(velocity_buffer, ivec2(pos_screen)).xy;
 
@@ -353,15 +416,30 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 	get_closest_pixel_velocity_3x3(pos_group, pos_group_top_left, velocity_closest);
 	color_history = clip_history_3x3(pos_group, color_history, velocity_closest);
 
+	// If re-projected UV is out of screen, converge to current color immediately.
+	float factor_screen = any(lessThan(uv_reprojected, vec2(0.0))) || any(greaterThan(uv_reprojected, vec2(1.0))) ? 1.0 : 0.0;
+
+	// Increase blend factor when there is disocclusion (fixes a lot of the remaining ghosting).
+	float factor_disocclusion = get_factor_disocclusion(uv_reprojected, velocity);
+
+	// LONGSHOT [patch] #113 A THIN THING SEEN IS HELD UNTIL IT IS SEEN AGAIN: where the history is locked - it comes from a pixel
+	// that met a thin thing of geometry within the last LOCK_FRAMES frames, and nothing was uncovered since - the history is its
+	// own texel, unclipped; the lock is renewed where this frame's sample meets such a thing, and fades where it does not
+	vec4 history_plain = textureLod(tex_history, uv_reprojected, 0.0);
+	// (A LOCK IS DROPPED BY ANY MOTION OF ITS OWN: the filter's disocclusion waits for two and a half texels a frame, and a
+	// thing crossing a locked pixel slower than that - a walker far off, a rocket on its way out - would be drawn through
+	// the held lines behind it. Where the pixel's motion is not the motion its history had, to a tenth of a texel, the
+	// lock is gone and the clip stands as it always did. A still eye over still things has none; a turning eye carries
+	// the lock with the reprojection, both motions the eye's own.)
+	vec2 velocity_was = imageLoad(last_velocity_buffer, ivec2(uv_reprojected * params.resolution)).xy;
+	float own_motion = length((velocity_was - velocity) * params.resolution);
+	float held = clamp(history_plain.a, 0.0, 1.0) * (1.0 - factor_screen) * (1.0 - smoothstep(0.1, 0.4, own_motion));
+	color_history = mix(color_history, finite_color(history_plain.rgb), held);
+	float lock = max(thin_thing(pos_group), held - 1.0 / LOCK_FRAMES);
+
 	// Compute blend factor
 	float blend_factor = RPC_16; // We want to be able to accumulate as many jitter samples as we generated, that is, 16.
 	{
-		// If re-projected UV is out of screen, converge to current color immediately.
-		float factor_screen = any(lessThan(uv_reprojected, vec2(0.0))) || any(greaterThan(uv_reprojected, vec2(1.0))) ? 1.0 : 0.0;
-
-		// Increase blend factor when there is disocclusion (fixes a lot of the remaining ghosting).
-		float factor_disocclusion = get_factor_disocclusion(uv_reprojected, velocity);
-
 		// Add to the blend factor
 		blend_factor = clamp(blend_factor + factor_screen + factor_disocclusion, 0.0, 1.0);
 	}
@@ -385,6 +463,10 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 		// flicker (a thin bright feature alternating under the jitter: the same quarter weight at diff 0.5 as before); a
 		// total one is a change, and a change converges at the blend's own rate
 		float steady = 1.0 - 0.75 * 4.0 * diff * (1.0 - diff);
+		// (LONGSHOT [patch] #113: THE GUARD STANDS FOR A LOCKED PIXEL TOO. It is what keeps a held line still: a hit, a
+		// half-way disagreement with the line's own running mean, enters at a quarter of the blend. Taken off the locked
+		// pixels - every sample at the blend's whole sixteenth - the held lattices and bars swung with the jitter's cycle:
+		// measured 11-15, the worst tiles 5.6, 7.3 and 10.4 per cent against 1.8 and 2.5 with it.)
 		blend_factor *= steady;
 
 		// LONGSHOT [patch] #25 THE SETTLED GAS STANDS: a layer settled by its own history on the pixels' centres (the exhaust's gas: its
@@ -399,7 +481,7 @@ vec3 temporal_antialiasing(uvec2 pos_group_top_left, uvec2 pos_group, uvec2 pos_
 		color_resolved = from_bounded(color_resolved);
 	}
 
-	return color_resolved;
+	return vec4(color_resolved, lock);
 }
 
 void main() {
@@ -415,6 +497,7 @@ void main() {
 	const uvec2 pos_screen = gl_GlobalInvocationID.xy;
 	const vec2 uv = (gl_GlobalInvocationID.xy + 0.5f) / params.resolution;
 
-	vec3 result = temporal_antialiasing(pos_group_top_left, pos_group, pos_screen, uv, history_buffer);
-	imageStore(output_buffer, ivec2(gl_GlobalInvocationID.xy), vec4(result, 1.0));
+	// (the lock in alpha is the HISTORY's alone: taa.cpp keeps it there and hands the frame on with an alpha of one, as before)
+	vec4 result = temporal_antialiasing(pos_group_top_left, pos_group, pos_screen, uv, history_buffer);
+	imageStore(output_buffer, ivec2(gl_GlobalInvocationID.xy), result);
 }
