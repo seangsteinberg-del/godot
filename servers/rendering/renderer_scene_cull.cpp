@@ -2428,8 +2428,6 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 
 		real_t radius = 0;
 		real_t soft_shadow_expand = 0;
-		real_t search_begin = 0.0;   // LONGSHOT (#29): the penumbra search's base, set with the widening
-		bool search_bounded = false;
 		Vector3 center;
 
 		{
@@ -2457,20 +2455,14 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 				float soft_shadow_angle = RSG::light_storage->light_get_param(p_instance->base, RSE::LIGHT_PARAM_SIZE);
 
 				if (soft_shadow_angle > 0.0) {
-					float z_range = (z_vec.dot(center) + radius + pancake_size) - z_min_cam;
-					// LONGSHOT (patch #28): the reach is at most the cascade's own radius. The expansion lets casters whose penumbra
-					// reaches into the cascade from outside stand in its map, and it rides the depth range - with the pancake: a seat
-					// whose sun carries a 24 km pancake for the mountains' shadows widened the boots' cascade (radius 60 m) by 223 m a
-					// side, its texel 0.275 m for a radius that says 0.059. A map spends at most half its width on the reach beyond
-					// itself: a far caster's 223 m penumbra is drawn 60 m soft within the boots' cascade (no edge the eye can tell at
-					// that range) and the near shadows keep half their resolution instead of a fifth; the far cascades are unchanged.
-					soft_shadow_expand = MIN(Math::tan(Math::deg_to_rad(soft_shadow_angle)) * z_range, radius);
-					// LONGSHOT (patch #29): the penumbra search reaches as far as the map's widening and no further - the shader's reach is
-					// tan(the angle) x the point's distance from range_begin, so range_begin stands the widening's distance up the light from
-					// the cascade's centre (upstream the reach and the widening were one quantity, tan(the angle) x the depth range; a search
-					// past the map's edge reads its rim texels as blockers)
-					search_begin = z_vec.dot(center) + soft_shadow_expand / Math::tan(Math::deg_to_rad(soft_shadow_angle));
-					search_bounded = true;
+					// LONGSHOT patch #119 (THE SEARCH REACHES AS FAR AS ITS PROBES TILE): the map is widened by the soft shadow's reach, and that
+					// reach is counted in the map's own texels (scene_forward_lights_inc.glsl sample_directional_soft_shadow: its probes stand
+					// two texels apart - 6.4 texels at the thirty-two probes of the highest quality), never tan(the angle) x the depth range.
+					// Upstream widened by that product and #28 capped it at the cascade's own radius: under a seat's 24 km pancake every near
+					// cascade was drawn twice as wide as its slice - half its resolution - for a search no narrow caster survived. Eight
+					// texels a side holds the reach at its most and a texel of filtering: e = 8 x 2 (r + e) / size.
+					const real_t soft_reach_texels = 8.0;
+					soft_shadow_expand = radius * (2.0 * soft_reach_texels) / (texture_size - 2.0 * soft_reach_texels);
 
 					x_max += soft_shadow_expand;
 					y_max += soft_shadow_expand;
@@ -2553,7 +2545,7 @@ void RendererSceneCull::_light_instance_setup_directional_shadow(int p_shadow_in
 			cascade.split = distances[i + 1];
 			cascade.shadow_texel_size = texel;
 			cascade.bias_scale = (z_max - z_min_cam);
-			cascade.range_begin = (search_bounded ? search_begin : z_max) - z_vec.dot(p_cam_transform.origin);   // LONGSHOT (#29)
+			cascade.range_begin = z_max - z_vec.dot(p_cam_transform.origin); // (no shader reads it since #119: the search is counted in texels)
 			cascade.uv_scale = uv_scale;
 			// LONGSHOT patch #70 (THE FAR CASTERS TURN WITH THE SUN): the kept map holds the static casters within three radii of the
 			// slice's centre along the light; a kept map's angle tolerance is half a texel over the kept casters' reach, so it stands for
