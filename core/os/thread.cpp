@@ -37,8 +37,25 @@
 #ifdef THREADS_ENABLED
 #include "core/object/script_language.h"
 
-SafeNumeric<uint64_t> Thread::id_counter(1); // The first value after .increment() is 2, hence by default the main thread ID should be 1.
-thread_local Thread::ID Thread::caller_id = Thread::id_counter.increment();
+#include <atomic>
+
+// LONGSHOT patch #122 (THE THREAD IDS' COUNTER STANDS BEFORE ANY CODE RUNS). `id_counter` is built by a constructor at the program's
+// start, in no promised order among the other files' statics - and a thread's `caller_id` takes its first value from it when that
+// thread's thread-locals are laid, which a compiler does for all of a thread's at its first touch of any. A static that touches a
+// thread-local of its own before the counter is built (the profiler's client does, as the program starts: patch #120) lays the
+// main thread's `caller_id` from a counter still all zeroes: it reads 1 - MAIN_ID - make_main_thread() then takes the thread for
+// the main one already and never sets its flag, and the first release_main_thread(), the end of Main::setup, crashes every boot
+// ("!is_main_thread_assigned.clear_if_set()"); the constructor then sets the counter back to 1 and ids already handed out are
+// handed out again. The ids are counted here by an atomic the compiler lays whole (a constant initialiser: 1 before any code
+// runs, whatever the order); the class's own counter is kept for its declaration and read by nothing.
+static std::atomic<uint64_t> thread_id_counter{ 1 };
+
+static _FORCE_INLINE_ uint64_t next_thread_id() {
+	return thread_id_counter.fetch_add(1, std::memory_order_acq_rel) + 1; // (the first is 2: 1 is the main thread's, by make_main_thread alone)
+}
+
+SafeNumeric<uint64_t> Thread::id_counter(1);
+thread_local Thread::ID Thread::caller_id = next_thread_id();
 
 #endif
 
@@ -71,7 +88,7 @@ void Thread::callback(ID p_caller_id, const Settings &p_settings, Callback p_cal
 
 Thread::ID Thread::start(Thread::Callback p_callback, void *p_user, const Settings &p_settings) {
 	ERR_FAIL_COND_V_MSG(id != UNASSIGNED_ID, UNASSIGNED_ID, "A Thread object has been re-started without wait_to_finish() having been called on it.");
-	id = id_counter.increment();
+	id = next_thread_id(); // LONGSHOT patch #122
 	thread = THREADING_NAMESPACE::thread(&Thread::callback, id, p_settings, p_callback, p_user);
 	return id;
 }
@@ -99,7 +116,7 @@ void Thread::make_main_thread() {
 void Thread::release_main_thread() {
 	CRASH_COND_MSG(caller_id != MAIN_ID, "Trying to release main thread from a thread that isn't main.");
 	CRASH_COND(!is_main_thread_assigned.clear_if_set());
-	caller_id = id_counter.increment();
+	caller_id = next_thread_id(); // LONGSHOT patch #122
 }
 
 Error Thread::set_name(const String &p_name) {
