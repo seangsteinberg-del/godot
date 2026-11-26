@@ -3920,6 +3920,24 @@ bool Viewport::is_taking_directional_shadows_from_parent() const {
 	return directional_shadows_from_parent;
 }
 
+// LONGSHOT patch #126 (A SUB-VIEW TAKES ITS PARENT'S LAMP SHADOWS): a sub-viewport in its parent's world that draws no positional
+// light's shadow map of its own - it samples the maps its parent's atlas holds (a frame old: a sub-viewport renders before its
+// parent). A lamp the parent's eye gave no map casts no shadow in this view. For a small view of what the parent's eye stands
+// beside - a crew portrait in its cabin - whose own maps would be the same lamps' over again.
+void Viewport::set_positional_shadows_from_parent(bool p_from_parent) {
+	ERR_MAIN_THREAD_GUARD;
+	if (positional_shadows_from_parent == p_from_parent) {
+		return;
+	}
+	positional_shadows_from_parent = p_from_parent;
+	RS::get_singleton()->viewport_set_positional_shadows_from_parent(viewport, p_from_parent);
+}
+
+bool Viewport::is_taking_positional_shadows_from_parent() const {
+	ERR_READ_THREAD_GUARD_V(false);
+	return positional_shadows_from_parent;
+}
+
 void Viewport::set_debug_draw(DebugDraw p_debug_draw) {
 	ERR_MAIN_THREAD_GUARD;
 	debug_draw = p_debug_draw;
@@ -5203,6 +5221,8 @@ void Viewport::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_using_occlusion_culling"), &Viewport::is_using_occlusion_culling);
 	ClassDB::bind_method(D_METHOD("set_directional_shadows_from_parent", "enable"), &Viewport::set_directional_shadows_from_parent); // LONGSHOT patch #76
 	ClassDB::bind_method(D_METHOD("is_taking_directional_shadows_from_parent"), &Viewport::is_taking_directional_shadows_from_parent);
+	ClassDB::bind_method(D_METHOD("set_positional_shadows_from_parent", "enable"), &Viewport::set_positional_shadows_from_parent); // LONGSHOT patch #126
+	ClassDB::bind_method(D_METHOD("is_taking_positional_shadows_from_parent"), &Viewport::is_taking_positional_shadows_from_parent);
 
 	ClassDB::bind_method(D_METHOD("set_debug_draw", "debug_draw"), &Viewport::set_debug_draw);
 	ClassDB::bind_method(D_METHOD("get_debug_draw"), &Viewport::get_debug_draw);
@@ -5383,6 +5403,7 @@ void Viewport::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_debanding"), "set_use_debanding", "is_using_debanding");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_occlusion_culling"), "set_use_occlusion_culling", "is_using_occlusion_culling");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "directional_shadows_from_parent"), "set_directional_shadows_from_parent", "is_taking_directional_shadows_from_parent"); // LONGSHOT patch #76
+	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "positional_shadows_from_parent"), "set_positional_shadows_from_parent", "is_taking_positional_shadows_from_parent"); // LONGSHOT patch #126
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "mesh_lod_threshold", PROPERTY_HINT_RANGE, "0,1024,0.1"), "set_mesh_lod_threshold", "get_mesh_lod_threshold");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "debug_draw", PROPERTY_HINT_ENUM, "Disabled,Unshaded,Lighting,Overdraw,Wireframe,Normal Buffer,VoxelGI Albedo,VoxelGI Lighting,VoxelGI Emission,Shadow Atlas,Directional Shadow Map,Scene Luminance,SSAO,SSIL,Directional Shadow Splits,Decal Atlas,SDFGI Cascades,SDFGI Probes,VoxelGI/SDFGI Buffer,Disable Mesh LOD,OmniLight3D Cluster,SpotLight3D Cluster,Decal Cluster,ReflectionProbe Cluster,Occlusion Culling Buffer,Motion Vectors,Internal Buffer,AreaLight3D Cluster,AreaLight3D Atlas"), "set_debug_draw", "get_debug_draw");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "use_hdr_2d"), "set_use_hdr_2d", "is_using_hdr_2d");

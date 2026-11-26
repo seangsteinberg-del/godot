@@ -1056,6 +1056,10 @@ void RendererSceneCull::instance_set_transform(RID p_instance, const Transform3D
 	}
 
 #endif
+	if (!instance->moved) { // LONGSHOT patch #125: the transform it leaves is kept, for the batch's judgement of what moved against what
+		instance->placed_before = instance->transform;
+		instance->moved = true;
+	}
 	instance->transform = p_transform;
 	_instance_queue_update(instance, true);
 }
@@ -1755,7 +1759,12 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 
 		RSG::light_storage->light_instance_set_transform(light->instance, *instance_xform);
 		RSG::light_storage->light_instance_set_aabb(light->instance, instance_xform->xform(p_instance->aabb));
-		light->make_shadow_dirty();
+		// LONGSHOT patch #125 (A SHADOW IS STALE WHEN ITS CASTER MOVED AGAINST ITS LIGHT): a light that only moved is judged against
+		// its casters once every instance of the batch stands where it goes (_pair_placed); its map is drawn in its own space and
+		// sampled through its transform as it stands, so a lamp riding a body with its casters keeps its map exactly
+		if (p_instance->shape_changed || !placing_batch) {
+			light->make_shadow_dirty();
+		}
 
 		RSE::LightBakeMode bake_mode = RSG::light_storage->light_get_bake_mode(p_instance->base);
 		if (RSG::light_storage->light_get_type(p_instance->base) != RSE::LIGHT_DIRECTIONAL && bake_mode != light->bake_mode) {
@@ -1842,7 +1851,8 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(p_instance->base_data);
 		//make sure lights are updated if it casts shadow
 
-		if (geom->can_cast_shadows) {
+		// LONGSHOT patch #125: a caster that only moved is judged against each of its lights in _pair_placed
+		if (geom->can_cast_shadows && (p_instance->shape_changed || !placing_batch)) {
 			for (const Instance *E : geom->lights) {
 				InstanceLightData *light = static_cast<InstanceLightData *>(E->base_data);
 				light->make_shadow_dirty();
@@ -2014,6 +2024,19 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		p_instance->scenario->instance_visibility[p_instance->visibility_index].position = p_instance->transformed_aabb.get_center();
 	}
 
+	// LONGSHOT patch #124 (THE MOVED ARE PLACED BEFORE ANY IS PAIRED): within a batch the instance is placed and waits its pairing
+	p_instance->prev_transformed_aabb = p_instance->transformed_aabb;
+	if (placing_batch) {
+		placed.push_back(p_instance);
+		return;
+	}
+	_pair_placed(p_instance);
+}
+
+void RendererSceneCull::_pair_placed(Instance *p_instance) const {
+	if (p_instance->scenario == nullptr || !p_instance->indexer_id.is_valid()) {
+		return; // (it left the index while the batch was placed: an instance updated after it took it out)
+	}
 	//move instance and repair
 	pair_pass++;
 
@@ -2065,7 +2088,54 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 
 	pair.pair();
 
-	p_instance->prev_transformed_aabb = p_instance->transformed_aabb;
+	// LONGSHOT patch #125 (A SHADOW IS STALE WHEN ITS CASTER MOVED AGAINST ITS LIGHT). The engine called a positional light's shadow
+	// stale whenever the light moved or any caster paired with it moved - in the scene's frame. Under a lamp that rides a moving body
+	// both move every frame though nothing moves against the lamp, so every lamp's map was drawn again every frame (the lamps' keeper's
+	// own voice, patch #86: "RECAPTURED - the static set 0 casters"; patch #114's budget only spread the redraws). A shadow map is
+	// drawn in its light's own space, so it changes only when a caster's place IN THAT SPACE does: judged here, pair by pair, with
+	// every instance of the batch standing where it goes - a caster that moved while its light stood, a light that moved while a
+	// caster stood, or the two moved by different motions. What changed of an instance beside its place (its bounds, base, materials,
+	// pose) dirtied its lights as it was placed, as before.
+	if (!placing_batch || p_instance->placed_batch != update_batch) {
+		return; // (outside a batch every move was told as it was made; an instance that did not move in this one has nothing to judge)
+	}
+	if ((1 << p_instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) {
+		const InstanceGeometryData *geom = static_cast<const InstanceGeometryData *>(p_instance->base_data);
+		if (geom->can_cast_shadows) {
+			for (const Instance *E : geom->lights) {
+				if (E->placed_batch != update_batch) { // (a light that moved in this batch judges its own casters, below)
+					static_cast<InstanceLightData *>(E->base_data)->make_shadow_dirty();
+				}
+			}
+		}
+	} else if (p_instance->base_type == RSE::INSTANCE_LIGHT) {
+		InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
+		if (!light->is_shadow_dirty() && RSG::light_storage->light_has_shadow(p_instance->base)) {
+			// the light's own motion over the batch, and each caster asked whether it made the same one: a caster standing a micrometre
+			// and a part in a thousand million of a turn from where that motion would have set it has not moved against the light
+			// (the transforms are doubles: a body's parts recomposed from its frame agree to some 1e-9 m at ten thousand kilometres)
+			const Transform3D motion = p_instance->transform * p_instance->placed_before.affine_inverse();
+			for (const Instance *E : light->geometries) {
+				if (!static_cast<const InstanceGeometryData *>(E->base_data)->can_cast_shadows) {
+					continue;
+				}
+				bool with_it = E->placed_batch == update_batch;
+				if (with_it) {
+					const Transform3D expected = motion * E->placed_before;
+					// (a micrometre, or the doubles' own grain where the scene's coordinates are the distance to a far world: some 3e-14 of them)
+					const double slack = MAX(1.0e-6, 3.0e-14 * Math::sqrt(E->transform.origin.length_squared()));
+					with_it = (expected.origin - E->transform.origin).length_squared() < slack * slack;
+					for (int r = 0; with_it && r < 3; r++) {
+						with_it = (expected.basis.rows[r] - E->transform.basis.rows[r]).length_squared() < 1.0e-18;
+					}
+				}
+				if (!with_it) {
+					light->make_shadow_dirty();
+					break;
+				}
+			}
+		}
+	}
 }
 
 void RendererSceneCull::_unpair_instance(Instance *p_instance) {
@@ -3749,6 +3819,11 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 	// before: a sub-viewport renders before its parent), and its shading samples them as any render would. A crew portrait's
 	// sub-viewport drew the sun's four cascades every second frame (0.57 ms a frame at the pad) for a face twelve metres deep
 	const bool shadows_from_parent = p_viewport.is_valid() && RSG::viewport->viewport_get_directional_shadows_from_parent(p_viewport);
+	// LONGSHOT patch #126 (A SUB-VIEW TAKES ITS PARENT'S LAMP SHADOWS): the same for the positional lights' maps - the render is handed
+	// its parent's atlas (renderer_viewport.cpp), places no light in it and draws no map; a light that holds a slot there is sampled
+	// as the parent's render left it, one that holds none casts no shadow in this view. A crew portrait drew its own copy of every
+	// lamp's map in its sight every render: eight portraits, 103 of a frame's 106 lamp maps, 49,000 draw calls for 192 x 149 pixels each
+	const bool lamps_from_parent = p_viewport.is_valid() && RSG::viewport->viewport_get_positional_shadows_from_parent(p_viewport);
 
 	Vector<Plane> planes = p_camera_data->main_projection.get_projection_planes(p_camera_data->main_transform);
 	cull.frustum = Frustum(planes);
@@ -3950,7 +4025,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		LocalVector<uint8_t> turn_held; // a light of the cull result: 1 while its turn has not come this frame (empty: no light is held)
 		{
 			const int turn_budget = GLOBAL_GET_CACHED(int, "longshot/budget/render.lamp_shadows_n");
-			if (turn_budget > 0 && p_shadow_atlas.is_valid()) {
+			if (turn_budget > 0 && p_shadow_atlas.is_valid() && !lamps_from_parent) {
 				struct Turn {
 					uint64_t age = 0;
 					uint32_t i = 0;
@@ -3990,7 +4065,7 @@ void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_c
 		for (uint32_t i = 0; i < (uint32_t)scene_cull_result.lights.size(); i++) {
 			Instance *ins = scene_cull_result.lights[i];
 
-			if (!p_shadow_atlas.is_valid()) {
+			if (!p_shadow_atlas.is_valid() || lamps_from_parent) { // LONGSHOT patch #126: the parent's maps stand
 				continue;
 			}
 
@@ -4671,6 +4746,7 @@ void RendererSceneCull::render_particle_colliders() {
 void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
 	// LONGSHOT patch #123 (THE REPORT'S UPDATES): a scene instance updated, by its kind
 	DrawReport::updates.updated[((1 << p_instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) ? DrawReport::UPDATED_GEOMETRY : (p_instance->base_type == RSE::INSTANCE_LIGHT ? DrawReport::UPDATED_LIGHT : DrawReport::UPDATED_OTHER)]++;
+	const AABB aabb_at_begin = p_instance->aabb; // LONGSHOT patch #125
 	if (p_instance->update_aabb) {
 		_update_instance_aabb(p_instance);
 	}
@@ -4868,9 +4944,17 @@ void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
 
 	_instance_update_list.remove(&p_instance->update_item);
 
+	// LONGSHOT patch #125: what of it changed for a shadow beside where it stands (an update with no move is some other change)
+	p_instance->shape_changed = !p_instance->moved || p_instance->update_dependencies || p_instance->shadow_changed || p_instance->pose_changed || p_instance->aabb != aabb_at_begin;
+	if (p_instance->moved) {
+		p_instance->placed_batch = update_batch;
+		p_instance->moved = false;
+	}
+
 	_update_instance(p_instance);
 
 	p_instance->teleported = false;
+	p_instance->pose_changed = false; // LONGSHOT patch #125
 	p_instance->shadow_changed = false; // LONGSHOT patch #65
 	p_instance->update_aabb = false;
 	p_instance->update_dependencies = false;
@@ -4878,9 +4962,19 @@ void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
 
 void RendererSceneCull::update_dirty_instances() const {
 	GodotProfileZone("cull: update_dirty_instances"); // LONGSHOT patch #120
+	// LONGSHOT patch #124 (THE MOVED ARE PLACED BEFORE ANY IS PAIRED): the batch - every dirty instance placed, then each paired
+	// and judged against its lights (patch #125) with all of them standing where they go
+	placing_batch = true;
+	update_batch++;
+	placed.clear();
 	while (_instance_update_list.first()) {
 		_update_dirty_instance(_instance_update_list.first()->self());
 	}
+	for (Instance *instance : placed) {
+		_pair_placed(instance);
+	}
+	placed.clear();
+	placing_batch = false;
 
 	// Update dirty resources after dirty instances as instance updates may affect resources.
 	RSG::utilities->update_dirty_resources();

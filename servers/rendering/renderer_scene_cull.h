@@ -446,6 +446,14 @@ public:
 		Transform3D transform;
 		bool teleported = false;
 		bool shadow_changed = false; // LONGSHOT patch #65: a materials-only update that changed its casting (read and cleared by the dirty update)
+		// LONGSHOT patch #124 (THE MOVED ARE PLACED BEFORE ANY IS PAIRED) and #125 (A SHADOW IS STALE WHEN ITS CASTER MOVED AGAINST ITS
+		// LIGHT): where it stood before the update batch in hand, the batch it last moved in, and what of it changed for a shadow
+		// beside where it stands - its bounds, its base, its materials, its pose (read and cleared by the dirty update)
+		Transform3D placed_before;
+		uint64_t placed_batch = 0;
+		bool moved = false; // its transform was set since its last update (placed_before is the one it left)
+		bool pose_changed = false; // its skeleton's bones or its base's bounds changed
+		bool shape_changed = false; // (the update in hand's verdict)
 
 		float lod_bias;
 
@@ -531,6 +539,7 @@ public:
 				case Dependency::DEPENDENCY_CHANGED_SKELETON_DATA:
 				case Dependency::DEPENDENCY_CHANGED_SKELETON_BONES:
 				case Dependency::DEPENDENCY_CHANGED_AABB: {
+					instance->pose_changed = true; // LONGSHOT patch #125: its shadow changed where it stands
 					singleton->_instance_queue_update(instance, true, false);
 
 				} break;
@@ -1141,6 +1150,15 @@ public:
 	virtual uint32_t get_pipeline_compilations(RSE::PipelineSource p_source);
 
 	_FORCE_INLINE_ void _update_instance(Instance *p_instance) const;
+	// LONGSHOT patch #124 (THE MOVED ARE PLACED BEFORE ANY IS PAIRED): a dirty update's batch places every instance - its transform, its
+	// bounds, its place in the index - and pairs none; each is paired once all stand where they go (update_dirty_instances). Updated
+	// one at a time, a thing moved away from the lights still standing where it had been, and they then moved up to it: a body
+	// crossing the scene's frame faster than its own size a frame (a craft in orbit: a kilometre a frame) broke and made again every
+	// pair of every part every frame - 73,257 a frame for one craft, each a mark for the part's draw data to be rebuilt.
+	void _pair_placed(Instance *p_instance) const;
+	mutable bool placing_batch = false;
+	mutable uint64_t update_batch = 1;
+	mutable LocalVector<Instance *> placed;
 	_FORCE_INLINE_ void _update_instance_aabb(Instance *p_instance) const;
 	_FORCE_INLINE_ void _update_dirty_instance(Instance *p_instance) const;
 	_FORCE_INLINE_ void _update_instance_lightmap_captures(Instance *p_instance) const;

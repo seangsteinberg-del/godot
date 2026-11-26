@@ -329,7 +329,13 @@ void RendererViewport::_draw_3d(Viewport *p_viewport) {
 	}
 
 	float screen_mesh_lod_threshold = p_viewport->mesh_lod_threshold / float(p_viewport->size.width);
-	RSG::scene->render_camera(p_viewport->render_buffers, p_viewport->camera, p_viewport->scenario, p_viewport->self, p_viewport->internal_size, p_viewport->jitter_phase_count, screen_mesh_lod_threshold, p_viewport->shadow_atlas, xr_interface, p_viewport->window_output_max_value, &p_viewport->render_info);
+	// LONGSHOT patch #126 (A SUB-VIEW TAKES ITS PARENT'S LAMP SHADOWS): the atlas the render samples - its parent's where it takes them
+	RID shadow_atlas = p_viewport->shadow_atlas;
+	if (p_viewport->positional_shadows_from_parent) {
+		const Viewport *parent = viewport_owner.get_or_null(p_viewport->parent);
+		shadow_atlas = parent ? parent->shadow_atlas : RID();
+	}
+	RSG::scene->render_camera(p_viewport->render_buffers, p_viewport->camera, p_viewport->scenario, p_viewport->self, p_viewport->internal_size, p_viewport->jitter_phase_count, screen_mesh_lod_threshold, shadow_atlas, xr_interface, p_viewport->window_output_max_value, &p_viewport->render_info);
 
 	RENDER_TIMESTAMP("< Render 3D Scene");
 #endif // _3D_DISABLED
@@ -1652,6 +1658,24 @@ bool RendererViewport::viewport_get_directional_shadows_from_parent(RID p_viewpo
 	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
 	ERR_FAIL_NULL_V(viewport, false);
 	return viewport->directional_shadows_from_parent;
+}
+
+// LONGSHOT patch #126 (A SUB-VIEW TAKES ITS PARENT'S LAMP SHADOWS): a viewport that takes its parent's positional shadows renders with
+// its parent's atlas (_draw_3d) and the scene cull places and draws no positional light's map for it
+void RendererViewport::viewport_set_positional_shadows_from_parent(RID p_viewport, bool p_from_parent) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+	if (viewport->positional_shadows_from_parent == p_from_parent) {
+		return;
+	}
+	viewport->positional_shadows_from_parent = p_from_parent;
+	viewport->changed_force = true; // (THE VIEWPORT THAT RENDERS WHEN ITS PICTURE CHANGED: a setting moved)
+}
+
+bool RendererViewport::viewport_get_positional_shadows_from_parent(RID p_viewport) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL_V(viewport, false);
+	return viewport->positional_shadows_from_parent;
 }
 
 void RendererViewport::viewport_set_occlusion_rays_per_thread(int p_rays_per_thread) {

@@ -331,6 +331,7 @@ private:
 	float mesh_lod_threshold = 1.0;
 	bool use_occlusion_culling = false;
 	bool directional_shadows_from_parent = false; // LONGSHOT patch #76 (THE PORTRAIT TAKES THE EYE'S SHADOWS)
+	bool positional_shadows_from_parent = false; // LONGSHOT patch #126 (A SUB-VIEW TAKES ITS PARENT'S LAMP SHADOWS)
 
 	Ref<ViewportTexture> default_texture;
 	HashSet<ViewportTexture *> viewport_textures;
@@ -629,6 +630,8 @@ public:
 	bool is_using_occlusion_culling() const;
 	void set_directional_shadows_from_parent(bool p_from_parent); // LONGSHOT patch #76
 	bool is_taking_directional_shadows_from_parent() const;
+	void set_positional_shadows_from_parent(bool p_from_parent); // LONGSHOT patch #126
+	bool is_taking_positional_shadows_from_parent() const;
 
 	Vector2 get_camera_coords(const Vector2 &p_viewport_coords) const;
 	Vector2 get_camera_rect_size() const;

@@ -798,6 +798,7 @@ public:
 	FUNC2(viewport_set_force_motion_vectors, RID, bool)
 	FUNC2(viewport_set_use_occlusion_culling, RID, bool)
 	FUNC2(viewport_set_directional_shadows_from_parent, RID, bool) // LONGSHOT patch #76
+	FUNC2(viewport_set_positional_shadows_from_parent, RID, bool) // LONGSHOT patch #126
 	FUNC1(viewport_set_occlusion_rays_per_thread, int)
 	FUNC1(viewport_set_occlusion_culling_build_quality, RSE::ViewportOcclusionCullingBuildQuality)
 	FUNC2(viewport_set_mesh_lod_threshold, RID, float)
