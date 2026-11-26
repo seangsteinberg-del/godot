@@ -31,6 +31,8 @@
 #include "render_forward_clustered.h"
 
 #include "core/config/project_settings.h"
+#include "core/profiling/profiling.h" // LONGSHOT patch #120
+#include "servers/rendering/draw_report.h" // LONGSHOT patch #121 (THE DRAW REPORT)
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
@@ -723,6 +725,7 @@ void RenderForwardClustered::_render_list(RenderingDevice::DrawListID p_draw_lis
 }
 
 void RenderForwardClustered::_render_list_with_draw_list(RenderListParameters *p_params, RID p_framebuffer, BitField<RD::DrawFlags> p_draw_flags, const Vector<Color> &p_clear_color_values, float p_clear_depth_value, uint32_t p_clear_stencil_value, const Rect2 &p_region, const Rect2i &p_scissor) {
+	GodotProfileZone("forward: _render_list_with_draw_list"); // LONGSHOT patch #120
 	RD::FramebufferFormatID fb_format = RD::get_singleton()->framebuffer_get_format(p_framebuffer);
 	p_params->framebuffer_format = fb_format;
 
@@ -855,6 +858,7 @@ void RenderForwardClustered::SceneState::grow_instance_buffer(RenderListType p_r
 }
 
 void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, int *p_render_info, uint32_t p_offset, int32_t p_max_elements, bool p_update_buffer) {
+	GodotProfileZone("forward: _fill_instance_data"); // LONGSHOT patch #120
 	RenderList *rl = &render_list[p_render_list];
 	uint32_t element_total = p_max_elements >= 0 ? uint32_t(p_max_elements) : rl->elements.size();
 
@@ -879,6 +883,12 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 	for (uint32_t i = 0; i < element_total; i++) {
 		GeometryInstanceSurfaceDataCache *surface = rl->elements[i + p_offset];
 		GeometryInstanceForwardClustered *inst = surface->owner;
+		// LONGSHOT patch #121 (THE DRAW REPORT): the asked frame's rows, at the lines the engine's own counters stand on
+		const bool report = DrawReport::on();
+		const bool report_indirect = bool(inst->base_flags & INSTANCE_DATA_FLAG_MULTIMESH_INDIRECT);
+		if (report) {
+			DrawReport::surface(inst, inst->instance_count, report_indirect, p_render_list == RENDER_LIST_ALPHA);
+		}
 
 		SceneState::InstanceData instance_data;
 
@@ -940,6 +950,9 @@ void RenderForwardClustered::_fill_instance_data(RenderListType p_render_list, i
 			if (p_render_info) {
 				p_render_info[RSE::VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME]++;
 			}
+			if (report) { // LONGSHOT patch #121
+				DrawReport::draw(inst, inst->instance_count, report_indirect);
+			}
 		}
 
 		RenderElementInfo &element_info = rl->element_info[p_offset + i];
@@ -971,8 +984,15 @@ _FORCE_INLINE_ static uint32_t _indices_to_primitives(RSE::PrimitiveType p_primi
 	return (p_indices - subtractor[p_primitive]) / divisor[p_primitive];
 }
 void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, const RenderDataRD *p_render_data, PassMode p_pass_mode, bool p_using_sdfgi, bool p_using_opaque_gi, bool p_using_motion_pass, bool p_append) {
+	GodotProfileZone("forward: _fill_render_list"); // LONGSHOT patch #120
 	RendererRD::MeshStorage *mesh_storage = RendererRD::MeshStorage::get_singleton();
 	uint64_t frame = RSG::rasterizer->get_frame_number();
+	// LONGSHOT patch #121 (THE DRAW REPORT): the pass named for the asked frame's rows - a shadow's is named by _render_shadow_pass,
+	// which knows whose map it is
+	const bool report = DrawReport::on();
+	if (report && p_pass_mode != PASS_MODE_SHADOW && p_pass_mode != PASS_MODE_SHADOW_DP) {
+		DrawReport::pass_begin(p_pass_mode == PASS_MODE_COLOR ? DrawReport::PASS_PICTURE : (p_pass_mode == PASS_MODE_SDF ? DrawReport::PASS_SDFGI : DrawReport::PASS_OTHER));
+	}
 
 	if (p_render_list == RENDER_LIST_OPAQUE) {
 		scene_state.used_sss = false;
@@ -1169,6 +1189,9 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 				uint32_t next_indices = 0;
 				surf->sort.lod_fade = mesh_storage->mesh_surface_get_lod_fade(surf->surface, inst->lod_model_scale * inst->lod_bias, lod_distance * p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, mesh_lod_fade_band, surf->sort.lod_index, next_indices);
 				indices += next_indices;
+				if (report) { // LONGSHOT patch #121
+					DrawReport::primitives(inst, inst->instance_count, false, uint64_t(_indices_to_primitives(surf->primitive, indices)) * inst->instance_count);
+				}
 				if (p_render_data->render_info) {
 					indices = _indices_to_primitives(surf->primitive, indices);
 					// LONGSHOT patch #6: a multimesh's primitives are its instances' too, as the branch below counts
@@ -1183,6 +1206,9 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			} else {
 				surf->sort.lod_index = 0;
 				surf->sort.lod_fade = 0;
+				if (report) { // LONGSHOT patch #121
+					DrawReport::primitives(inst, inst->instance_count, false, uint64_t(_indices_to_primitives(surf->primitive, mesh_storage->mesh_surface_get_vertices_drawn_count(surf->surface))) * inst->instance_count);
+				}
 				if (p_render_data->render_info) {
 					// This does not include primitives rendered via indirect draw calls.
 					uint32_t to_draw = mesh_storage->mesh_surface_get_vertices_drawn_count(surf->surface);
@@ -1587,6 +1613,7 @@ void RenderForwardClustered::_copy_framebuffer_to_ss_effects(Ref<RenderSceneBuff
 }
 
 void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, bool p_use_ssao, bool p_use_ssil, bool p_use_ssr, bool p_use_gi, const RID *p_normal_roughness_slices, RID p_voxel_gi_buffer) {
+	GodotProfileZone("forward: _pre_opaque_render"); // LONGSHOT patch #120
 	// Render shadows while GI is rendering, due to how barriers are handled, this should happen at the same time
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
@@ -1780,6 +1807,8 @@ void RenderForwardClustered::_process_sss(Ref<RenderSceneBuffersRD> p_render_buf
 }
 
 void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Color &p_default_bg_color) {
+	GodotProfileZone("forward: _render_scene"); // LONGSHOT patch #120
+	DrawReport::view_begin(RSG::rasterizer->get_frame_number()); // LONGSHOT patch #121 (THE DRAW REPORT): a 3D view begins
 	scene_state.used_uniform_buffer_count = 0;
 
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
@@ -2699,6 +2728,7 @@ void RenderForwardClustered::_render_buffers_debug_draw(const RenderDataRD *p_re
 }
 
 void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas, int p_pass, const PagedArray<RenderGeometryInstance *> &p_instances, const PagedArray<RenderGeometryInstance *> &p_dynamic_instances, const PagedArray<RenderGeometryInstance *> &p_strip_instances, int p_static_cache, const Vector2i &p_scroll_shift, int p_strip_count, const Rect2i *p_strip_rect, float p_lod_distance_multiplier, float p_screen_mesh_lod_threshold, bool p_open_pass, bool p_close_pass, bool p_clear_region, RenderingServerTypes::RenderInfo *p_render_info, const Size2i &p_viewport_size, const Transform3D &p_main_cam_transform) {
+	GodotProfileZone("forward: _render_shadow_pass"); // LONGSHOT patch #120
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	ERR_FAIL_COND(!light_storage->owns_light_instance(p_light));
@@ -2706,6 +2736,9 @@ void RenderForwardClustered::_render_shadow_pass(RID p_light, RID p_shadow_atlas
 	RID base = light_storage->light_instance_get_base_light(p_light);
 	// LONGSHOT patch #60 (THE EXTERNAL MULTIMESH): the pass an external multimesh draws its commands for - a directional cascade 1..4, a local light's shadow 5
 	const uint32_t external_pass = light_storage->light_get_type(base) == RSE::LIGHT_DIRECTIONAL ? 1u + uint32_t(MAX(0, p_pass)) : 5u;
+	if (DrawReport::on()) { // LONGSHOT patch #121 (THE DRAW REPORT): the shadow map named - a cascade of the sun's, or a local light's
+		DrawReport::pass_begin(external_pass <= 4u ? DrawReport::Pass(DrawReport::PASS_SUN_1 + (external_pass - 1u)) : DrawReport::PASS_LIGHT);
+	}
 
 	Rect2i atlas_rect;
 	uint32_t atlas_size = 1;
@@ -3039,6 +3072,7 @@ void RenderForwardClustered::_render_shadow_append(RID p_framebuffer, const Page
 }
 
 void RenderForwardClustered::_render_shadow_process() {
+	GodotProfileZone("forward: _render_shadow_process"); // LONGSHOT patch #120
 	RenderingDevice *rd = RenderingDevice::get_singleton();
 	if (scene_state.instance_buffer[RENDER_LIST_SECONDARY].get_size(0u) > 0u) {
 		rd->buffer_flush(scene_state.instance_buffer[RENDER_LIST_SECONDARY]._get(0u));
@@ -3055,6 +3089,7 @@ void RenderForwardClustered::_render_shadow_process() {
 	RD::get_singleton()->draw_command_end_label();
 }
 void RenderForwardClustered::_render_shadow_end() {
+	GodotProfileZone("forward: _render_shadow_end"); // LONGSHOT patch #120
 	RD::get_singleton()->draw_command_begin_label("Shadow Render");
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
@@ -5043,6 +5078,7 @@ void RenderForwardClustered::_mesh_generate_all_pipelines_for_surface_cache(Geom
 }
 
 void RenderForwardClustered::_update_dirty_geometry_instances() {
+	GodotProfileZone("forward: _update_dirty_geometry_instances"); // LONGSHOT patch #120
 	while (geometry_instance_dirty_list.first()) {
 		_geometry_instance_update(geometry_instance_dirty_list.first()->self());
 	}

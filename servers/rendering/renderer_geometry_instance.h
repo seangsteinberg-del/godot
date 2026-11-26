@@ -75,6 +75,10 @@ public:
 	virtual void pair_voxel_gi_instances(const RID *p_voxel_gi_instances, uint32_t p_voxel_gi_instance_count) = 0;
 
 	virtual void set_softshadow_projector_pairing(bool p_softshadow, bool p_projector) = 0;
+
+	// LONGSHOT patch #121 (THE DRAW REPORT): whose this is - its scene instance's id and its owner's object id, given by the cull
+	// at its making and when an owner is attached; a renderer that reports nothing keeps nothing
+	virtual void set_owner(uint64_t p_instance, uint64_t p_object) {}
 };
 
 // Base implementation of RenderGeometryInstance shared by internal renderers.
@@ -148,6 +152,8 @@ public:
 		//data used less often goes into regular heap
 		RID base;
 		RSE::InstanceType base_type;
+		uint64_t owner_instance = 0; // LONGSHOT patch #121 (THE DRAW REPORT): the scene instance's RID id ...
+		uint64_t owner_object = 0; // ... and its owner's object id (0: none attached)
 
 		RID skeleton;
 		Vector<RID> surface_materials;
@@ -183,6 +189,12 @@ public:
 	virtual void set_ignore_gi(bool p_enable) override;
 	virtual void set_instance_shader_uniforms_offset(int32_t p_offset) override;
 	virtual void set_cast_double_sided_shadows(bool p_enable) override;
+	virtual void set_owner(uint64_t p_instance, uint64_t p_object) override { // LONGSHOT patch #121
+		if (data) {
+			data->owner_instance = p_instance;
+			data->owner_object = p_object;
+		}
+	}
 
 	virtual void reset_motion_vectors() override;
 

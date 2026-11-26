@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "renderer_scene_cull.h"
+#include "core/profiling/profiling.h" // LONGSHOT patch #120
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
@@ -772,6 +773,7 @@ void RendererSceneCull::instance_set_base(RID p_instance, RID p_base) {
 				geom->geometry_instance = scene_render->geometry_instance_create(p_base);
 
 				ERR_FAIL_NULL(geom->geometry_instance);
+				geom->geometry_instance->set_owner(instance->self.get_id(), instance->object_id); // LONGSHOT patch #121 (THE DRAW REPORT)
 
 				geom->geometry_instance->set_skeleton(instance->skeleton);
 				geom->geometry_instance->set_material_override(instance->material_override);
@@ -1060,6 +1062,13 @@ void RendererSceneCull::instance_attach_object_instance_id(RID p_instance, Objec
 	ERR_FAIL_NULL(instance);
 
 	instance->object_id = p_id;
+	// LONGSHOT patch #121 (THE DRAW REPORT): a geometry instance made before its owner was attached is told now
+	if (instance->base_data && ((1 << instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK)) {
+		InstanceGeometryData *geom = static_cast<InstanceGeometryData *>(instance->base_data);
+		if (geom->geometry_instance) {
+			geom->geometry_instance->set_owner(instance->self.get_id(), p_id);
+		}
+	}
 }
 
 void RendererSceneCull::instance_set_blend_shape_weight(RID p_instance, int p_shape, float p_weight) {
@@ -2676,6 +2685,7 @@ void RendererSceneCull::_positional_cache_word(Instance *p_instance, InstanceLig
 }
 
 bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, const Transform3D p_cam_transform, const Projection &p_cam_projection, bool p_cam_orthogonal, bool p_cam_vaspect, RID p_shadow_atlas, Scenario *p_scenario, float p_screen_mesh_lod_threshold, uint32_t p_visible_layers) {
+	GodotProfileZone("cull: a light's shadow set up"); // LONGSHOT patch #120
 	InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
 
 	Transform3D light_transform = p_instance->transform;
@@ -2982,6 +2992,7 @@ bool RendererSceneCull::_light_instance_update_shadow(Instance *p_instance, cons
 }
 
 void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_buffers, RID p_camera, RID p_scenario, RID p_viewport, Size2 p_viewport_size, uint32_t p_jitter_phase_count, float p_screen_mesh_lod_threshold, RID p_shadow_atlas, Ref<XRInterface> &p_xr_interface, float p_window_output_max_value, RenderingServerTypes::RenderInfo *r_render_info) {
+	GodotProfileZone("cull: render_camera"); // LONGSHOT patch #120
 #ifndef _3D_DISABLED
 
 	Camera *camera = camera_owner.get_or_null(p_camera);
@@ -3207,6 +3218,7 @@ void RendererSceneCull::_scene_cull_threaded(uint32_t p_thread, CullData *cull_d
 }
 
 void RendererSceneCull::_scene_cull(CullData &cull_data, InstanceCullResult &cull_result, uint64_t p_from, uint64_t p_to) {
+	GodotProfileZone("cull: _scene_cull"); // LONGSHOT patch #120
 	uint64_t frame_number = RSG::rasterizer->get_frame_number();
 	float lightmap_probe_update_speed = RSG::light_storage->lightmap_get_probe_capture_update_speed() * RSG::rasterizer->get_frame_delta_time();
 
@@ -3671,6 +3683,7 @@ void RendererSceneCull::_scene_particles_set_view_axis(RID p_particles, const Ve
 }
 
 void RendererSceneCull::_render_scene(const RendererSceneRender::CameraData *p_camera_data, const Ref<RenderSceneBuffers> &p_render_buffers, RID p_environment, RID p_force_camera_attributes, RID p_compositor, uint32_t p_visible_layers, RID p_scenario, RID p_viewport, RID p_shadow_atlas, RID p_reflection_probe, int p_reflection_probe_pass, float p_screen_mesh_lod_threshold, float p_window_output_max_value, bool p_using_shadows, RenderingServerTypes::RenderInfo *r_render_info) {
+	GodotProfileZone("cull: _render_scene"); // LONGSHOT patch #120
 	Instance *render_reflection_probe = instance_owner.get_or_null(p_reflection_probe); //if null, not rendering to it
 
 	// Prepare the light - camera volume culling system.
@@ -4859,6 +4872,7 @@ void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
 }
 
 void RendererSceneCull::update_dirty_instances() const {
+	GodotProfileZone("cull: update_dirty_instances"); // LONGSHOT patch #120
 	while (_instance_update_list.first()) {
 		_update_dirty_instance(_instance_update_list.first()->self());
 	}
