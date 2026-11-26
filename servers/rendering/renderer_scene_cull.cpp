@@ -200,6 +200,7 @@ void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
 		light->geometries.insert(A);
 
 		if (geom->can_cast_shadows) {
+			DrawReport::stale(DrawReport::STALE_PAIRED); // LONGSHOT patch #127
 			light->make_shadow_dirty();
 		}
 
@@ -326,6 +327,7 @@ void RendererSceneCull::_instance_unpair(Instance *p_A, Instance *p_B) {
 		light->geometries.erase(A);
 
 		if (geom->can_cast_shadows) {
+			DrawReport::stale(DrawReport::STALE_UNPAIRED); // LONGSHOT patch #127
 			light->make_shadow_dirty();
 		}
 
@@ -1763,6 +1765,7 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		// its casters once every instance of the batch stands where it goes (_pair_placed); its map is drawn in its own space and
 		// sampled through its transform as it stands, so a lamp riding a body with its casters keeps its map exactly
 		if (p_instance->shape_changed || !placing_batch) {
+			DrawReport::stale(DrawReport::STALE_LIGHT_CHANGED); // LONGSHOT patch #127
 			light->make_shadow_dirty();
 		}
 
@@ -1855,6 +1858,7 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		if (geom->can_cast_shadows && (p_instance->shape_changed || !placing_batch)) {
 			for (const Instance *E : geom->lights) {
 				InstanceLightData *light = static_cast<InstanceLightData *>(E->base_data);
+				DrawReport::stale(DrawReport::STALE_CASTER_CHANGED); // LONGSHOT patch #127
 				light->make_shadow_dirty();
 			}
 		}
@@ -2104,6 +2108,7 @@ void RendererSceneCull::_pair_placed(Instance *p_instance) const {
 		if (geom->can_cast_shadows) {
 			for (const Instance *E : geom->lights) {
 				if (E->placed_batch != update_batch) { // (a light that moved in this batch judges its own casters, below)
+					DrawReport::stale(DrawReport::STALE_CASTER_MOVED); // LONGSHOT patch #127
 					static_cast<InstanceLightData *>(E->base_data)->make_shadow_dirty();
 				}
 			}
@@ -2130,6 +2135,7 @@ void RendererSceneCull::_pair_placed(Instance *p_instance) const {
 					}
 				}
 				if (!with_it) {
+					DrawReport::stale(E->placed_batch == update_batch ? DrawReport::STALE_APART : DrawReport::STALE_LIGHT_MOVED); // LONGSHOT patch #127
 					light->make_shadow_dirty();
 					break;
 				}

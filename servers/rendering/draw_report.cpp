@@ -52,6 +52,11 @@ const char *DrawReport::dirty_name(Dirty p_cause) {
 	return p_cause < DIRTY_MAX ? names[p_cause] : "?";
 }
 
+const char *DrawReport::stale_name(Stale p_cause) {
+	static const char *names[STALE_MAX] = { "light_changed", "caster_changed", "caster_moved_light_stood", "light_moved_caster_stood", "moved_apart", "caster_came", "caster_left" };
+	return p_cause < STALE_MAX ? names[p_cause] : "?";
+}
+
 void DrawReport::take_updates(Updates &r_updates, uint64_t p_frame_now, uint64_t &r_frames) {
 	MutexLock lock(mutex);
 	r_updates = updates;

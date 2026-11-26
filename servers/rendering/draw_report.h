@@ -104,6 +104,17 @@ public:
 		DIRTY_PAIRING,
 		DIRTY_MAX,
 	};
+	// LONGSHOT patch #127 (WHY A LAMP'S SHADOW WENT STALE): every time the scene called a positional light's shadow stale, by its cause
+	enum Stale : uint8_t {
+		STALE_LIGHT_CHANGED,
+		STALE_CASTER_CHANGED,
+		STALE_CASTER_MOVED,
+		STALE_LIGHT_MOVED,
+		STALE_APART,
+		STALE_PAIRED,
+		STALE_UNPAIRED,
+		STALE_MAX,
+	};
 	enum Updated : uint8_t {
 		UPDATED_GEOMETRY,
 		UPDATED_LIGHT,
@@ -112,6 +123,7 @@ public:
 	};
 	struct Updates {
 		uint64_t marks[DIRTY_MAX] = {};
+		uint64_t stale[STALE_MAX] = {};
 		uint64_t updated[UPDATED_MAX] = {};
 		uint64_t pairs = 0;
 		uint64_t unpairs = 0;
@@ -121,6 +133,8 @@ public:
 	static Updates updates;
 	_FORCE_INLINE_ static void dirty(Dirty p_cause) { updates.marks[p_cause]++; }
 	static const char *dirty_name(Dirty p_cause);
+	_FORCE_INLINE_ static void stale(Stale p_cause) { updates.stale[p_cause]++; }
+	static const char *stale_name(Stale p_cause);
 	// the sums since the last hand-out and the frames they span; the sums begin again
 	static void take_updates(Updates &r_updates, uint64_t p_frame_now, uint64_t &r_frames);
 
