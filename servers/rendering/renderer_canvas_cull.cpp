@@ -29,6 +29,7 @@
 /**************************************************************************/
 
 #include "renderer_canvas_cull.h"
+#include "core/profiling/profiling.h" // LONGSHOT patch #120
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
@@ -516,6 +517,7 @@ void RendererCanvasCull::_cull_canvas_item(Item *p_canvas_item, const Transform2
 }
 
 void RendererCanvasCull::render_canvas(RID p_render_target, Canvas *p_canvas, const Transform2D &p_transform, RendererCanvasRender::Light *p_lights, RendererCanvasRender::Light *p_directional_lights, const Rect2 &p_clip_rect, RSE::CanvasItemTextureFilter p_default_filter, RSE::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_transforms_to_pixel, bool p_snap_2d_vertices_to_pixel, uint32_t canvas_cull_mask, RenderingServerTypes::RenderInfo *r_render_info) {
+	GodotProfileZone("canvas: render_canvas"); // LONGSHOT patch #120
 	sdf_used = false;
 	snapping_2d_transforms_to_pixel = p_snap_2d_transforms_to_pixel;
 

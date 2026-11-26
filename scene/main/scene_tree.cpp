@@ -1226,6 +1226,9 @@ void SceneTree::_process_group(ProcessGroup *p_group, bool p_physics) {
 		const bool ledger = process_ledger_on;
 		const StringName ledger_key = ledger ? _process_ledger_key(n) : StringName();
 		const uint64_t t_node = ledger ? OS::get_singleton()->get_ticks_usec() : 0;
+		// LONGSHOT patch #120 (THE PROFILER IS IN THE BUILD): a node's callbacks are a zone of its class's name - a native node's work is
+		// named, and a script's own functions are zones inside it
+		GodotProfileZoneNamed(n->get_class_name().data_unique_pointer(), n->get_class_name(), n->get_class_name());
 		if (p_physics) {
 			if (n->is_physics_processing_internal()) {
 				n->notification(Node::NOTIFICATION_INTERNAL_PHYSICS_PROCESS);

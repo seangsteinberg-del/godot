@@ -1118,6 +1118,21 @@ Patches:
 - `0001-external-zlib.patch` ([GH-55115](https://github.com/godotengine/godot/pull/55115))
 
 
+## tracy
+
+- Upstream: https://github.com/wolfpld/tracy
+- Version: 0.14.1 (30997d5, 2026)
+- License: BSD-3-Clause
+
+LONGSHOT patch #120 (THE PROFILER IS IN THE BUILD): the client alone, built when `profiler=tracy` is given with no
+`profiler_path` (core/profiling/SCsub).
+
+Files extracted from upstream source:
+
+- `public/` (the client: `TracyClient.cpp`, `client/`, `common/`, `libbacktrace/`, `tracy/`)
+- `LICENSE`
+
+
 ## ufbx
 
 - Upstream: https://github.com/ufbx/ufbx

@@ -67,7 +67,7 @@ const SourceLocationData *intern_source_location(const void *p_function_ptr, con
 #define GodotProfileZoneGrouped(m_group_name, m_zone_name) \
 	GodotProfileZoneGroupedEndEarly(m_group_name, m_zone_name); \
 	static constexpr tracy::SourceLocationData TracyConcat(__tracy_source_location, TracyLine){ m_zone_name, TracyFunction, TracyFile, (uint32_t)TracyLine, 0 }; \
-	new (&__godot_tracy_zone_##m_group_name) tracy::ScopedZone(&TracyConcat(__tracy_source_location, TracyLine), true)
+	new (&__godot_tracy_zone_##m_group_name) tracy::ScopedZone(&TracyConcat(__tracy_source_location, TracyLine), -1, true) /* LONGSHOT patch #120: the zone's one constructor takes (location, callstack depth, active) - `true` alone was a depth of one, a stack walked a zone */
 #else
 #define GodotProfileZoneGrouped(m_group_name, m_zone_name) \
 	GodotProfileZoneGroupedEndEarly(m_group_name, m_zone_name); \
@@ -75,10 +75,28 @@ const SourceLocationData *intern_source_location(const void *p_function_ptr, con
 	new (&__godot_tracy_zone_##m_group_name) tracy::ScopedZone(&TracyConcat(__tracy_source_location, TracyLine), TRACY_CALLSTACK, true)
 #endif
 
+// LONGSHOT patch #120 (THE PROFILER IS IN THE BUILD): AN UNCONNECTED ZONE COSTS A BRANCH. A zone named at run time is interned under
+// a lock, its names compared - for every script function and every call a script makes. Recording on demand, that is paid only
+// while a capture is connected; the zone itself is inactive otherwise. GodotProfileZoneNamed is the same zone for the engine's own
+// run-time names (a node's class): one a scope.
+#ifdef TRACY_ON_DEMAND
+#define GodotProfileZoneScript(m_ptr, m_file, m_function, m_name, m_line) \
+	const bool __godot_tracy_script_on = TracyIsConnected; \
+	tracy::ScopedZone __godot_tracy_script(__godot_tracy_script_on ? tracy::intern_source_location(m_ptr, m_file, m_function, m_name, m_line, true) : nullptr, -1, __godot_tracy_script_on)
+#define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line) \
+	const bool __godot_tracy_system_call_on = TracyIsConnected; \
+	tracy::ScopedZone __godot_tracy_zone_system_call(__godot_tracy_system_call_on ? tracy::intern_source_location(m_ptr, m_file, m_function, m_name, m_line, false) : nullptr, -1, __godot_tracy_system_call_on)
+#define GodotProfileZoneNamed(m_ptr, m_file, m_name) \
+	const bool __godot_tracy_named_on = TracyIsConnected; \
+	tracy::ScopedZone __godot_tracy_named(__godot_tracy_named_on ? tracy::intern_source_location(m_ptr, m_file, m_name, m_name, 0, false) : nullptr, -1, __godot_tracy_named_on)
+#else
 #define GodotProfileZoneScript(m_ptr, m_file, m_function, m_name, m_line) \
 	tracy::ScopedZone __godot_tracy_script(tracy::intern_source_location(m_ptr, m_file, m_function, m_name, m_line, true))
 #define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line) \
 	tracy::ScopedZone __godot_tracy_zone_system_call(tracy::intern_source_location(m_ptr, m_file, m_function, m_name, m_line, false))
+#define GodotProfileZoneNamed(m_ptr, m_file, m_name) \
+	tracy::ScopedZone __godot_tracy_named(tracy::intern_source_location(m_ptr, m_file, m_name, m_name, 0, false))
+#endif
 
 // Memory allocation
 #ifdef GODOT_PROFILER_TRACK_MEMORY
@@ -171,6 +189,7 @@ struct PerfettoScriptTracer {
 
 #define GodotProfileZoneScript(m_ptr, m_file, m_function, m_name, m_line) PerfettoScriptTracer __godot_perfetto_script_tracer(m_file, m_function, m_name, m_line, false);
 #define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line) PerfettoScriptTracer __godot_perfetto_script_system_call_tracer(m_file, m_function, m_name, m_line, true);
+#define GodotProfileZoneNamed(m_ptr, m_file, m_name) // LONGSHOT patch #120
 
 #define GodotProfileAlloc(m_ptr, m_size)
 #define GodotProfileFree(m_ptr)
@@ -230,6 +249,7 @@ private:
 
 #define GodotProfileZoneScript(m_ptr, m_file, m_function, m_name, m_line)
 #define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line)
+#define GodotProfileZoneNamed(m_ptr, m_file, m_name) // LONGSHOT patch #120
 
 // Instruments has its own memory profiling, so these are no-ops.
 #define GodotProfileAlloc(m_ptr, m_size)
@@ -268,5 +288,6 @@ void godot_cleanup_profiler();
 #define GodotProfileZoneScript(m_ptr, m_file, m_function, m_name, m_line)
 // Define a zone for a system call from a script (dynamic source location).
 #define GodotProfileZoneScriptSystemCall(m_ptr, m_file, m_function, m_name, m_line)
+#define GodotProfileZoneNamed(m_ptr, m_file, m_name) // LONGSHOT patch #120
 
 #endif
