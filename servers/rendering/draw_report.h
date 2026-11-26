@@ -37,9 +37,12 @@
 // geometry instance by the cull at its making), its base, the surfaces listed, the draw calls begun, the primitives as the
 // engine counts them. A game names the owners; the engine names none. Unasked, a list costs one test of a flag.
 //
+// A view's rows carry which view of the frame they are (1 the first drawn), and the report its views' sizes (patch #123): the
+// window's own view is told from a seat's lens or a probe by it.
 // The asked frame: request() asks; the next view that begins opens the collection and names its frame; the first view of a
 // LATER frame closes it (ready() is then true and take() hands the rows). A frame that draws no 3D view leaves it open.
 
+#include "core/math/vector2i.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/local_vector.h"
@@ -76,6 +79,51 @@ public:
 		bool indirect = false; // drawn from a command buffer: its counts are its maker's
 	};
 
+	// LONGSHOT patch #123 (THE REPORT'S UPDATES): what the scene and the renderer re-make a frame, and why - counted ALWAYS (an
+	// increment each) and handed out as sums since the last hand-out, with the frames they span:
+	//   the scene instances updated (RendererSceneCull::_update_dirty_instance: moved, shown, re-based), by kind;
+	//   the pairs made and broken (an instance with a light, a probe, a decal);
+	//   the geometry instances whose draw data was rebuilt (the forward renderer's _geometry_instance_update);
+	//   every mark for such a rebuild, by its cause.
+	enum Dirty : uint8_t {
+		DIRTY_SKELETON,
+		DIRTY_MATERIAL_OVERRIDE,
+		DIRTY_MATERIAL_OVERLAY,
+		DIRTY_SURFACE_MATERIALS,
+		DIRTY_MESH_INSTANCE,
+		DIRTY_BAKED_LIGHT,
+		DIRTY_DYNAMIC_GI,
+		DIRTY_IGNORE_GI,
+		DIRTY_SHADER_UNIFORMS,
+		DIRTY_DOUBLE_SIDED,
+		DIRTY_DEPENDENCY_CHANGED,
+		DIRTY_DEPENDENCY_DELETED,
+		DIRTY_CREATED,
+		DIRTY_LIGHTMAP,
+		DIRTY_LIGHTMAP_CAPTURE,
+		DIRTY_PAIRING,
+		DIRTY_MAX,
+	};
+	enum Updated : uint8_t {
+		UPDATED_GEOMETRY,
+		UPDATED_LIGHT,
+		UPDATED_OTHER,
+		UPDATED_MAX,
+	};
+	struct Updates {
+		uint64_t marks[DIRTY_MAX] = {};
+		uint64_t updated[UPDATED_MAX] = {};
+		uint64_t pairs = 0;
+		uint64_t unpairs = 0;
+		uint64_t rebuilt = 0;
+		uint64_t from_frame = 0; // the frame the sums began at
+	};
+	static Updates updates;
+	_FORCE_INLINE_ static void dirty(Dirty p_cause) { updates.marks[p_cause]++; }
+	static const char *dirty_name(Dirty p_cause);
+	// the sums since the last hand-out and the frames they span; the sums begin again
+	static void take_updates(Updates &r_updates, uint64_t p_frame_now, uint64_t &r_frames);
+
 private:
 	enum State : uint8_t {
 		STATE_IDLE,
@@ -92,6 +140,7 @@ private:
 	static uint8_t pass;
 	static uint32_t pass_count[PASS_MAX];
 	static LocalVector<Row> rows;
+	static LocalVector<Size2i> view_sizes; // LONGSHOT patch #123: each view's size in pixels (its internal one), the first view's first
 	static HashMap<const RenderGeometryInstanceBase *, uint32_t> pass_rows; // the pass in hand's rows, by instance
 
 	static Row &_row(const RenderGeometryInstanceBase *p_inst, uint32_t p_copies, bool p_indirect);
@@ -101,11 +150,11 @@ public:
 	static void request();
 	static bool ready();
 	// the rows, the passes drawn of each kind, the views and the frame's number; false while none stands ready
-	static bool take(LocalVector<Row> &r_rows, uint32_t r_pass_count[PASS_MAX], uint32_t &r_views, uint64_t &r_frame);
+	static bool take(LocalVector<Row> &r_rows, uint32_t r_pass_count[PASS_MAX], LocalVector<Size2i> &r_view_sizes, uint64_t &r_frame);
 
 	// the renderer's side
 	_FORCE_INLINE_ static bool on() { return collecting; }
-	static void view_begin(uint64_t p_frame); // every 3D view's begin, asked or not
+	static void view_begin(uint64_t p_frame, const Size2i &p_size); // every 3D view's begin, asked or not
 	static void pass_begin(Pass p_pass);
 	static void primitives(const RenderGeometryInstanceBase *p_inst, uint32_t p_copies, bool p_indirect, uint64_t p_primitives);
 	static void surface(const RenderGeometryInstanceBase *p_inst, uint32_t p_copies, bool p_indirect, bool p_alpha);

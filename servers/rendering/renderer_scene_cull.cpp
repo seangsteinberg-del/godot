@@ -30,6 +30,7 @@
 
 #include "renderer_scene_cull.h"
 #include "core/profiling/profiling.h" // LONGSHOT patch #120
+#include "servers/rendering/draw_report.h" // LONGSHOT patch #123 (THE REPORT'S UPDATES)
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
@@ -176,6 +177,7 @@ void RendererSceneCull::occluder_set_mesh(RID p_occluder, const PackedVector3Arr
 /* SCENARIO API */
 
 void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
+	DrawReport::updates.pairs++; // LONGSHOT patch #123 (THE REPORT'S UPDATES)
 	RendererSceneCull *self = (RendererSceneCull *)singleton;
 	Instance *A = p_A;
 	Instance *B = p_B;
@@ -301,6 +303,7 @@ void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
 }
 
 void RendererSceneCull::_instance_unpair(Instance *p_A, Instance *p_B) {
+	DrawReport::updates.unpairs++; // LONGSHOT patch #123 (THE REPORT'S UPDATES)
 	RendererSceneCull *self = singleton;
 	Instance *A = p_A;
 	Instance *B = p_B;
@@ -4666,6 +4669,8 @@ void RendererSceneCull::render_particle_colliders() {
 }
 
 void RendererSceneCull::_update_dirty_instance(Instance *p_instance) const {
+	// LONGSHOT patch #123 (THE REPORT'S UPDATES): a scene instance updated, by its kind
+	DrawReport::updates.updated[((1 << p_instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) ? DrawReport::UPDATED_GEOMETRY : (p_instance->base_type == RSE::INSTANCE_LIGHT ? DrawReport::UPDATED_LIGHT : DrawReport::UPDATED_OTHER)]++;
 	if (p_instance->update_aabb) {
 		_update_instance_aabb(p_instance);
 	}

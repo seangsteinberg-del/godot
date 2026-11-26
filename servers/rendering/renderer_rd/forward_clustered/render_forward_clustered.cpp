@@ -1808,7 +1808,8 @@ void RenderForwardClustered::_process_sss(Ref<RenderSceneBuffersRD> p_render_buf
 
 void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Color &p_default_bg_color) {
 	GodotProfileZone("forward: _render_scene"); // LONGSHOT patch #120
-	DrawReport::view_begin(RSG::rasterizer->get_frame_number()); // LONGSHOT patch #121 (THE DRAW REPORT): a 3D view begins
+	// LONGSHOT patch #121 (THE DRAW REPORT): a 3D view begins; patch #123: with its size
+	DrawReport::view_begin(RSG::rasterizer->get_frame_number(), (p_render_data && p_render_data->render_buffers.is_valid()) ? p_render_data->render_buffers->get_internal_size() : Size2i());
 	scene_state.used_uniform_buffer_count = 0;
 
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
@@ -5080,6 +5081,7 @@ void RenderForwardClustered::_mesh_generate_all_pipelines_for_surface_cache(Geom
 void RenderForwardClustered::_update_dirty_geometry_instances() {
 	GodotProfileZone("forward: _update_dirty_geometry_instances"); // LONGSHOT patch #120
 	while (geometry_instance_dirty_list.first()) {
+		DrawReport::updates.rebuilt++; // LONGSHOT patch #123 (THE REPORT'S UPDATES)
 		_geometry_instance_update(geometry_instance_dirty_list.first()->self());
 	}
 
@@ -5125,6 +5127,7 @@ void RenderForwardClustered::_geometry_instance_dependency_changed(Dependency::D
 		case Dependency::DEPENDENCY_CHANGED_PARTICLES_INSTANCES:
 		case Dependency::DEPENDENCY_CHANGED_MULTIMESH:
 		case Dependency::DEPENDENCY_CHANGED_SKELETON_DATA: {
+			DrawReport::dirty(DrawReport::DIRTY_DEPENDENCY_CHANGED); // LONGSHOT patch #123
 			static_cast<RenderGeometryInstance *>(p_tracker->userdata)->_mark_dirty();
 			static_cast<GeometryInstanceForwardClustered *>(p_tracker->userdata)->data->dirty_dependencies = true;
 		} break;
@@ -5140,6 +5143,7 @@ void RenderForwardClustered::_geometry_instance_dependency_changed(Dependency::D
 	}
 }
 void RenderForwardClustered::_geometry_instance_dependency_deleted(const RID &p_dependency, DependencyTracker *p_tracker) {
+	DrawReport::dirty(DrawReport::DIRTY_DEPENDENCY_DELETED); // LONGSHOT patch #123
 	static_cast<RenderGeometryInstance *>(p_tracker->userdata)->_mark_dirty();
 	static_cast<GeometryInstanceForwardClustered *>(p_tracker->userdata)->data->dirty_dependencies = true;
 }
@@ -5157,6 +5161,7 @@ RenderGeometryInstance *RenderForwardClustered::geometry_instance_create(RID p_b
 	ginstance->data->dependency_tracker.changed_callback = _geometry_instance_dependency_changed;
 	ginstance->data->dependency_tracker.deleted_callback = _geometry_instance_dependency_deleted;
 
+	DrawReport::dirty(DrawReport::DIRTY_CREATED); // LONGSHOT patch #123
 	ginstance->_mark_dirty();
 
 	return ginstance;
@@ -5167,6 +5172,7 @@ void RenderForwardClustered::GeometryInstanceForwardClustered::set_use_lightmap(
 	lightmap_uv_scale = p_lightmap_uv_scale;
 	lightmap_slice_index = p_lightmap_slice_index;
 
+	DrawReport::dirty(DrawReport::DIRTY_LIGHTMAP); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
@@ -5183,6 +5189,7 @@ void RenderForwardClustered::GeometryInstanceForwardClustered::set_lightmap_capt
 			lightmap_sh = nullptr;
 		}
 	}
+	DrawReport::dirty(DrawReport::DIRTY_LIGHTMAP_CAPTURE); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
@@ -5301,6 +5308,7 @@ void RenderForwardClustered::GeometryInstanceForwardClustered::pair_voxel_gi_ins
 void RenderForwardClustered::GeometryInstanceForwardClustered::set_softshadow_projector_pairing(bool p_softshadow, bool p_projector) {
 	using_projectors = p_projector;
 	using_softshadows = p_softshadow;
+	DrawReport::dirty(DrawReport::DIRTY_PAIRING); // LONGSHOT patch #123
 	_mark_dirty();
 }
 

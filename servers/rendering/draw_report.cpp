@@ -42,7 +42,23 @@ uint16_t DrawReport::view = 0;
 uint8_t DrawReport::pass = DrawReport::PASS_OTHER;
 uint32_t DrawReport::pass_count[DrawReport::PASS_MAX] = {};
 LocalVector<DrawReport::Row> DrawReport::rows;
+LocalVector<Size2i> DrawReport::view_sizes;
 HashMap<const RenderGeometryInstanceBase *, uint32_t> DrawReport::pass_rows;
+
+DrawReport::Updates DrawReport::updates;
+
+const char *DrawReport::dirty_name(Dirty p_cause) {
+	static const char *names[DIRTY_MAX] = { "skeleton", "material_override", "material_overlay", "surface_materials", "mesh_instance", "baked_light", "dynamic_gi", "ignore_gi", "shader_uniforms", "double_sided_shadows", "dependency_changed", "dependency_deleted", "created", "lightmap", "lightmap_capture", "softshadow_projector_pairing" };
+	return p_cause < DIRTY_MAX ? names[p_cause] : "?";
+}
+
+void DrawReport::take_updates(Updates &r_updates, uint64_t p_frame_now, uint64_t &r_frames) {
+	MutexLock lock(mutex);
+	r_updates = updates;
+	r_frames = p_frame_now > updates.from_frame ? p_frame_now - updates.from_frame : 1;
+	updates = Updates();
+	updates.from_frame = p_frame_now;
+}
 
 void DrawReport::request() {
 	MutexLock lock(mutex);
@@ -59,7 +75,7 @@ bool DrawReport::ready() {
 	return state == STATE_READY;
 }
 
-bool DrawReport::take(LocalVector<Row> &r_rows, uint32_t r_pass_count[PASS_MAX], uint32_t &r_views, uint64_t &r_frame) {
+bool DrawReport::take(LocalVector<Row> &r_rows, uint32_t r_pass_count[PASS_MAX], LocalVector<Size2i> &r_view_sizes, uint64_t &r_frame) {
 	MutexLock lock(mutex);
 	if (state != STATE_READY) {
 		return false;
@@ -68,7 +84,7 @@ bool DrawReport::take(LocalVector<Row> &r_rows, uint32_t r_pass_count[PASS_MAX],
 	for (uint32_t i = 0; i < PASS_MAX; i++) {
 		r_pass_count[i] = pass_count[i];
 	}
-	r_views = view;
+	r_view_sizes = view_sizes;
 	r_frame = frame;
 	rows.clear();
 	pass_rows.clear();
@@ -76,7 +92,7 @@ bool DrawReport::take(LocalVector<Row> &r_rows, uint32_t r_pass_count[PASS_MAX],
 	return true;
 }
 
-void DrawReport::view_begin(uint64_t p_frame) {
+void DrawReport::view_begin(uint64_t p_frame, const Size2i &p_size) {
 	if (state == STATE_IDLE || state == STATE_READY) {
 		return;
 	}
@@ -86,6 +102,7 @@ void DrawReport::view_begin(uint64_t p_frame) {
 		collecting = true;
 		frame = p_frame;
 		view = 0;
+		view_sizes.clear();
 		for (uint32_t i = 0; i < PASS_MAX; i++) {
 			pass_count[i] = 0;
 		}
@@ -97,6 +114,7 @@ void DrawReport::view_begin(uint64_t p_frame) {
 	}
 	if (state == STATE_COLLECTING) {
 		view++;
+		view_sizes.push_back(p_size);
 		pass = PASS_OTHER;
 		pass_rows.clear();
 	}

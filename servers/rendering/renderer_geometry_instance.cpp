@@ -30,9 +30,12 @@
 
 #include "servers/rendering/renderer_geometry_instance.h"
 
+#include "servers/rendering/draw_report.h" // LONGSHOT patch #123 (THE REPORT'S UPDATES)
+
 void RenderGeometryInstanceBase::set_skeleton(RID p_skeleton) {
 	data->skeleton = p_skeleton;
 
+	DrawReport::dirty(DrawReport::DIRTY_SKELETON); // LONGSHOT patch #123
 	_mark_dirty();
 	data->dirty_dependencies = true;
 }
@@ -40,6 +43,7 @@ void RenderGeometryInstanceBase::set_skeleton(RID p_skeleton) {
 void RenderGeometryInstanceBase::set_material_override(RID p_override) {
 	data->material_override = p_override;
 
+	DrawReport::dirty(DrawReport::DIRTY_MATERIAL_OVERRIDE); // LONGSHOT patch #123
 	_mark_dirty();
 	data->dirty_dependencies = true;
 }
@@ -47,6 +51,7 @@ void RenderGeometryInstanceBase::set_material_override(RID p_override) {
 void RenderGeometryInstanceBase::set_material_overlay(RID p_overlay) {
 	data->material_overlay = p_overlay;
 
+	DrawReport::dirty(DrawReport::DIRTY_MATERIAL_OVERLAY); // LONGSHOT patch #123
 	_mark_dirty();
 	data->dirty_dependencies = true;
 }
@@ -54,6 +59,7 @@ void RenderGeometryInstanceBase::set_material_overlay(RID p_overlay) {
 void RenderGeometryInstanceBase::set_surface_materials(const Vector<RID> &p_materials) {
 	data->surface_materials = p_materials;
 
+	DrawReport::dirty(DrawReport::DIRTY_SURFACE_MATERIALS); // LONGSHOT patch #123
 	_mark_dirty();
 	data->dirty_dependencies = true;
 }
@@ -61,6 +67,7 @@ void RenderGeometryInstanceBase::set_surface_materials(const Vector<RID> &p_mate
 void RenderGeometryInstanceBase::set_mesh_instance(RID p_mesh_instance) {
 	mesh_instance = p_mesh_instance;
 
+	DrawReport::dirty(DrawReport::DIRTY_MESH_INSTANCE); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
@@ -113,12 +120,14 @@ void RenderGeometryInstanceBase::set_transparency(float p_transparency) {
 void RenderGeometryInstanceBase::set_use_baked_light(bool p_enable) {
 	data->use_baked_light = p_enable;
 
+	DrawReport::dirty(DrawReport::DIRTY_BAKED_LIGHT); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
 void RenderGeometryInstanceBase::set_use_dynamic_gi(bool p_enable) {
 	data->use_dynamic_gi = p_enable;
 
+	DrawReport::dirty(DrawReport::DIRTY_DYNAMIC_GI); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
@@ -126,18 +135,21 @@ void RenderGeometryInstanceBase::set_use_dynamic_gi(bool p_enable) {
 void RenderGeometryInstanceBase::set_ignore_gi(bool p_enable) {
 	data->ignore_gi = p_enable;
 
+	DrawReport::dirty(DrawReport::DIRTY_IGNORE_GI); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
 void RenderGeometryInstanceBase::set_instance_shader_uniforms_offset(int32_t p_offset) {
 	shader_uniforms_offset = p_offset;
 
+	DrawReport::dirty(DrawReport::DIRTY_SHADER_UNIFORMS); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
 void RenderGeometryInstanceBase::set_cast_double_sided_shadows(bool p_enable) {
 	data->cast_double_sided_shadows = p_enable;
 
+	DrawReport::dirty(DrawReport::DIRTY_DOUBLE_SIDED); // LONGSHOT patch #123
 	_mark_dirty();
 }
 
