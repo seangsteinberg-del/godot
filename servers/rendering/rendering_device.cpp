@@ -262,9 +262,26 @@ Vector<uint8_t> RenderingDevice::shader_compile_spirv_from_source(ShaderStage p_
 			const uint64_t t_compile = OS::get_singleton()->get_ticks_usec();
 			Vector<uint8_t> spirv = compile_glslang_shader(p_stage, parsed, language_version, spirv_version, r_error);
 			if (!cache_path.is_empty() && !spirv.is_empty()) {
-				Ref<FileAccess> f = FileAccess::open(cache_path, FileAccess::WRITE);
-				if (f.is_valid()) {
-					f->store_buffer(spirv.ptr(), spirv.size());
+				// LONGSHOT patch #128 (A CACHED PROGRAM IS WRITTEN WHOLE OR NOT AT ALL): the file was written in place, and on a cold cache two
+				// workers compile the same program at once - one opened it for writing, the other found it there, read what stood written
+				// so far (whole words, the magic at its head: the check above passed it) and handed the engine a cut program: spirv-reflect's
+				// cleanup crashed the boot (DestroyParser; two of four first boots on a new build, 11-26 - every build's cache is cold). The
+				// program is written under a name of this thread's own and takes the cache's name only once it is whole and closed; where
+				// another worker's whole file stands there already, this one's is dropped
+				const String whole_path = cache_path + "." + itos(Thread::get_caller_id()) + ".part";
+				bool whole = false;
+				{
+					Ref<FileAccess> f = FileAccess::open(whole_path, FileAccess::WRITE);
+					if (f.is_valid()) {
+						f->store_buffer(spirv.ptr(), spirv.size());
+						whole = f->get_error() == OK;
+					}
+				}
+				Ref<DirAccess> da = DirAccess::create(DirAccess::ACCESS_FILESYSTEM);
+				if (da.is_valid()) {
+					if (!whole || FileAccess::exists(cache_path) || da->rename(whole_path, cache_path) != OK) {
+						da->remove(whole_path);
+					}
 				}
 				print_line(vformat("[spirv] the program %s compiled in %d ms and cached (%d KB)", cache_path.get_file().substr(0, 12), int((OS::get_singleton()->get_ticks_usec() - t_compile) / 1000), int(spirv.size() / 1024)));
 			}
