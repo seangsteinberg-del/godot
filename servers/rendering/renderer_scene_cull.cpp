@@ -176,6 +176,15 @@ void RendererSceneCull::occluder_set_mesh(RID p_occluder, const PackedVector3Arr
 
 /* SCENARIO API */
 
+// LONGSHOT patch #129 (WHAT A LAMP DOES NOT CAST DOES NOT STALE IT). A light's shadow map takes the casters its culls take: those
+// that cast at all and stand on a layer of the light's caster mask (_light_instance_update_shadow). The scene called the map stale
+// for every paired geometry that casts ANY shadow: a crew's skinned bodies, whose poses change every frame, staled every cabin
+// lamp about them every frame though those lamps cast none of them - eighty maps a frame from a seat inside a large craft, each
+// the cabin drawn over again (the measuring run perf_e: `stale: caster_changed=4752 a frame`; the crew's rows in the lamps' maps: 0)
+bool RendererSceneCull::_casts_into(const Instance *p_geometry, const Instance *p_light) {
+	return static_cast<const InstanceGeometryData *>(p_geometry->base_data)->can_cast_shadows && (p_geometry->layer_mask & RSG::light_storage->light_get_shadow_caster_mask(p_light->base)) != 0;
+}
+
 void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
 	DrawReport::updates.pairs++; // LONGSHOT patch #123 (THE REPORT'S UPDATES)
 	RendererSceneCull *self = (RendererSceneCull *)singleton;
@@ -199,7 +208,7 @@ void RendererSceneCull::_instance_pair(Instance *p_A, Instance *p_B) {
 		geom->lights.insert(B);
 		light->geometries.insert(A);
 
-		if (geom->can_cast_shadows) {
+		if (_casts_into(A, B)) { // LONGSHOT patch #129
 			DrawReport::stale(DrawReport::STALE_PAIRED); // LONGSHOT patch #127
 			light->make_shadow_dirty();
 		}
@@ -326,7 +335,7 @@ void RendererSceneCull::_instance_unpair(Instance *p_A, Instance *p_B) {
 		geom->lights.erase(B);
 		light->geometries.erase(A);
 
-		if (geom->can_cast_shadows) {
+		if (_casts_into(A, B)) { // LONGSHOT patch #129
 			DrawReport::stale(DrawReport::STALE_UNPAIRED); // LONGSHOT patch #127
 			light->make_shadow_dirty();
 		}
@@ -1857,6 +1866,9 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		// LONGSHOT patch #125: a caster that only moved is judged against each of its lights in _pair_placed
 		if (geom->can_cast_shadows && (p_instance->shape_changed || !placing_batch)) {
 			for (const Instance *E : geom->lights) {
+				if (!_casts_into(p_instance, E)) {
+					continue; // LONGSHOT patch #129: the light casts none of it
+				}
 				InstanceLightData *light = static_cast<InstanceLightData *>(E->base_data);
 				DrawReport::stale(DrawReport::STALE_CASTER_CHANGED); // LONGSHOT patch #127
 				light->make_shadow_dirty();
@@ -1922,6 +1934,7 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		idata.visibility_index = p_instance->visibility_index;
 		idata.occlusion_timeout = 0;
 		idata.shadow_moved_frame = RSG::rasterizer->get_frame_number(); // LONGSHOT patch #65: born moving; static after SHADOW_STATIC_AFTER_FRAMES
+		idata.lamp_moved_frame = idata.shadow_moved_frame; // LONGSHOT patch #129
 
 		for (Instance *E : p_instance->visibility_dependencies) {
 			Instance *dep_instance = E;
@@ -2022,6 +2035,9 @@ void RendererSceneCull::_update_instance(Instance *p_instance) const {
 		if (shadow_changed) {
 			_shadow_caster_changed(idata, p_instance->scenario);
 		}
+		if (p_instance->shape_changed || !placing_batch) { // LONGSHOT patch #129: for a lamp, a caster changed when its shape did (its place: _pair_placed)
+			idata.lamp_moved_frame = RSG::rasterizer->get_frame_number();
+		}
 	}
 
 	if (p_instance->visibility_index != -1) {
@@ -2103,25 +2119,29 @@ void RendererSceneCull::_pair_placed(Instance *p_instance) const {
 	if (!placing_batch || p_instance->placed_batch != update_batch) {
 		return; // (outside a batch every move was told as it was made; an instance that did not move in this one has nothing to judge)
 	}
+	const uint64_t frame_now = RSG::rasterizer->get_frame_number();
 	if ((1 << p_instance->base_type) & RSE::INSTANCE_GEOMETRY_MASK) {
 		const InstanceGeometryData *geom = static_cast<const InstanceGeometryData *>(p_instance->base_data);
 		if (geom->can_cast_shadows) {
 			for (const Instance *E : geom->lights) {
-				if (E->placed_batch != update_batch) { // (a light that moved in this batch judges its own casters, below)
+				if (E->placed_batch != update_batch && _casts_into(p_instance, E)) { // (a light that moved in this batch judges its own casters, below)
 					DrawReport::stale(DrawReport::STALE_CASTER_MOVED); // LONGSHOT patch #127
 					static_cast<InstanceLightData *>(E->base_data)->make_shadow_dirty();
+					if (p_instance->array_index >= 0) { // LONGSHOT patch #129: a mover, for the lamps' keeper
+						p_instance->scenario->instance_data[p_instance->array_index].lamp_moved_frame = frame_now;
+					}
 				}
 			}
 		}
 	} else if (p_instance->base_type == RSE::INSTANCE_LIGHT) {
 		InstanceLightData *light = static_cast<InstanceLightData *>(p_instance->base_data);
-		if (!light->is_shadow_dirty() && RSG::light_storage->light_has_shadow(p_instance->base)) {
+		if (RSG::light_storage->light_has_shadow(p_instance->base)) { // (patch #129: every caster is asked - each that moved against the light is a mover for the keeper)
 			// the light's own motion over the batch, and each caster asked whether it made the same one: a caster standing a micrometre
 			// and a part in a thousand million of a turn from where that motion would have set it has not moved against the light
 			// (the transforms are doubles: a body's parts recomposed from its frame agree to some 1e-9 m at ten thousand kilometres)
 			const Transform3D motion = p_instance->transform * p_instance->placed_before.affine_inverse();
 			for (const Instance *E : light->geometries) {
-				if (!static_cast<const InstanceGeometryData *>(E->base_data)->can_cast_shadows) {
+				if (!_casts_into(E, p_instance)) {
 					continue;
 				}
 				bool with_it = E->placed_batch == update_batch;
@@ -2137,7 +2157,9 @@ void RendererSceneCull::_pair_placed(Instance *p_instance) const {
 				if (!with_it) {
 					DrawReport::stale(E->placed_batch == update_batch ? DrawReport::STALE_APART : DrawReport::STALE_LIGHT_MOVED); // LONGSHOT patch #127
 					light->make_shadow_dirty();
-					break;
+					if (E->array_index >= 0 && E->scenario) { // LONGSHOT patch #129: a mover, for the lamps' keeper
+						E->scenario->instance_data[E->array_index].lamp_moved_frame = frame_now;
+					}
 				}
 			}
 		}
@@ -2697,7 +2719,10 @@ void RendererSceneCull::_positional_caster_sort(Scenario *p_scenario, Instance *
 	if (p_instance->array_index >= 0 && p_instance->array_index < int32_t(p_scenario->instance_data.size())) {
 		const InstanceData &idata = p_scenario->instance_data[p_instance->array_index];
 		const uint64_t frame_number = RSG::rasterizer->get_frame_number();
-		is_static = p_instance->base_type != RSE::INSTANCE_PARTICLES && !(idata.flags & (InstanceData::FLAG_USES_MESH_INSTANCE | InstanceData::FLAG_SHADOW_ANIMATED)) && frame_number - idata.shadow_moved_frame > SHADOW_STATIC_AFTER_FRAMES;
+		// LONGSHOT patch #129 (THE LAMPS' KEEPER JUDGES AGAINST THE LAMP): still for a lamp is still AGAINST lamps - its own stamp. By the
+		// scene's frame's stamp every caster of a lamp riding a moving body was a mover, the static set stood empty ("RECAPTURED - the
+		// static set 0 casters"), and whatever staled the lamp - a body walking by - drew the whole cabin again, every frame
+		is_static = p_instance->base_type != RSE::INSTANCE_PARTICLES && !(idata.flags & (InstanceData::FLAG_USES_MESH_INSTANCE | InstanceData::FLAG_SHADOW_ANIMATED)) && frame_number - idata.lamp_moved_frame > SHADOW_STATIC_AFTER_FRAMES;
 	}
 	if (is_static) {
 		r_shadow_data.instances.push_back(gi);
@@ -2724,6 +2749,13 @@ void RendererSceneCull::_positional_cache_word(Instance *p_instance, InstanceLig
 			const Vector2 sz = RSG::light_storage->light_area_get_size(p_instance->base);
 			f[14] = float(sz.x);
 			f[15] = float(sz.y);
+		}
+		// LONGSHOT patch #129 (THE LAMPS' KEEPER JUDGES AGAINST THE LAMP): the word holds the light's SHAPE alone - its range, its angle,
+		// its area - never where it stands in the scene: a map is drawn in its light's own space, and a lamp carried along with its
+		// casters moved the word every frame. A light that moves AGAINST a caster stamps that caster a mover (_pair_placed), which
+		// takes it out of the static set and moves the word by the set's own
+		for (int i = 0; i < 12; i++) {
+			f[i] = 0.0f;
 		}
 		for (int i = 0; i < 16; i++) {
 			uint32_t bits;

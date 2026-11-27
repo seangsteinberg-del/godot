@@ -304,6 +304,10 @@ public:
 		// a (light, cascade) in the cull's order. A caster is static when nothing of it changed for SHADOW_STATIC_AFTER_FRAMES and nothing
 		// of it moves on its own (a skeleton or blend shapes, particles, an animated material).
 		uint64_t shadow_moved_frame = 0;
+		// LONGSHOT patch #129 (THE LAMPS' KEEPER JUDGES AGAINST THE LAMP): the frame the caster last changed FOR A POSITIONAL LIGHT - its
+		// shape (bounds, base, materials, pose), or its place against a light it is paired with (patch #125's judgement); a caster
+		// carried along with its lamps is not stamped by the carrying. The sun's keeper reads shadow_moved_frame, the scene's frame's
+		uint64_t lamp_moved_frame = 0;
 		uint32_t shadow_static_cascades = 0;
 		// LONGSHOT patch #80 (THE CASTER'S CASCADES): the directional cascades this caster may be drawn into, a bit a cascade (all by default).
 		// A maker that sorts its rows into bands by the eye's distance (the ground's shadow bands) keeps a band out of the finer cascades
@@ -1156,6 +1160,9 @@ public:
 	// crossing the scene's frame faster than its own size a frame (a craft in orbit: a kilometre a frame) broke and made again every
 	// pair of every part every frame - 73,257 a frame for one craft, each a mark for the part's draw data to be rebuilt.
 	void _pair_placed(Instance *p_instance) const;
+	// LONGSHOT patch #129 (WHAT A LAMP DOES NOT CAST DOES NOT STALE IT): the caster test of the positional shadow culls - the geometry
+	// casts, and stands on a layer the light casts
+	static bool _casts_into(const Instance *p_geometry, const Instance *p_light);
 	mutable bool placing_batch = false;
 	mutable uint64_t update_batch = 1;
 	mutable LocalVector<Instance *> placed;
