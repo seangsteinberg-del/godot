@@ -105,6 +105,13 @@ def include_file_in_rd_header(filename: str, header_data: RDHeaderStruct, depth:
             while line.find("#include ") != -1:
                 includeline = line.replace("#include ", "").strip()[1:-1]
 
+                # LONGSHOT patch #130: AN INCLUDE UNDER "longshot/" IS A MODULE'S TEXT, registered with ShaderIncludeDB before the
+                # renderer is made and resolved when the shader's template is cut (ShaderRD::_add_stage) - no file of the engine's
+                # holds it, so the line stays in the stage's text as it stands (the one law of the seat's air is the sky module's:
+                # servers/rendering/renderer_rd/longshot_seat_air.h)
+                if includeline.startswith("longshot/"):
+                    break
+
                 if includeline.startswith("thirdparty/"):
                     included_file = os.path.relpath(includeline)
 

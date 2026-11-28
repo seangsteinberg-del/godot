@@ -144,6 +144,28 @@ bool RenderSceneBuffersRD::has_longshot_clouds() const {
 	return has;
 }
 
+// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE - the view's air handed for this frame (longshot_seat_air.h); a table that
+// has gone since (the law's holder made its tables again) is no air
+void RenderSceneBuffersRD::set_longshot_air(const RID *p_tables, RID p_block) {
+	for (int i = 0; i < LONGSHOT_AIR_TABLES; i++) {
+		longshot_air_table[i] = p_tables[i];
+	}
+	longshot_air_block = p_block;
+	longshot_air_frame = RSG::rasterizer->get_frame_number();
+}
+
+bool RenderSceneBuffersRD::has_longshot_air() const {
+	if (longshot_air_frame != RSG::rasterizer->get_frame_number() || !longshot_air_block.is_valid()) {
+		return false;
+	}
+	for (int i = 0; i < LONGSHOT_AIR_TABLES; i++) {
+		if (!longshot_air_table[i].is_valid() || !RD::get_singleton()->texture_is_valid(longshot_air_table[i])) {
+			return false;
+		}
+	}
+	return true;
+}
+
 // LONGSHOT patch #25: a settled layer hands over this frame's image; it stands for this frame alone
 void RenderSceneBuffersRD::set_longshot_settled(RID p_settled) {
 	longshot_settled = p_settled;

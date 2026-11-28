@@ -111,6 +111,7 @@ void ShaderRD::_add_stage(const char *p_code, StageType p_stage_type) {
 						}
 
 						line_count = lines.size();
+						longshot_included_text += "[" + include_file + "]" + include_code; // LONGSHOT patch #130: into the cache's key (setup)
 					} else {
 						// Add it in as is.
 						text += l + "\n";
@@ -175,6 +176,12 @@ void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, con
 	tohash.append(p_fragment_code ? p_fragment_code : "");
 	tohash.append("[Compute]");
 	tohash.append(p_compute_code ? p_compute_code : "");
+	if (!longshot_included_text.is_empty()) {
+		// LONGSHOT patch #130: A MODULE'S INCLUDE IS A PART OF THE SHADER. The stages' code above holds the include's LINE, never its
+		// text: a module's law could change under a cached shader of the old law (the engine's own version does not move with it)
+		tohash.append("[Included]");
+		tohash.append(longshot_included_text);
+	}
 	tohash.append("[DebugInfo]");
 	tohash.append(Engine::get_singleton()->is_generate_spirv_debug_info_enabled() ? "1" : "0");
 

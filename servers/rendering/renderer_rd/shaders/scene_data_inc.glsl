@@ -13,6 +13,7 @@
 #define SCENE_DATA_FLAGS_IN_SHADOW_PASS (1 << 7)
 #define SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW (1 << 9) // LONGSHOT patch #83: the directional lights' shadows wear the clouds' transmittance
 #define SCENE_DATA_FLAGS_LONGSHOT_CLOUDS (1 << 8) // LONGSHOT patch #18: the transparent pass takes the clouds in front of each surface
+#define SCENE_DATA_FLAGS_LONGSHOT_AIR (1 << 10) // LONGSHOT patch #130: every material of the pass stands in the view's air
 
 struct SceneData {
 	mat4 projection_matrix;

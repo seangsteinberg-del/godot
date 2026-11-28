@@ -157,6 +157,7 @@ void RenderSceneDataRD::update_ubo(RID p_uniform_buffer, RSE::ViewportDebugDraw 
 	ubo.flags |= shadow_pass ? SCENE_DATA_FLAGS_IN_SHADOW_PASS : 0;
 	ubo.flags |= p_longshot_clouds ? SCENE_DATA_FLAGS_LONGSHOT_CLOUDS : 0; // LONGSHOT patch #18
 	ubo.flags |= longshot_cloud_shadow_on ? SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW : 0; // LONGSHOT patch #83
+	ubo.flags |= longshot_air_on ? SCENE_DATA_FLAGS_LONGSHOT_AIR : 0; // LONGSHOT patch #130
 	memcpy(ubo.longshot_cloud_shadow, longshot_cloud_shadow_frames, sizeof(ubo.longshot_cloud_shadow));
 
 	if (p_debug_mode == RSE::VIEWPORT_DEBUG_DRAW_UNSHADED) {

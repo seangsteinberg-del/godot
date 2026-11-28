@@ -363,6 +363,9 @@ public:
 	RID debug_shadow_splits_material;
 	RID default_shader_rd;
 	RID default_shader_sdfgi_rd;
+	// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE - a text of the air's law is registered (longshot_seat_air.h): the scene
+	// shader declares its tables and block, and every pass's set binds them
+	bool longshot_seat_air = false;
 
 	RID default_vec4_xform_buffer;
 	RID default_vec4_xform_uniform_set;

@@ -223,6 +223,19 @@ public:
 	RID get_longshot_cloud_shadow(int p_tier) const { return longshot_cloud_shadow_tex[p_tier]; }
 	const float *get_longshot_cloud_shadow_frames() const { return &longshot_cloud_shadow_frame[0][0]; }
 
+	// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE (servers/rendering/renderer_rd/longshot_seat_air.h) - the view's air for
+	// this frame: the law's tables and its block, handed by whoever holds the law before the opaque pass's set is made (a compositor
+	// effect's PRE_OPAQUE callback). They stand for the frame they were handed in alone; the scene shader lays the air on every
+	// material of this view's opaque and transparent passes, and any pass of the frame that draws into the view may bind the same
+	enum { LONGSHOT_AIR_TABLES = 7 };
+	RID longshot_air_table[LONGSHOT_AIR_TABLES];
+	RID longshot_air_block;
+	uint64_t longshot_air_frame = UINT64_MAX;
+	void set_longshot_air(const RID *p_tables, RID p_block);
+	bool has_longshot_air() const;
+	RID get_longshot_air_table(int p_table) const { return longshot_air_table[p_table]; }
+	RID get_longshot_air_block() const { return longshot_air_block; }
+
 	// LONGSHOT patch #25: a settled layer's hand-over (its own image: its opacity in alpha, at the internal size)
 	void set_longshot_settled(RID p_settled);
 	bool has_longshot_settled() const;

@@ -143,6 +143,9 @@ private:
 
 	String base_sha256;
 	LocalVector<String> group_sha256;
+	// LONGSHOT patch #130: the text of every include resolved when the template was cut (a module's, registered with
+	// ShaderIncludeDB: it changes with no change of the engine's own version) - a part of the cache's key
+	String longshot_included_text;
 
 	static inline ShaderVersionPairSet shader_versions_embedded_set;
 	static inline Mutex shader_versions_embedded_set_mutex;

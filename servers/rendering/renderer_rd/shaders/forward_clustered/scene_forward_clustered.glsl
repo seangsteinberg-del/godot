@@ -909,6 +909,14 @@ const bool ls_prepass = false;
 
 #include "scene_forward_clustered_inc.glsl"
 
+// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE (servers/rendering/renderer_rd/longshot_seat_air.h has the contract) - the
+// law of the air about the eye is a module's text, registered under this name and resolved when the template is cut; it declares
+// its own tables and block in the render pass's set (every variant of this stage declares them alike, as the clouds' textures are)
+// and defines longshot_seat_air. The define stands only where a text is registered (SceneShaderForwardClustered::init)
+#if defined(LONGSHOT_SEAT_AIR) && !defined(MODE_RENDER_SDF)
+#include "longshot/seat_air_inc.glsl"
+#endif
+
 /* Varyings */
 
 layout(location = 0) in vec3 vertex_interp;
@@ -1244,6 +1252,17 @@ float longshot_cloud_sun_shadow(vec3 p) {
 	}
 	return beyond_near;
 }
+#if defined(LONGSHOT_SEAT_AIR) && !defined(MODE_RENDER_SDF) && !defined(FOG_DISABLED)
+// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE - the air about the eye before the pixel drawn at this depth: the pixel's
+// own point from the depth it is drawn at (the clouds' stage's reading, below: a quad set at the far plane stands beyond all the
+// air - a distance of 1e20), handed to the law's one function (longshot_seat_air: the registered text's) with the frame's lift
+vec3 longshot_air_front(mat4 p_inv_projection, mat4 p_inv_view, vec2 p_screen_uv, float p_depth, float p_lift, out vec3 r_pass) {
+	vec4 at = p_inv_projection * vec4(p_screen_uv * 2.0 - 1.0, p_depth, 1.0);
+	bool ends = abs(at.w) > 1.0e-20;
+	vec3 to = ends ? at.xyz / at.w : at.xyz;
+	return longshot_seat_air(p_inv_view[3].xyz, mat3(p_inv_view) * normalize(to), ends ? length(to) : 1.0e20, p_lift, r_pass);
+}
+#endif
 float longshot_clouds_cdf(float x) {
 	return 1.0 / (1.0 + exp(-1.5976 * x * (1.0 + 0.04417 * x * x)));
 }
@@ -3229,6 +3248,17 @@ void fragment_shader(in SceneData scene_data) {
 	specular_buffer.rgb = specular_buffer.rgb * fog.a;
 #endif //!FOG_DISABLED
 
+#if defined(LONGSHOT_SEAT_AIR) && !defined(MODE_RENDER_SDF) && !defined(FOG_DISABLED)
+	// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE (the note at the blended output below) - an opaque surface's two buffers:
+	// both dimmed by what the air passes, the air's own light with the diffuse
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_LONGSHOT_AIR)) {
+		vec3 lap;
+		vec3 lal = longshot_air_front(inv_projection_matrix, inv_view_matrix, screen_uv, gl_FragCoord.z, scene_data.emissive_exposure_normalization, lap);
+		diffuse_buffer.rgb = diffuse_buffer.rgb * lap + lal;
+		specular_buffer.rgb *= lap;
+	}
+#endif
+
 #else //MODE_SEPARATE_SPECULAR
 
 	alpha *= scene_data.pass_alpha_multiplier;
@@ -3247,6 +3277,31 @@ void fragment_shader(in SceneData scene_data) {
 #if defined(PREMUL_ALPHA_USED) && !defined(MODE_RENDER_DEPTH)
 	frag_color.rgb *= premul_alpha;
 #endif //PREMUL_ALPHA_USED
+
+#if defined(LONGSHOT_SEAT_AIR) && !defined(MODE_RENDER_SDF) && !defined(FOG_DISABLED)
+	// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE - whatever a material draws stands in the air about the eye: its light
+	// reaches the eye times what the air passes over the way, and the air's own light over that way is before it. Laid HERE, on every
+	// material's colour as it is blended, so no material has to remember it (the clouds in front, below, are laid the same way and
+	// stand before the air's result: their own light carries the air before them). By the way the surface blends: a light added to
+	// the frame is dimmed and brings no air (the air's light is in what it is added to); a multiplier fades to one; a premultiplied
+	// film brings the air's light by its own cover; a mixed or solid surface brings it whole (the blend weighs it by the alpha).
+	// The pixel's place is the depth it is drawn at, as the clouds' stage reads it: a mesh where its fragment is, a quad set at the
+	// far plane beyond all the air. A material whose pixels are not where its triangles are (a picture marched over the whole view)
+	// disables fog and lays the air itself, by the same law.
+	if (bool(scene_data.flags & SCENE_DATA_FLAGS_LONGSHOT_AIR)) {
+		vec3 lap;
+		vec3 lal = longshot_air_front(inv_projection_matrix, inv_view_matrix, screen_uv, gl_FragCoord.z, scene_data.emissive_exposure_normalization, lap);
+#if defined(LONGSHOT_BLEND_ADD) || defined(LONGSHOT_BLEND_SUB)
+		frag_color.rgb *= lap;
+#elif defined(LONGSHOT_BLEND_MUL)
+		frag_color.rgb = mix(vec3(1.0), frag_color.rgb, lap);
+#elif defined(LONGSHOT_BLEND_PREMUL)
+		frag_color.rgb = frag_color.rgb * lap + frag_color.a * lal;
+#else
+		frag_color.rgb = frag_color.rgb * lap + lal;
+#endif
+	}
+#endif
 
 #ifndef LONGSHOT_CLOUDS_DISABLED
 	// LONGSHOT patch #18: THE CLOUDS IN FRONT OF EVERY SURFACE - in the transparent pass, the clouds composited before it stand in front of

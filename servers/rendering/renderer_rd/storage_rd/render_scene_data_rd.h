@@ -43,6 +43,7 @@ public:
 	bool calculate_motion_vectors = false;
 	float longshot_cloud_shadow_frames[9][4] = {};   // LONGSHOT patch #89: three tiers // LONGSHOT patch #83: the render buffers' frames, copied at the environment's setup
 	bool longshot_cloud_shadow_on = false;
+	bool longshot_air_on = false;   // LONGSHOT patch #130: the view's air was handed for this frame (set at the environment's setup)
 
 	Transform3D cam_transform;
 	Projection cam_projection;
@@ -115,6 +116,7 @@ private:
 		SCENE_DATA_FLAGS_IN_SHADOW_PASS = 1 << 7, // Only used by Forward+ renderer.
 		SCENE_DATA_FLAGS_LONGSHOT_CLOUDS = 1 << 8, // LONGSHOT patch #18: the transparent pass takes the clouds in front of each surface.
 		SCENE_DATA_FLAGS_LONGSHOT_CLOUD_SHADOW = 1 << 9, // LONGSHOT patch #83: the directional lights' shadows wear the clouds' transmittance from the light map.
+		SCENE_DATA_FLAGS_LONGSHOT_AIR = 1 << 10, // LONGSHOT patch #130: every material of the pass stands in the view's air (longshot_seat_air.h).
 		SCENE_DATA_FLAGS_MAX
 	};
 

@@ -35,6 +35,7 @@
 #include "servers/rendering/draw_report.h" // LONGSHOT patch #121 (THE DRAW REPORT)
 #include "servers/rendering/renderer_rd/environment/fog.h"
 #include "servers/rendering/renderer_rd/framebuffer_cache_rd.h"
+#include "servers/rendering/renderer_rd/longshot_seat_air.h" // LONGSHOT patch #130 (THE AIR IN FRONT OF EVERY SURFACE)
 #include "servers/rendering/renderer_rd/storage_rd/light_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/mesh_storage.h"
 #include "servers/rendering/renderer_rd/storage_rd/particles_storage.h"
@@ -42,6 +43,7 @@
 #include "servers/rendering/renderer_rd/uniform_set_cache_rd.h"
 #include "servers/rendering/rendering_device.h"
 #include "servers/rendering/rendering_server_default.h"
+#include "servers/rendering/shader_include_db.h" // LONGSHOT patch #130
 #include "servers/rendering/storage/ltc_lut.gen.h"
 
 using namespace RendererSceneRenderImplementation;
@@ -763,6 +765,9 @@ uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render
 	if (p_render_data->scene_data->longshot_cloud_shadow_on) {
 		memcpy(p_render_data->scene_data->longshot_cloud_shadow_frames, rd->get_longshot_cloud_shadow_frames(), sizeof(p_render_data->scene_data->longshot_cloud_shadow_frames));
 	}
+	// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE - the pass's flag: the view's air was handed for this frame (the depth
+	// prepass's setup runs before the hand and reads none; a shadow's, a probe's, another view's buffers were handed none)
+	p_render_data->scene_data->longshot_air_on = rd.is_valid() && rd->has_longshot_air();
 	p_render_data->scene_data->update_ubo(scene_state.uniform_buffers[uniform_buffer_index], get_debug_draw_mode(), env, reflection_probe_instance, p_render_data->camera_attributes, p_pancake_shadows, p_screen_size, p_viewport_size, p_default_bg_color, luminance_multiplier, p_opaque_render_buffers, p_apply_alpha_multiplier, p_longshot_clouds);
 
 	// now do implementation UBO
@@ -4004,6 +4009,31 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 			uniforms.push_back(w);
 		}
 	}
+	if (scene_shader.longshot_seat_air) {
+		// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE (longshot_seat_air.h) - the law's tables and its block for every list,
+		// as the registered text declares them: the view's own where its air was handed this frame (the scene data's flag says whether
+		// to read them), a stand-in where none was
+		const bool air = rb.is_valid() && rb->has_longshot_air();
+		const RID sampler = p_samplers.get_sampler(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+		for (int t = 0; t < LongshotSeatAir::TABLES; t++) {
+			RD::Uniform a;
+			a.binding = LongshotSeatAir::BINDING_FIRST + t;
+			a.uniform_type = RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE;
+			a.append_id(sampler);
+			a.append_id(air ? rb->get_longshot_air_table(t) : texture_storage->texture_rd_get_default(t < LongshotSeatAir::TABLES_2D ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_3D_BLACK));
+			uniforms.push_back(a);
+		}
+		if (!longshot_air_block_none.is_valid()) {
+			Vector<uint8_t> none;
+			none.resize_initialized(LongshotSeatAir::BLOCK_BYTES);
+			longshot_air_block_none = RD::get_singleton()->uniform_buffer_create(LongshotSeatAir::BLOCK_BYTES, none);
+		}
+		RD::Uniform b;
+		b.binding = LongshotSeatAir::BINDING_BLOCK;
+		b.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
+		b.append_id(air ? rb->get_longshot_air_block() : longshot_air_block_none);
+		uniforms.push_back(b);
+	}
 
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.default_shader_rd, RENDER_PASS_UNIFORM_SET, uniforms);
 }
@@ -5384,6 +5414,12 @@ RenderForwardClustered::RenderForwardClustered() {
 			defines += "\n#define USE_DOUBLE_PRECISION \n";
 		}
 #endif
+		if (ShaderIncludeDB::has_built_in_include_file(LongshotSeatAir::INCLUDE)) {
+			// LONGSHOT patch #130: THE AIR IN FRONT OF EVERY SURFACE - the law's text is registered (a module's, before the renderer
+			// was made: the scene shader's template has already resolved its include): the stage stands
+			defines += "\n#define LONGSHOT_SEAT_AIR\n";
+			scene_shader.longshot_seat_air = true;
+		}
 
 		scene_shader.init(defines);
 	}
@@ -5513,6 +5549,9 @@ RenderForwardClustered::~RenderForwardClustered() {
 
 	RD::get_singleton()->free_rid(shadow_sampler);
 	RSG::light_storage->directional_shadow_atlas_set_size(0);
+	if (longshot_air_block_none.is_valid()) {
+		RD::get_singleton()->free_rid(longshot_air_block_none); // LONGSHOT patch #130
+	}
 
 	RD::get_singleton()->free_rid(best_fit_normal.pipeline);
 	RD::get_singleton()->free_rid(best_fit_normal.texture);
