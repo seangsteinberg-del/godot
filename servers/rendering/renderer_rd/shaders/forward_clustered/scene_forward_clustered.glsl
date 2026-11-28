@@ -1794,12 +1794,19 @@ void fragment_shader(in SceneData scene_data) {
 #ifdef NORMAL_USED
 	if (bool(scene_data.flags & SCENE_DATA_FLAGS_USE_ROUGHNESS_LIMITER)) {
 		//https://www.jp.square-enix.com/tech/library/pdf/ImprovedGeometricSpecularAA.pdf
-		float roughness2 = roughness * roughness;
+		// LONGSHOT patch #131: THE HIGHLIGHT'S FILTER IN ITS PAPER'S OWN MEASURE. Tokuyoshi and Kaplanyan's filter widens the lobe by
+		// the normal's change across the pixel: its kernel is ADDED TO THE GGX ALPHA SQUARED (their listing's roughness2; Filament's
+		// normalFiltering does the same), so a mirror's alpha over a pixel is the root of the kernel - linear in the normal's change,
+		// the slope the pixel really spans. Upstream added the kernel to alpha itself (this shader's roughness is the perceptual one:
+		// its square is alpha), a power short: quadratic in the normal's change, a fraction of the paper's filter at the paper's own
+		// numbers - and a highlight thinner than a pixel on a curved edge stayed thinner than a pixel, flashing as the frame's jitter
+		// met it (the game repository's court_glints: the sun's rim on a craft, one pixel wide, 1.2 to 1.8 new specks a frame).
+		float alpha = roughness * roughness;
 		vec3 dndu = dFdx(normal), dndv = dFdy(normal);
 		float variance = scene_data.roughness_limiter_amount * (dot(dndu, dndu) + dot(dndv, dndv));
 		float kernelRoughness2 = min(2.0 * variance, scene_data.roughness_limiter_limit); //limit effect
-		float filteredRoughness2 = min(1.0, roughness2 + kernelRoughness2);
-		roughness = sqrt(filteredRoughness2);
+		float filteredRoughness2 = min(1.0, alpha * alpha + kernelRoughness2);
+		roughness = sqrt(sqrt(filteredRoughness2));
 
 		// Reject very small roughness values. Lack of precision can collapse
 		// roughness^4 to 0 in GGX specular equations and cause divisions by zero.
